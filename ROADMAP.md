@@ -73,7 +73,7 @@ leaks data off-device without explicit consent. Quality over scope, every time.
 - [x] Live diff-review UI for ` ```diff ` blocks (apply / copy hunks): shipped in `src/components/viewer/DiffBlock.tsx` (per-hunk Copy hunk, Copy all, Apply, Reject)
 - [ ] Recognize & pretty-render more agent doc schemas (plans, reviews, specs) with bespoke renderers
 - [ ] Run buttons for more than shell (with sandboxing); inline results
-- [ ] Let agents register doc "kinds" + custom renderers (an extension API)
+- [x] Let agents register doc "kinds" + declarative layouts mapped to built-in renderers (`src/lib/renderers/kind-registry.ts`)
 
 **Integrations**
 - [ ] VS Code extension: open the active `.md` in Ashlr MD from the editor toolbar
