@@ -8,7 +8,8 @@ Replace each `TODO` destination with the intended URL or path, and replace `TODO
 with appropriate alternative text. These placeholders silence the warning but do not verify the
 destination or describe the image.
 See the [placeholder review guide](mdlint-placeholder-review.md) for a workflow
-and examples of replacing them with reviewed content.
+and examples of replacing them with reviewed content, or the
+[placeholder examples](mdlint-placeholder-examples.md) for the immediate fixes.
 
 ## Invalid link targets
 
