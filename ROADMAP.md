@@ -90,7 +90,7 @@ leaks data off-device without explicit consent. Quality over scope, every time.
 - [ ] Image drag-drop ordering
 - [x] "Copy as rich text" for email/Slack: shipped in `src/lib/copyRichText.ts` (`⌘⇧C`)
 - [ ] More export themes
-- [ ] Accessibility pass (full keyboard nav, screen-reader labels)
+- [x] Accessibility pass (full keyboard nav, screen-reader labels)
 
 ## How to shape it
 

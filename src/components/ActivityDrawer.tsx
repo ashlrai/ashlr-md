@@ -14,6 +14,7 @@ import {
   watchDirectory,
 } from "../lib/activity";
 import { formatShortcut } from "../lib/keymap";
+import { listArrowFocus } from "../lib/listArrowFocus";
 import { useFocusOnOpen, useReturnFocus } from "../lib/useReturnFocus";
 import { MAX_FILES, useActivityStore } from "../store/activityStore";
 import { pathNamesFile, tabHoldsPath, useDocumentStore } from "../store/documentStore";
@@ -327,7 +328,11 @@ export function ActivityDrawer() {
                   : `Showing the ${MAX_FILES} most recently changed files. This folder has more, and agents searching it see only these.`}
             </p>
           ) : null}
-          <ul className="activity-list">
+          <ul
+            className="activity-list"
+            aria-label="Recent file activity"
+            onKeyDown={listArrowFocus}
+          >
             {files.map((file) => {
               const isActive = activeTab
                 ? tabHoldsPath(activeTab, file.path) ||
@@ -341,6 +346,7 @@ export function ActivityDrawer() {
                     className={`activity-item${isActive ? " activity-item--active" : ""}`}
                     onClick={() => handleOpen(file)}
                     title={file.path}
+                    aria-current={isActive ? "page" : undefined}
                   >
                     <span className="activity-item__icon">
                       {isNew ? (
