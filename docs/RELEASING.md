@@ -56,8 +56,8 @@ step 4).
 
 | Platform | Runner | Bundler output | Publish as |
 |---|---|---|---|
-| macOS arm64 | `macos-14` | `Ashlr MD_X.Y.Z_aarch64.dmg` | `Ashlr_MD_X.Y.Z_aarch64.dmg` |
-| macOS x86_64 | `macos-13` | `Ashlr MD_X.Y.Z_x64.dmg` | `Ashlr_MD_X.Y.Z_x64.dmg` |
+| macOS arm64 | `macos-15` | `Ashlr MD_X.Y.Z_aarch64.dmg` | `Ashlr_MD_X.Y.Z_aarch64.dmg` |
+| macOS x86_64 | `macos-15-intel` | `Ashlr MD_X.Y.Z_x64.dmg` | `Ashlr_MD_X.Y.Z_x64.dmg` |
 | Linux x86_64 | `ubuntu-22.04` | `Ashlr MD_X.Y.Z_amd64.deb` | `Ashlr_MD_X.Y.Z_amd64.deb` |
 | Linux x86_64 | `ubuntu-22.04` | `Ashlr MD-X.Y.Z-1.x86_64.rpm` | `Ashlr_MD_X.Y.Z_x86_64.rpm` |
 | Linux x86_64 | `ubuntu-22.04` | `Ashlr MD_X.Y.Z_amd64.AppImage` | `Ashlr_MD_X.Y.Z_amd64.AppImage` |
@@ -87,6 +87,20 @@ entries for every platform; this is what `tauri-plugin-updater` polls.
 > mitigation steps. All other bundle artifacts are unaffected.
 
 ---
+
+The release jobs use GitHub's native `macos-15` (ARM64) and
+`macos-15-intel` (x86_64) runners, as listed in the
+[official image architecture table](https://github.com/actions/runner-images#available-images).
+This replaces [retired `macos-13`](https://github.blog/changelog/2025-09-19-github-actions-macos-13-runner-image-is-closing-down/)
+and [`macos-14`, retiring November 2, 2026](https://github.blog/changelog/2026-10-01-github-actions-macos-14-runner-image-retirement/).
+The prerequisite `ci.yml` macOS full-suite job also uses `macos-15`.
+
+Both [ARM64](https://github.com/actions/runner-images/blob/main/images/macos/macos-15-arm64-Readme.md#xcode)
+and [Intel](https://github.com/actions/runner-images/blob/main/images/macos/macos-15-Readme.md#xcode)
+images include Xcode 26 and the macOS 26 SDK; the release workflow selects the
+latest Xcode before building the host-native Rust and Swift sidecars. A successful
+native build is still required; these runner selections do not certify signing or
+runtime support.
 
 ## 4. Assembling & Publishing the GitHub Release
 

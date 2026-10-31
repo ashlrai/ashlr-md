@@ -210,6 +210,8 @@ export const ruleFrontmatterRequired: LintRule = {
     "Every document should start with a YAML frontmatter block: a --- line, closed by --- or ...",
   severity: "warning",
   check({ doc }): LintViolation[] {
+    // An empty draft has no content to annotate with frontmatter yet.
+    if (doc.trim() === "") return [];
     // The front matter rule of markdownLines (outline.ts, as mdopener-mcp
     // reads it): a first `---` line closed by a later `---` or `...` line.
     // A regex used to require `---`, so a block closed by `...` was flagged,
@@ -404,6 +406,8 @@ export const ruleNoTrailingSpaces: LintRule = {
   description: "Lines should not end with trailing whitespace.",
   severity: "info",
   check({ doc, lines }): LintViolation[] {
+    // Preserve blank drafts exactly, including intentional whitespace.
+    if (doc.trim() === "") return [];
     const violations: LintViolation[] = [];
     let offset = 0;
     // Code keeps its spaces: the fix used to take them off code lines.
