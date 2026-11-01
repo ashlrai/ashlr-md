@@ -1552,6 +1552,30 @@ describe("rule:missing-alt-text", () => {
     expect(twice).toBe(once);
   });
 
+  it("keeps a missing-alt fix stable across default-rule passes with a remaining warning", () => {
+    const doc = "# First\n\n## Second\n\nSee ![](chart.png).   \n";
+    const rules = BUILTIN_RULES.filter((rule) =>
+      LINTER_DEFAULT_ENABLED_RULES.includes(rule.id),
+    );
+    const violations = lintDocument(doc, { rules });
+    expect(violations.map((violation) => violation.ruleId).sort()).toEqual([
+      "missing-alt-text",
+      "no-trailing-spaces",
+      "orphaned-heading",
+    ]);
+
+    const once = applyAllFixes(doc, violations);
+    expect(once).toBe(
+      "# First\n\n## Second\n\nSee ![TODO: describe image](chart.png).\n",
+    );
+    const remaining = lintDocument(once, { rules });
+    expect(remaining.map((violation) => violation.ruleId)).toEqual([
+      "orphaned-heading",
+    ]);
+    expect(remaining[0].fix).toBeNull();
+    expect(applyAllFixes(once, remaining)).toBe(once);
+  });
+
   it.each([
     "\n",
     "\r\n",
