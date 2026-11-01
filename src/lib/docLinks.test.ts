@@ -1,5 +1,8 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import remarkParse from "remark-parse";
+import { unified } from "unified";
+import { visit } from "unist-util-visit";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const invokeMock = vi.fn();
@@ -18,10 +21,64 @@ import {
   imageSource,
   linkTarget,
   resolveFromDocument,
+  scrollToFragment,
 } from "./docLinks";
+import { remarkWikilinks } from "./remark-wikilinks";
 import { invalidateWikilinkCache } from "./wikilink";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+describe("document link extraction", () => {
+  it("finds no links in a document without links and leaves its tree unchanged", () => {
+    const processor = unified().use(remarkParse).use(remarkWikilinks);
+    const tree = processor.parse(
+      "# Notes\n\nPlain text and an unfinished [[reference.\n",
+    );
+    const original = structuredClone(tree);
+    const result = processor.runSync(tree);
+    const links: string[] = [];
+    visit(result, (node) => {
+      if (["link", "linkReference", "wikilink", "wikiembed"].includes(node.type)) {
+        links.push(node.type);
+      }
+    });
+    expect(links).toEqual([]);
+    expect(tree).toEqual(original);
+  });
+
+  it("returns distinct links in document order", () => {
+    const processor = unified().use(remarkParse).use(remarkWikilinks);
+    const tree = processor.runSync(
+      processor.parse(
+        "[First](zeta.md) then [[Alpha#Section|alias]] and [Third][ref].\n\n" +
+          "![[Middle]] followed by [Last](beta.md).\n\n[ref]: gamma.md\n",
+      ),
+    );
+    const links: unknown[] = [];
+    visit(tree, (node) => {
+      if (["link", "linkReference", "wikilink", "wikiembed"].includes(node.type)) {
+        links.push(node);
+      }
+    });
+    expect(links).toEqual([
+      expect.objectContaining({ type: "link", url: "zeta.md" }),
+      expect.objectContaining({
+        type: "wikilink",
+        data: expect.objectContaining({
+          hProperties: expect.objectContaining({ dataWikitarget: "Alpha#Section" }),
+        }),
+      }),
+      expect.objectContaining({ type: "linkReference", identifier: "ref" }),
+      expect.objectContaining({
+        type: "wikiembed",
+        data: expect.objectContaining({
+          hProperties: expect.objectContaining({ dataEmbedTarget: "Middle" }),
+        }),
+      }),
+      expect.objectContaining({ type: "link", url: "beta.md" }),
+    ]);
+  });
+});
 
 describe("linkTarget", () => {
   const doc = "/v/notes/doc.md";
@@ -149,6 +206,27 @@ describe("anchorElement", () => {
   });
 });
 
+describe("scrollToFragment", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    document.body.innerHTML = "";
+  });
+
+  it("gives up quietly when the document is gone before a retry fires", () => {
+    vi.useFakeTimers();
+    scrollToFragment("no-such-heading"); // nothing renders it: a retry stays pending
+    const g = globalThis as { document?: Document };
+    const doc = g.document as Document;
+    delete g.document; // happy-dom teardown rips the global out from under it
+    try {
+      expect(typeof document === "undefined").toBe(true); // the delete took
+      expect(() => vi.runAllTimers()).not.toThrow();
+    } finally {
+      g.document = doc;
+    }
+  });
+});
+
 describe("imageSource", () => {
   const doc = "/v/doc.md";
   it("reads a local image relative to the document, decoded", () => {
@@ -175,6 +253,74 @@ describe("imageSource", () => {
 });
 
 describe("resolveFromDocument on Windows paths", () => {
+  it("keeps relative traversal within a UNC share root", () => {
+    const doc = "\\\\server\\share\\notes\\doc.md";
+    expect(resolveFromDocument(doc, "../other.md")).toBe("\\\\server\\share\\other.md");
+    expect(resolveFromDocument(doc, "../../../../other.md")).toBe(
+      "\\\\server\\share\\other.md",
+    );
+    expect(resolveFromDocument("\\\\server\\share\\doc.md", "..")).toBe(
+      "\\\\server\\share",
+    );
+  });
+
+  it("keeps the UNC root with mixed separators and parent-only paths", () => {
+    expect(resolveFromDocument("\\\\server/share/notes/doc.md", "../../other.md")).toBe(
+      "\\\\server\\share\\other.md",
+    );
+    expect(resolveFromDocument("\\\\server\\share\\doc.md", "../../..")).toBe(
+      "\\\\server\\share",
+    );
+  });
+
+  it("keeps Markdown links and local images on their source UNC share", () => {
+    const doc = "\\\\server\\share\\notes\\doc.md";
+    expect(linkTarget("../../../other.md#part", doc)).toEqual({
+      kind: "document",
+      path: "\\\\server\\share\\other.md",
+      fragment: "part",
+    });
+    expect(imageSource("../../../images/pic.png", doc)).toEqual({
+      kind: "local",
+      path: "\\\\server\\share\\images\\pic.png",
+    });
+    expect(linkTarget("../../../.hidden/other.md", doc).kind).toBe("blocked");
+    expect(imageSource("../../../.hidden/pic.png", doc).kind).toBe("blocked");
+  });
+
+  it.each(["?", "."])("preserves device UNC roots with the %s prefix", (prefix) => {
+    const doc = String.raw`\\${prefix}\UNC\server\share\notes\doc.md`;
+    const root = String.raw`\\${prefix}\UNC\server\share`;
+    expect(resolveFromDocument(doc, "../../../../other.md")).toBe(
+      root + String.raw`\other.md`,
+    );
+    expect(resolveFromDocument(doc, "../../../..")).toBe(root);
+    expect(resolveFromDocument(`${root}\\doc.md`, "../public/other.md")).toBe(
+      `${root}\\public\\other.md`,
+    );
+    const drive = String.raw`\\${prefix}\C:`;
+    expect(resolveFromDocument(`${drive}\\doc.md`, "../../other.md")).toBe(
+      `${drive}\\other.md`,
+    );
+    expect(
+      resolveFromDocument(
+        String.raw`\\${prefix}\unc/server/share/doc.md`,
+        "../../other.md",
+      ),
+    ).toBe(String.raw`\\${prefix}\unc\server\share\other.md`);
+    expect(linkTarget("../../../other.md#part", doc)).toEqual({
+      kind: "document",
+      path: root + String.raw`\other.md`,
+      fragment: "part",
+    });
+    expect(imageSource("../../../images/pic.png", doc)).toEqual({
+      kind: "local",
+      path: root + String.raw`\images\pic.png`,
+    });
+    expect(linkTarget("../../../.hidden/other.md", doc).kind).toBe("blocked");
+    expect(imageSource("../../../.hidden/pic.png", doc).kind).toBe("blocked");
+  });
+
   it("joins with backslashes and keeps the drive", () => {
     expect(resolveFromDocument("C:\\v\\n\\doc.md", "../a/b.md")).toBe("C:\\v\\a\\b.md");
     expect(resolveFromDocument("C:\\doc.md", "../../x.md")).toBe("C:\\x.md");

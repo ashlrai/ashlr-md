@@ -5,8 +5,9 @@
  * document store: each function reads the open document's live text (the
  * editors report what was just typed first, see `lib/pendingEdits.ts`),
  * runs the store's step against it, and writes the text it answers with
- * `setContent`. A document is known by its path; with no document open
- * (the welcome screen) every function refuses, as the MCP edits do.
+ * `replaceContent` so mounted editors adopt it. A document is known by its
+ * path; with no document open (the welcome screen) every function refuses,
+ * as the MCP edits do.
  */
 
 import { flushPendingEdits } from "../lib/pendingEdits";
@@ -35,7 +36,7 @@ export function liveDocument(): { key: string; content: string } | null {
 
 /** Write `text` into the open document when it changes it. */
 function write(current: string, text: string): void {
-  if (text !== current) useDocumentStore.getState().setContent(text);
+  if (text !== current) useDocumentStore.getState().replaceContent(text);
 }
 
 /** An agent's change: the whole new text, or find/replace edits. */

@@ -9,6 +9,14 @@
 > [!TIP]
 > Run the tests after each phase.
 
+<!-- fresh:begin example-release-page -->
+Example release page for automation (resolve and verify the matching artifact before installing):
+
+```sh
+ASHLR_MD_RELEASE='https://github.com/ashlrai/ashlr-md/releases/latest'
+```
+<!-- fresh:end -->
+
 ## Phase 1: Core
 
 - [x] Scaffold project

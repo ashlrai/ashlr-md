@@ -82,20 +82,42 @@ export function Shell({ dragOver }: ShellProps) {
   // switch scrolled to the top, losing the place in a long document.
   const readScroll = useRef(new Map<string, number>());
   const shownTab = useRef<string | null>(null);
+  // The document and mode shown, to tell a reload of it from another one.
+  const shownDoc = useRef<{ path: string | null; viewMode: string } | null>(null);
 
   // In read mode, focus the scroller for keyboard scrolling and reset to top
-  // whenever a new document loads or is reloaded. reloadNonce is a deliberate
-  // trigger so the reset re-runs after an external reload. A tab switched
-  // back to goes to where it was. Before paint, and before the scroll event
-  // the new document's height may cause, so that event is the new tab's.
+  // whenever a new document loads. reloadNonce is a deliberate trigger so
+  // this re-runs after an external reload, which gives focus back to the
+  // scroller when it was lost (the change banner's Reload button is gone
+  // once clicked). A reload of the document shown keeps its place, though:
+  // each change an agent wrote to a clean document went to the top, so a
+  // reader following along lost their place. It does not take focus from
+  // a field that has it. A tab switched back to goes to where it was.
+  // Before paint, and before the scroll event the new document's height may
+  // cause, so that event is the new tab's.
   // biome-ignore lint/correctness/useExhaustiveDependencies: reloadNonce is a deliberate trigger
   useLayoutEffect(() => {
     const switched = activeId !== shownTab.current;
+    const shown = shownDoc.current;
+    const reloaded =
+      !switched && shown !== null && shown.path === path && shown.viewMode === viewMode;
     shownTab.current = activeId;
-    if (path && viewMode === "read" && contentRef.current) {
+    shownDoc.current = { path, viewMode };
+    const el = contentRef.current;
+    if (path && viewMode === "read" && el) {
+      if (reloaded) {
+        const focused = document.activeElement;
+        if (!focused || focused === document.body || !focused.isConnected) {
+          el.focus({ preventScroll: true });
+        }
+        return;
+      }
       const back = switched && activeId ? readScroll.current.get(activeId) : undefined;
-      contentRef.current.scrollTo({ top: back ?? 0 });
-      contentRef.current.focus({ preventScroll: true });
+      el.scrollTo({ top: back ?? 0 });
+      // Tab arrows activate a document while keeping focus in the tablist.
+      if (document.activeElement?.getAttribute("role") !== "tab") {
+        el.focus({ preventScroll: true });
+      }
     }
   }, [path, viewMode, reloadNonce, activeId]);
 

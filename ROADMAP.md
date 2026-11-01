@@ -37,7 +37,7 @@ leaks data off-device without explicit consent. Quality over scope, every time.
 **Obsidian**
 - **Reads your vault natively**: wikilinks, embeds, transclusion, highlights, comments, and math render the way Obsidian's Reading View shows them; no plugins, no export.
 - **Vault-aware link resolution**: auto-detects the vault root (`.obsidian/` or a Settings override) and resolves `[[wikilinks]]` vault-wide with deterministic closest-match.
-- **Read-only JSON Canvas viewer**: open `.canvas`, pan/zoom/Fit; `text`/`file`/`link`/`group` nodes and labelled edges render. Read-only (never written back).
+- **JSON Canvas viewer and editor**: open `.canvas`, pan/zoom/Fit; drag nodes to move and edit text with guarded write back. Unknown fields are preserved.
 - **Round-trip**: **Open in Obsidian** + the companion **Open in Ashlr MD** plugin (ribbon, commands, file/editor menus, settings).
 - **A respectful guest**: saving is refused inside any `.obsidian/` config folder (textual + symlink-resolved guard).
 
@@ -73,14 +73,14 @@ leaks data off-device without explicit consent. Quality over scope, every time.
 - [x] Live diff-review UI for ` ```diff ` blocks (apply / copy hunks): shipped in `src/components/viewer/DiffBlock.tsx` (per-hunk Copy hunk, Copy all, Apply, Reject)
 - [ ] Recognize & pretty-render more agent doc schemas (plans, reviews, specs) with bespoke renderers
 - [ ] Run buttons for more than shell (with sandboxing); inline results
-- [ ] Let agents register doc "kinds" + custom renderers (an extension API)
+- [x] Let agents register doc "kinds" + declarative layouts mapped to built-in renderers (`src/lib/renderers/kind-registry.ts`)
 
 **Integrations**
 - [ ] VS Code extension: open the active `.md` in Ashlr MD from the editor toolbar
-- [ ] Alfred / Raycast workflows for `mdopener://` quick-open
+- [x] Raycast workflow for `mdopener://` quick-open ([integration](integrations/raycast/README.md)); Alfred remains a future option
 
 **Obsidian**
-- [ ] JSON Canvas editing (currently read-only; move/edit nodes, write back)
+- [x] JSON Canvas editing (move/edit text nodes, write back; preserve unknown fields)
 
 **AI**
 - [ ] Premium hosted tier (the sustainability model), strictly opt-in, zero-retention
@@ -90,7 +90,7 @@ leaks data off-device without explicit consent. Quality over scope, every time.
 - [ ] Image drag-drop ordering
 - [x] "Copy as rich text" for email/Slack: shipped in `src/lib/copyRichText.ts` (`⌘⇧C`)
 - [ ] More export themes
-- [ ] Accessibility pass (full keyboard nav, screen-reader labels)
+- [x] Accessibility pass (full keyboard nav, screen-reader labels)
 
 ## How to shape it
 

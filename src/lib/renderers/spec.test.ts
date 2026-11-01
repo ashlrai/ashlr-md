@@ -107,6 +107,13 @@ describe("parseSpec — all canonical spec sections", () => {
       expect(r.sections.some((s) => s.title === heading)).toBe(true);
     });
   }
+
+  it("records each section's heading level (2 for ## headings)", () => {
+    const doc = "# Title\n\n## Requirements\n\nsome body text\n";
+    const r = parseSpec(doc);
+    expect(r.sections.length).toBeGreaterThan(0);
+    for (const s of r.sections) expect(s.level).toBe(2);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -114,6 +121,15 @@ describe("parseSpec — all canonical spec sections", () => {
 // ---------------------------------------------------------------------------
 
 describe("parseSpec — acceptance criteria", () => {
+  it("returns empty criteria when the spec has no criteria section", () => {
+    const doc = "# Spec\n\n## Requirements\n\nFoo.\n\n## Design\n\nBar.\n";
+    const r = parseSpec(doc);
+    expect(r.sections.length).toBeGreaterThan(0);
+    expect(r.criteria).toEqual([]);
+    expect(r.criteriaTotal).toBe(0);
+    expect(r.criteriaDone).toBe(0);
+  });
+
   it("extracts unchecked criteria items", () => {
     const doc = [
       "# Spec",

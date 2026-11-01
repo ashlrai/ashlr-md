@@ -1,5 +1,5 @@
 /**
- * MCP bridge — keeps the Rust IPC server in sync with the frontend document
+ * MCP bridge: keeps the Rust IPC server in sync with the frontend document
  * state, and applies mutations that arrive from the IPC server as Tauri events.
  *
  * Mount once from App.tsx:
@@ -23,17 +23,20 @@
  *   and routes them to the appropriate store action:
  *     - `mcp://open`        → documentStore.openPath()
  *     - `mcp://set-content` → documentStore.setContent() [+ optional save]
- *     - `mcp://export`      → uiStore.openExport() after optionally switching doc
+ *     - `mcp://edit`        → exact, unique find/replace [+ optional save]
+ *     - `mcp://stream-edit` → preview edits (or apply with preview: false)
+ *     - `mcp://stream-edit-apply` → apply a validated proposal [+ optional save]
+ *     - `mcp://export`      → export to outputPath, or open the export dialog
  *     - `mcp://review`      → reviewStore.registerReview()
  *     - `mcp://present`     → read view + uiStore.openZen() (distraction-free)
  *
  * ## Architecture
  *
  * Handler implementations live in src/mcp/handlers/:
- *   - export.ts      — PDF/DOCX/HTML/EPUB
- *   - edit.ts        — set-content, edit, stream-edit, stream-edit-apply
- *   - review.ts      — request_review
- *   - conversation.ts — open, present
+ *   - export.ts: PDF/DOCX/HTML/EPUB
+ *   - edit.ts: set-content, edit, stream-edit, stream-edit-apply
+ *   - review.ts: handleRequestReview (mcp://review)
+ *   - conversation.ts: open, present
  *
  * This file is responsible only for:
  *   1. PUSH sync subscriptions (documentStore → Rust, vault → Rust, session → Rust)
@@ -98,7 +101,7 @@ export function useMcpBridge(): void {
     const syncNow = () => {
       const { path, content } = useDocumentStore.getState();
       const recents = useRecentStore.getState().recents;
-      invoke("mcp_sync_state", {
+      void invoke("mcp_sync_state", {
         path: path ?? null,
         content,
         recents,
@@ -115,7 +118,7 @@ export function useMcpBridge(): void {
     const syncVaultNow = () => {
       const { watchedDir, files, truncated, scanCut, depthCut } =
         useActivityStore.getState();
-      invoke("mcp_sync_vault", {
+      void invoke("mcp_sync_vault", {
         watchedDir: watchedDir ?? null,
         files: files.map((f) => ({ path: f.path, name: f.name, dir: f.dir })),
         truncated,
@@ -143,7 +146,7 @@ export function useMcpBridge(): void {
       sessionTimer.current = setTimeout(() => {
         const { currentSessionId: sid } = useConversationStore.getState();
         if (sid) {
-          persistSession(sid);
+          void persistSession(sid);
         }
       }, 500);
     };
@@ -151,7 +154,7 @@ export function useMcpBridge(): void {
     const schedulePersistenceSync = () => {
       const { path, content } = useDocumentStore.getState();
       if (path && content) {
-        syncDocToSession(path, content).catch(() => {
+        void syncDocToSession(path, content).catch(() => {
           // Non-fatal — persistence is best-effort.
         });
       }
@@ -190,7 +193,7 @@ export function useMcpBridge(): void {
     // Track each listener's unlisten fn as it resolves (or unlisten on the spot
     // if we've already been disposed).
     for (const p of unlisteners) {
-      p.then((fn) => {
+      void p.then((fn) => {
         if (disposed) fn();
         else live.push(fn);
       });

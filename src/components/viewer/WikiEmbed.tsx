@@ -23,7 +23,7 @@ import {
   isPlainTextTarget,
   splitFragment,
 } from "../../lib/transclude";
-import { resolveWikilink } from "../../lib/wikilink";
+import { resolveWikilink, useWikilinkCacheVersion } from "../../lib/wikilink";
 import { DocPathContext, useDocPath } from "./docPath";
 import { Renderer } from "./Renderer";
 
@@ -58,12 +58,16 @@ export function WikiEmbed({ target, size }: WikiEmbedProps) {
   const [resolved, setResolved] = useState<string | null | undefined>(undefined);
   // The embedded file's path, which its own relative links resolve from.
   const [embeddedPath, setEmbeddedPath] = useState<string | null>(null);
+  // Resolved and read again when a file changes on disk, so an embed of a
+  // note deleted, renamed or rewritten since does not keep its old text.
+  const cacheVersion = useWikilinkCacheVersion();
 
   useEffect(() => {
+    void cacheVersion;
     if (!target) return;
     if (!isImage && depth >= MAX_EMBED_DEPTH) return;
     let cancelled = false;
-    (async () => {
+    void (async () => {
       // Resolve the file part only — the `#fragment` is applied locally below.
       const path = await resolveWikilink(file, docPath);
       if (!path) {
@@ -91,11 +95,13 @@ export function WikiEmbed({ target, size }: WikiEmbedProps) {
       } catch {
         if (!cancelled) setResolved(null);
       }
-    })();
+    })().catch(() => {
+      if (!cancelled) setResolved(null);
+    });
     return () => {
       cancelled = true;
     };
-  }, [target, file, isImage, isText, fragment, depth, docPath]);
+  }, [target, file, isImage, isText, fragment, depth, docPath, cacheVersion]);
 
   // A blank target (e.g. the data attribute was stripped) — render nothing.
   if (!target) return null;

@@ -1,3 +1,4 @@
+import type React from "react";
 import { THEMES, useSettingsStore } from "../../../store/settingsStore";
 import { MinusIcon, PlusIcon } from "../icons";
 
@@ -13,13 +14,47 @@ const THEME_SWATCHES: Record<string, { bg: string; text: string; accent: string 
   midnight: { bg: "#16181d", text: "#e6e8eb", accent: "#6ba8ff" },
 };
 
+/** The swatch an arrow key (or Home/End) moves to from `from` of `count`, wrapping. */
+function themeKeyTarget(key: string, from: number, count: number): number | null {
+  if (key === "ArrowRight" || key === "ArrowDown") return (from + 1) % count;
+  if (key === "ArrowLeft" || key === "ArrowUp") return (from - 1 + count) % count;
+  if (key === "Home") return 0;
+  if (key === "End") return count - 1;
+  return null;
+}
+
+/**
+ * A radio group, as the ARIA pattern has it: one Tab stop (the chosen
+ * swatch), and the arrow keys move to and choose the next or previous theme.
+ * Every swatch used to be its own Tab stop and the arrow keys did nothing.
+ */
 export function ThemePicker() {
   const theme = useSettingsStore((s) => s.theme);
   const setTheme = useSettingsStore((s) => s.setTheme);
+  const chosen = Math.max(
+    0,
+    THEMES.findIndex((t) => t.id === theme),
+  );
+
+  function onKeyDown(e: React.KeyboardEvent<HTMLButtonElement>) {
+    const radios = Array.from(
+      e.currentTarget.parentElement?.querySelectorAll<HTMLElement>('[role="radio"]') ??
+        [],
+    );
+    // Ctrl+End and the like keep their own meaning.
+    if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+    const from = radios.indexOf(e.target as HTMLElement);
+    if (from === -1) return;
+    const to = themeKeyTarget(e.key, from, radios.length);
+    if (to === null) return;
+    e.preventDefault();
+    setTheme(THEMES[to].id);
+    radios[to]?.focus();
+  }
 
   return (
     <div className="settings-theme-picker" role="radiogroup" aria-label="Theme">
-      {THEMES.map((t) => {
+      {THEMES.map((t, i) => {
         const swatch = THEME_SWATCHES[t.id];
         const active = theme === t.id;
         return (
@@ -28,8 +63,10 @@ export function ThemePicker() {
             type="button"
             role="radio"
             aria-checked={active}
+            tabIndex={i === chosen ? 0 : -1}
             className={`settings-theme-btn${active ? " active" : ""}`}
             onClick={() => setTheme(t.id)}
+            onKeyDown={onKeyDown}
             title={`Switch to ${t.label} theme`}
           >
             {/* Mini colour preview */}

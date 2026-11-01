@@ -1,3 +1,5 @@
+import { Crepe } from "@milkdown/crepe";
+import { editorViewCtx, parserCtx, serializerCtx } from "@milkdown/kit/core";
 import { type Node, Schema } from "@milkdown/kit/prose/model";
 import { EditorState, TextSelection } from "@milkdown/kit/prose/state";
 import { describe, expect, it } from "vitest";
@@ -8,7 +10,7 @@ import {
   tableIndexOfOffset,
   tableOffsetAt,
 } from "./milkdownTable";
-import { findTableRange } from "./tableEditor";
+import { findTableRange, parseTable } from "./tableEditor";
 
 // The node names of Milkdown's GFM preset.
 const schema = new Schema({
@@ -173,6 +175,49 @@ describe("insertTableTransaction", () => {
     const out = insertTableTransaction(at(d, 4), wizard)?.doc;
     expect(out?.childCount).toBe(2);
     expect(out?.child(1).type.name).toBe("table");
+  });
+
+  it("preserves the header cells of a single-row table", () => {
+    const d = schema.node("doc", null, [p.create(null, text("Before"))]);
+    const headerOnly = schema.node("doc", null, [grid([["Name", "Value"]])]);
+    const out = insertTableTransaction(at(d, 3), headerOnly)?.doc;
+    const inserted = out?.child(1);
+
+    expect(inserted?.type.name).toBe("table");
+    expect(inserted?.childCount).toBe(1);
+    expect(inserted?.child(0).childCount).toBe(2);
+    expect(inserted?.child(0).child(0).textContent).toBe("Name");
+    expect(inserted?.child(0).child(1).textContent).toBe("Value");
+  });
+
+  it("preserves column alignments when inserting and serializing a parsed table", async () => {
+    const source =
+      "| Left | Center | Right |\n| :--- | :---: | ---: |\n| one | two | three |";
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+    const crepe = new Crepe({ root, defaultValue: "Before" });
+    try {
+      await crepe.create();
+      const saved = crepe.editor.action((ctx) => {
+        const parsed = ctx.get(parserCtx)(source);
+        if (!parsed) throw new Error("Could not parse table");
+        const view = ctx.get(editorViewCtx);
+        const transaction = insertTableTransaction(view.state, parsed);
+        if (!transaction) throw new Error("Could not insert table");
+        view.dispatch(transaction);
+        return ctx.get(serializerCtx)(view.state.doc);
+      });
+      const table = findTableRange(saved, saved.indexOf("| Left"));
+      expect(table).not.toBeNull();
+      expect(parseTable(table?.source ?? "")).toEqual({
+        headers: ["Left", "Center", "Right"],
+        alignments: ["left", "center", "right"],
+        rows: [["one", "two", "three"]],
+      });
+    } finally {
+      await crepe.destroy();
+      root.remove();
+    }
   });
 
   it("is null without a table to insert", () => {

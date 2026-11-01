@@ -15,6 +15,30 @@ permissions:
   contents: read
 
 jobs:
+  full-suite-evidence:
+    # Release gate: the full suite (macOS and Windows included) must have
+    # passed in a manual workflow_dispatch run of CI on this exact sha.
+    name: Full suite green on release sha
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      actions: read
+    steps:
+      - name: Require a successful workflow_dispatch CI run on this sha
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          CI_WORKFLOW: ci.yml
+        run: |
+          set -euo pipefail
+          n="$(gh api "repos/${REPO}/actions/workflows/${CI_WORKFLOW}/runs?event=workflow_dispatch&head_sha=${SHA}&status=success&per_page=1" --jq '.total_count')"
+          if [ "${n:-0}" -lt 1 ]; then
+            echo "::error::No successful workflow_dispatch run of ${CI_WORKFLOW} on ${SHA}. Run 'gh workflow run ${CI_WORKFLOW} --ref <this ref>', wait for green, then release."
+            exit 1
+          fi
+          echo "full suite green on ${SHA} (${n} run(s))"
+
   # ---------------------------------------------------------------------------
   # Build matrix: macOS (aarch64 + x86_64), Linux (x86_64), Windows (x86_64).
   #
@@ -29,14 +53,14 @@ jobs:
   #        tauri.macos.conf.json   → mdopen, mdopener-mcp, mdopener-afm, mdopener-setdefault
   #        tauri.linux.conf.json   → mdopen, mdopener-mcp
   #        tauri.windows.conf.json → mdopen.exe, mdopener-mcp.exe
-  #   3. Uploads artifacts to the same GitHub Release draft.
-  #      tauri-action appends per-platform entries to the updater latest.json
-  #      so the final release contains a unified multi-platform update manifest.
+  #   3. Uploads per-platform workflow artifacts for manual assembly.
+  #      No GitHub Release or updater manifest is created by this workflow.
   #
   # Apple signing/notarization is gated behind HAS_APPLE_SIGNING so the
   # macOS job still succeeds on forks without certificates.
   # ---------------------------------------------------------------------------
   release:
+    needs: [full-suite-evidence]
     name: Build & release (${{ matrix.platform }})
     permissions:
       contents: write   # Required to create / update the GitHub Release
@@ -48,7 +72,7 @@ jobs:
           # ------------------------------------------------------------------
           # macOS arm64 (primary shipping target, Apple Silicon)
           # ------------------------------------------------------------------
-          - platform: macos-14
+          - platform: macos-15
             rust-target: aarch64-apple-darwin
             tauri-args: "--target aarch64-apple-darwin"
             build-sidecars: "bash scripts/build-sidecars.sh"
@@ -57,7 +81,7 @@ jobs:
           # ------------------------------------------------------------------
           # macOS x86_64 (Intel Macs)
           # ------------------------------------------------------------------
-          - platform: macos-13
+          - platform: macos-15-intel
             rust-target: x86_64-apple-darwin
             tauri-args: "--target x86_64-apple-darwin"
             build-sidecars: "bash scripts/build-sidecars.sh"
@@ -94,27 +118,18 @@ jobs:
       HAS_APPLE_SIGNING: ${{ secrets.APPLE_SIGNING_IDENTITY }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       # ---- Toolchain setup -------------------------------------------------
 
       # Select the latest available Xcode on macOS runners.
       # -----------------------------------------------------------------------
-      # WHY: The mdopener-afm Swift sidecar requires Xcode 26 / Swift 6.2+
-      # (macOS 26 SDK) to compile. setup-xcode@v1 with xcode-version: latest
-      # picks the newest Xcode installed on the runner image. GitHub-hosted
-      # macos-14 / macos-13 images lag Xcode releases by several weeks, so
-      # "latest" may resolve to Xcode 16.x until Apple releases Xcode 26 GM
-      # and GitHub updates their runner images.
-      #
-      # KNOWN RISK: If the runner image does not yet carry Xcode 26 (Swift 6.2+),
-      # the mdopener-afm sidecar build step inside scripts/build-sidecars.sh
-      # will fail or produce a binary missing macOS 26 SDK APIs. Monitor:
-      #   https://github.com/actions/runner-images/releases
-      # Once Xcode 26 is available on hosted runners, pin here:
-      #   xcode-version: "26.0"
-      # All other bundle artifacts (Rust sidecars, app bundle, DMG) are unaffected
-      # by this risk — only the Swift AFM sidecar depends on the Xcode version.
+      # mdopener-afm requires Xcode 26 / Swift 6.2+ and the macOS 26 SDK.
+      # Native macos-15 (ARM) and macos-15-intel images provide Xcode 26;
+      # "latest" avoids their older default Xcode. Keep each host native:
+      # build-sidecars.sh builds Rust and Swift helpers for the host architecture.
+      # Check each build's selected Xcode and sidecar output; resource
+      # reconciliation below preserves the existing best-effort Swift behavior.
       # -----------------------------------------------------------------------
       - name: Select latest Xcode (macOS only)
         if: matrix.os == 'macOS'
@@ -133,7 +148,7 @@ jobs:
           targets: ${{ matrix.rust-target }}
 
       - name: Cache Cargo registry + build artefacts
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
             ~/.cargo/registry
@@ -250,15 +265,14 @@ jobs:
 
       # ---- Tauri build + GitHub Release ------------------------------------
       # tauri-action auto-detects the platform config overlay.
-      # All matrix legs target the same tagName / releaseName so tauri-action
-      # updates the same GitHub Release draft and appends platform-specific
-      # entries to the updater latest.json on each run.
+      # No tagName or releaseId is supplied; tauri-action does not create
+      # a Release or updater manifest in this build-only invocation.
 
-      # Build only — we do NOT publish from CI. The ashlrai org disables write
-      # for the workflow GITHUB_TOKEN, so the release is assembled and published
+      # Build only — we do NOT publish from CI. The release is assembled and published
       # with a maintainer's credentials from the per-platform artifacts uploaded
       # below. Omitting tagName makes tauri-action build without touching the
-      # release API. Updater signing still runs so each bundle has its .sig.
+      # release API. Updater signing runs for eligible updater artifacts;
+      # assembly must still verify the actual inventory and signatures.
       - name: Build Tauri app
         id: tauri
         uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0
@@ -283,7 +297,7 @@ jobs:
       # works regardless of the org's read-only workflow-token policy.
       - name: Upload bundle artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: bundle-${{ matrix.platform }}
           if-no-files-found: warn

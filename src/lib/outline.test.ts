@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   atxHeading,
   atxHeadings,
+  filterHeadings,
+  headingLabels,
   markdownLines,
   maskInlineCode,
   parseHeadings,
@@ -743,5 +745,44 @@ describe("GFM literal autolinks hold no code span or math", () => {
 
   it("keeps a URL's underscores out of emphasis in a heading's slug", () => {
     expect(parseHeadings("# see www.x.org/_a_\n")[0].slug).toBe("see-wwwxorg_a_");
+  });
+});
+
+describe("filterHeadings", () => {
+  it("labels repeated headings across levels while retaining their destinations after filtering", () => {
+    const headings = parseHeadings("# Repeat\n## Other\n### Repeat\n# Repeat\n");
+    const labels = headingLabels(headings);
+    expect(labels).toEqual([
+      "Repeat (line 1)",
+      "Other",
+      "Repeat (line 3)",
+      "Repeat (line 4)",
+    ]);
+    expect(
+      filterHeadings(headings, "repeat").map((h) => [
+        labels[headings.indexOf(h)],
+        h.depth,
+        h.slug,
+        h.line,
+      ]),
+    ).toEqual([
+      ["Repeat (line 1)", 1, "repeat", 1],
+      ["Repeat (line 3)", 3, "repeat-1", 3],
+      ["Repeat (line 4)", 1, "repeat-2", 4],
+    ]);
+  });
+  it("preserves duplicate anchors and document order when filtering", () => {
+    const headings = parseHeadings("# Repeat\n# Other\n# Repeat\n");
+    expect(filterHeadings(headings, "  REPEAT ").map((h) => [h.slug, h.line])).toEqual([
+      ["repeat", 1],
+      ["repeat-1", 3],
+    ]);
+    expect(filterHeadings(headings, "other")[0]).toBe(headings[1]);
+    expect(filterHeadings(headings, " ")).toEqual(headings);
+  });
+
+  it("returns no results when nothing matches", () => {
+    expect(filterHeadings(parseHeadings("# Heading"), "missing")).toEqual([]);
+    expect(filterHeadings([], "heading")).toEqual([]);
   });
 });

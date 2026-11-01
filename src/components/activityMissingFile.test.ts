@@ -68,7 +68,9 @@ describe("an Agent Activity entry whose file is gone", () => {
     document.body.appendChild(host);
     root = createRoot(host);
     await act(async () => root.render(createElement(ActivityDrawer)));
-    useActivityStore.setState({ files: [file("gone.md"), file("here.md")] });
+    await act(async () => {
+      useActivityStore.setState({ files: [file("gone.md"), file("here.md")] });
+    });
   });
 
   afterEach(() => {
@@ -87,14 +89,26 @@ describe("an Agent Activity entry whose file is gone", () => {
     const gone = host.querySelector<HTMLButtonElement>(
       '.activity-item[title="/w/gone.md"]',
     );
+    gone?.focus();
     await act(async () => gone?.click());
     await vi.waitFor(() => expect(useToastStore.getState().toasts.length).toBe(1));
     const s = useDocumentStore.getState();
     expect(s.error).toBeNull();
     expect(s.path).toBe("/w/here.md");
     expect(useToastStore.getState().toasts[0].message).toBe(
-      `Could not open gone.md: ${MISSING}`,
+      "gone.md was moved or deleted. Check its location or choose another folder.",
     );
     expect(names()).toEqual(["here.md"]);
+    expect(document.activeElement).toBe(host.querySelector(".activity-drawer__folder"));
+  });
+
+  it("offers folder recovery when activity is empty", async () => {
+    await act(async () => useActivityStore.setState({ files: [] }));
+    expect(host.textContent).toContain("No Markdown yet in");
+    expect(host.textContent).toContain("Check the folder or choose another");
+    const action = host.querySelector<HTMLButtonElement>(".activity-empty__cta");
+    expect(action?.textContent).toContain("Choose another folder");
+    action?.focus();
+    expect(document.activeElement).toBe(action);
   });
 });

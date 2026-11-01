@@ -8,6 +8,7 @@ pub mod doctor_fix;
 pub mod handshake;
 pub mod launch;
 pub mod local_inference_probe;
+pub mod offline;
 
 // ── JSON-RPC types ────────────────────────────────────────────────────────────
 
@@ -461,7 +462,7 @@ fn read_session_file(path: &std::path::Path) -> std::io::Result<String> {
         return Err(too_large(meta.len()));
     }
     let mut text = String::new();
-    std::fs::File::open(path)?
+    open_for_read(path, false)?
         .take(MAX_SESSION_FILE_BYTES + 1)
         .read_to_string(&mut text)?;
     if text.len() as u64 > MAX_SESSION_FILE_BYTES {
@@ -871,7 +872,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "list_recent",
-            description: "Return the recently opened files, most recent first, as [{ path, fileName, openedAt }] (openedAt in milliseconds since the Unix epoch). Needs Ashlr MD running (the app keeps the list): this tool does not start it, so with the app closed it is an error, and open_file starts the app.",
+            description: "Return the recently opened files, most recent first, as [{ path, fileName, openedAt }] (openedAt in milliseconds since the Unix epoch). Requires Ashlr MD running; otherwise returns an error. Use open_file to start the app.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -1546,6 +1547,18 @@ fn unavailable_resource_msg(uri: &str) -> String {
 pub fn tool_list() -> Value {
     let tools: Vec<Value> = tool_registry().iter().map(|t| t.to_json()).collect();
     json!(tools)
+}
+
+/// Stable, offline contract for companion clients such as Phantom.
+/// Keep complete input schemas, including property descriptions; omit only
+/// tool-level presentation text and registry order.
+pub fn tool_contract() -> Value {
+    let mut tools: Vec<Value> = tool_registry()
+        .iter()
+        .map(|tool| json!({ "name": tool.name, "inputSchema": tool.input_schema }))
+        .collect();
+    tools.sort_by(|a, b| a["name"].as_str().cmp(&b["name"].as_str()));
+    json!({ "tools": tools })
 }
 
 // ── Tool dispatch ─────────────────────────────────────────────────────────────
@@ -5322,24 +5335,32 @@ fn non_utf8_canonical_refusal(raw: &str, arg: &str, verb: &str) -> Option<String
     ))
 }
 
-/// Read a file as UTF-8 text, refusing anything that is not a regular file
-/// (after following symlinks). Opening a FIFO for reading blocks until a
-/// writer appears, and a device or socket is never a document, so every disk
-/// read goes through here rather than `std::fs::read_to_string`. The file is
-/// opened non-blocking and judged by the opened handle, so a FIFO put in its
-/// place after the check cannot block the read either.
-pub fn read_regular_file(path: impl AsRef<std::path::Path>) -> std::io::Result<String> {
+/// Read a file of at most `limit` bytes as UTF-8 text, refusing anything
+/// that is not a regular file (after following symlinks). Opening a FIFO
+/// for reading blocks until a writer appears, and a device or socket is
+/// never a state file, so the small `~/.mdopener` files the server reads go
+/// through here rather than `std::fs::read_to_string`. The file is opened
+/// non-blocking and judged by the opened handle, so a FIFO put in its place
+/// after the check cannot block the read either, and one that grows past
+/// `limit` while it is read is refused rather than kept whole.
+fn read_regular_file(path: impl AsRef<std::path::Path>, limit: u64) -> std::io::Result<String> {
     use std::io::Read as _;
     let path = path.as_ref();
     if !std::fs::metadata(path)?.is_file() {
         return Err(not_regular());
     }
-    let mut file = open_for_read(path, false)?;
+    let file = open_for_read(path, false)?;
     if !file.metadata()?.is_file() {
         return Err(not_regular());
     }
     let mut text = String::new();
-    file.read_to_string(&mut text)?;
+    file.take(limit + 1).read_to_string(&mut text)?;
+    if text.len() as u64 > limit {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("it is larger than {limit} bytes"),
+        ));
+    }
     Ok(text)
 }
 
@@ -6007,12 +6028,20 @@ pub fn best_snippet_for_query(content: &str, query: &str) -> (usize, String) {
 
 // ── IPC helpers ───────────────────────────────────────────────────────────────
 
+/// Largest `ipc-port` or `ipc-token` file read, and each is read once per
+/// request to the app: the app writes a port of at most five digits and a
+/// 64-character session token, so a file past this was not written by the
+/// app. The read is bounded ([`read_regular_file`]) so a huge or special
+/// file planted there is refused rather than kept whole, and a FIFO put
+/// there cannot block the request.
+const MAX_IPC_FILE_BYTES: u64 = 8 * 1024;
+
 /// Read the port written by the running app.
 pub fn read_ipc_port() -> Result<u16, String> {
     let path = mdopener_file_in(dirs::home_dir(), "ipc-port")?;
 
-    let content =
-        std::fs::read_to_string(&path).map_err(|_| "~/.mdopener/ipc-port not found".to_string())?;
+    let content = read_regular_file(&path, MAX_IPC_FILE_BYTES)
+        .map_err(|_| "~/.mdopener/ipc-port not found".to_string())?;
 
     content
         .trim()
@@ -6031,7 +6060,7 @@ pub const IPC_TOKEN_EMPTY: &str = "~/.mdopener/ipc-token is empty, so Ashlr MD h
 /// Read the per-session auth token written by the running app.
 pub fn read_ipc_token() -> Result<String, String> {
     let path = mdopener_file_in(dirs::home_dir(), "ipc-token")?;
-    std::fs::read_to_string(&path)
+    read_regular_file(&path, MAX_IPC_FILE_BYTES)
         .map_err(|_| "~/.mdopener/ipc-token not found".to_string())
         .and_then(|s| {
             let t = s.trim().to_string();

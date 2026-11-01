@@ -297,6 +297,49 @@ describe("relocation on repetitive Markdown", () => {
   });
 });
 
+describe("fail-closed relocation after context loss", () => {
+  it("does not replace a different duplicate after the original target and context change", () => {
+    const diff = computeAgentDiff("a\nb\nc\nq\nb\nz\n", "a\nB\nc\nq\nb\nz\n", {
+      context: 1,
+    });
+    const current = "A\nUSER\nC\nq\nb\nz\n";
+    expect(applyHunksTo(current, diff.hunks)).toEqual({
+      ok: false,
+      conflicts: ["hunk-1"],
+    });
+  });
+
+  it("refuses a replacement whose original context is entirely gone even at its hint", () => {
+    const diff = computeAgentDiff("a\nb\nc\n", "a\nB\nc\n", { context: 1 });
+    expect(applyHunksTo("A\nb\nC\n", diff.hunks)).toEqual({
+      ok: false,
+      conflicts: ["hunk-1"],
+    });
+  });
+
+  it("refuses equidistant matches even when one original context anchor survives", () => {
+    const diff = computeAgentDiff("outer\na\nb\nc\n", "outer\na\nB\nc\n", {
+      context: 2,
+    });
+    expect(
+      locateHunk(splitLines("X\na\nb\nq\nq\na\nb\nY\n"), diff.hunks[0], 4),
+    ).toBeNull();
+  });
+
+  it("preserves explicit context-zero replacement and insertion behavior", () => {
+    const diff = computeAgentDiff("a\nb\nc\n", "a\nB\nc\n", { context: 0 });
+    expect(applyHunksTo("A\nb\nC\n", diff.hunks)).toMatchObject({
+      ok: true,
+      text: "A\nB\nC\n",
+    });
+    const insertion = computeAgentDiff("", "new\n", { context: 0 });
+    expect(applyHunksTo("user\n", insertion.hunks)).toMatchObject({
+      ok: true,
+      text: "new\nuser\n",
+    });
+  });
+});
+
 describe("bounded hunk relocation", () => {
   it.each([
     { hint: 1, expected: 1 },

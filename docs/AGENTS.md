@@ -50,9 +50,8 @@ model: the tools to start with (`open_file`, `present_document`,
 user to install it from the releases page), and the tools that work without
 the app: `export_text` and `export_metadata` (with `path`), `diff_documents`
 and `edit_canvas`, `search_vault` (with `vault`), `get_user_annotations` (task
-checkboxes only), `list_ai_actions` and the two conversation tools. The text
-used to say they all work "on files on disk" and to pass `path` to
-`diff_documents`, which takes `path_a` and `path_b`.
+checkboxes and saved review verdicts), `list_ai_actions` and the two
+conversation tools. `diff_documents` takes `path_a` and `path_b`.
 
 ---
 
@@ -253,6 +252,54 @@ After saving, go to **Cursor Settings → MCP** and click **Reload** (or restart
 Cursor). You should then see `ashlr-md` listed with a green status indicator.
 
 ---
+
+## The `mdopener-mcp` CLI
+
+Run without arguments to serve MCP over stdio. Informational commands exit
+without starting the stdio server. Use these commands from the source checkout
+with `cargo run --manifest-path src-tauri/Cargo.toml -p mdopener-mcp -- <args>`
+if the sidecar has not been installed.
+
+```bash
+mdopener-mcp --version
+mdopener-mcp --help
+mdopener-mcp --export-tool-schema
+mdopener-mcp --ashlr-handshake [--json]
+mdopener-mcp doctor [--json]
+mdopener-mcp doctor --fix [--apply] [--json]
+mdopener-mcp setup --local [--json]
+```
+
+Square brackets indicate optional arguments; omit the brackets when running a
+command. `--export-tool-schema` prints the tool names and input schemas as
+JSON, then exits. `doctor` checks local inference and offline status. `doctor
+--fix` previews state repairs; add `--apply` to write them. `setup --local`
+prints local model setup steps and downloads and writes nothing. See the
+README's [repair guide](../README.md#repair-with-doctor---fix) for repair
+boundaries.
+
+The offline schema export sorts tools by name and preserves complete input
+schemas, including property descriptions, for companion-client compatibility.
+`tools/list` keeps the presentation order shown in the tool table below.
+
+The tool table below and the frontend event inventory are checked against
+source by `python3 scripts/check-docs.py`.
+
+### Frontend MCP event handlers
+
+The bridge in `src/mcp/bridge.ts` wires these listeners into the live window.
+These are internal app events, not additional tools in `tools/list`.
+
+| Event | Handler module |
+|---|---|
+| `mcp://open` | `conversation.ts` |
+| `mcp://present` | `conversation.ts` |
+| `mcp://review` | `review.ts` |
+| `mcp://set-content` | `edit.ts` |
+| `mcp://edit` | `edit.ts` |
+| `mcp://stream-edit` | `edit.ts` |
+| `mcp://stream-edit-apply` | `edit.ts` |
+| `mcp://export` | `export.ts` |
 
 ## MCP tool reference
 
@@ -843,6 +890,10 @@ Claude Code (and other agents with shell access) can call `mdopen` directly:
 import subprocess
 subprocess.run(["mdopen", "/path/to/output.md"], check=True)
 ```
+
+Running under the Phantom workbench or `phantom exec`? The detection paths,
+the `phm_` placeholder boundary and the exact exit-status contract Phantom
+relies on are in [PHANTOM.md](./PHANTOM.md).
 
 ---
 

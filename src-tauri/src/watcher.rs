@@ -81,10 +81,12 @@ fn classify(
 ) -> Option<Seen> {
     let from_pending = std::mem::take(renamed_from);
     match event.kind {
-        EventKind::Modify(ModifyKind::Name(RenameMode::Both)) if event.paths.len() == 2 => {
-            if follow.contains(&event.paths[0]) && !targets.contains(&event.paths[1]) {
-                return Some(Seen::Renamed(event.paths[1].clone()));
-            }
+        EventKind::Modify(ModifyKind::Name(RenameMode::Both))
+            if event.paths.len() == 2
+                && follow.contains(&event.paths[0])
+                && !targets.contains(&event.paths[1]) =>
+        {
+            return Some(Seen::Renamed(event.paths[1].clone()));
         }
         EventKind::Modify(ModifyKind::Name(RenameMode::To)) if from_pending => {
             if let [to] = event.paths.as_slice() {
@@ -199,6 +201,33 @@ mod tests {
             e = e.add_path(PathBuf::from(p));
         }
         e
+    }
+
+    #[test]
+    fn paired_renames_preserve_change_fallback_and_check_path_count() {
+        let targets = vec![PathBuf::from("/d/a.md")];
+        for (paths, expected) in [
+            (vec![], None),
+            (vec!["/d/a.md"], Some(Seen::Changed)),
+            // An atomic save replaces the watched path; it does not rename it.
+            (vec!["/d/tmp.md", "/d/a.md"], Some(Seen::Changed)),
+            (vec!["/d/a.md", "/d/a.md"], Some(Seen::Changed)),
+            (vec!["/d/a.md", "/d/b.md", "/d/c.md"], Some(Seen::Changed)),
+            (vec!["/d/x.md", "/d/y.md"], None),
+        ] {
+            let mut pending = true;
+            assert_eq!(
+                classify(
+                    &rename(RenameMode::Both, &paths),
+                    &targets,
+                    &targets,
+                    &mut pending,
+                ),
+                expected,
+                "paths: {paths:?}"
+            );
+            assert!(!pending, "a paired rename consumes a pending from event");
+        }
     }
 
     /// A rename in the folder was read as the file being gone: the tab was

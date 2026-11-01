@@ -110,15 +110,38 @@ pub(crate) fn apply(bundled: &Path, plan: SidecarPlan) -> Result<PathBuf, String
 fn copy_out(bundled: &Path, dest: &Path, stamp_path: &Path, stamp: &str) -> std::io::Result<()> {
     let dir = dest.parent().unwrap_or(Path::new("."));
     fs::create_dir_all(dir)?;
-    let mut tmp_name = dest.file_name().unwrap_or_default().to_os_string();
-    tmp_name.push(format!(".tmp-{}", std::process::id()));
-    let tmp = dir.join(tmp_name);
+    // Exclusive creation prevents a stale file or symlink from being followed.
+    // Each concurrent copy owns its temporary file and only cleans up that file.
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT_COPY: AtomicU64 = AtomicU64::new(0);
+    let (tmp, mut output) = loop {
+        let mut name = dest.file_name().unwrap_or_default().to_os_string();
+        name.push(format!(
+            ".tmp-{}-{}",
+            std::process::id(),
+            NEXT_COPY.fetch_add(1, Ordering::Relaxed)
+        ));
+        let path = dir.join(name);
+        let mut options = fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        match options.open(&path) {
+            Ok(file) => break (path, file),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(e),
+        }
+    };
     let result = (|| {
-        fs::copy(bundled, &tmp)?;
+        let mut input = fs::File::open(bundled)?;
+        std::io::copy(&mut input, &mut output)?;
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            fs::set_permissions(&tmp, fs::Permissions::from_mode(0o755))?;
+            output.set_permissions(fs::Permissions::from_mode(0o700))?;
         }
         fs::rename(&tmp, dest)
     })();
@@ -246,7 +269,7 @@ mod tests {
         {
             use std::os::unix::fs::PermissionsExt;
             let mode = fs::metadata(&dest).unwrap().permissions().mode();
-            assert_eq!(mode & 0o777, 0o755);
+            assert_eq!(mode & 0o777, 0o700);
         }
 
         // Same version and size: the copy is left alone.
@@ -274,6 +297,37 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn copy_does_not_follow_existing_temporary_symlinks() {
+        use std::os::unix::fs::symlink;
+        let root = std::env::temp_dir().join(format!("md-appimage-links-{}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        let bundled = root.join("bundled");
+        let victim = root.join("victim");
+        fs::write(&bundled, "new sidecar").unwrap();
+        fs::write(&victim, "untouched").unwrap();
+        for n in 0..64 {
+            symlink(
+                &victim,
+                root.join(format!("mdopen.tmp-{}-{n}", std::process::id())),
+            )
+            .unwrap();
+        }
+        copy_out(&bundled, &root.join("mdopen"), &root.join("stamp"), "v1").unwrap();
+        assert_eq!(fs::read_to_string(&victim).unwrap(), "untouched");
+        assert_eq!(
+            fs::read_to_string(root.join("mdopen")).unwrap(),
+            "new sidecar"
+        );
+        for n in 0..64 {
+            assert!(root
+                .join(format!("mdopen.tmp-{}-{n}", std::process::id()))
+                .is_symlink());
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn a_failed_copy_names_the_folder_and_a_next_step() {
         let root = std::env::temp_dir().join(format!("md-appimage-fail-{}", std::process::id()));
@@ -292,6 +346,7 @@ mod tests {
         .unwrap_err();
         assert!(err.contains("out of the AppImage"), "{err}");
         assert!(err.contains("docs/AGENTS.md"), "{err}");
+        assert_eq!(fs::read_dir(root.join("bin")).unwrap().count(), 0);
         let _ = fs::remove_dir_all(&root);
     }
 }

@@ -45,6 +45,11 @@ import { type CalloutType, remarkCallouts } from "../../lib/remark-callouts";
 import { remarkComments } from "../../lib/remark-comments";
 import { remarkHighlights } from "../../lib/remark-highlights";
 import { remarkWikilinks } from "../../lib/remark-wikilinks";
+import {
+  builtInKindRegistry,
+  type KindRegistry,
+} from "../../lib/renderers/kind-registry";
+import { PlanStatusRenderer } from "../../lib/renderers/plan-status-renderer";
 import { detectReviewDoc } from "../../lib/reviewDoc";
 import { SANITIZE_SCHEMA } from "../../lib/sanitizeSchema";
 import { useDocumentStore } from "../../store/documentStore";
@@ -569,13 +574,26 @@ function OtChangeBadgeLayer({ ops }: { ops: OtOperation[] }) {
 
 interface RendererProps {
   content: string;
+  kindRegistry?: KindRegistry;
 }
 
-export const Renderer = memo(function Renderer({ content }: RendererProps) {
-  const info = useMemo(() => detectDocKind(content), [content]);
+export const Renderer = memo(function Renderer({
+  content,
+  kindRegistry,
+}: RendererProps) {
+  const info = useMemo(() => {
+    const detected = detectDocKind(content);
+    if (!kindRegistry && builtInKindRegistry.render(content).renderer === "plain")
+      return detected;
+    const { renderer } = (kindRegistry ?? builtInKindRegistry).render(content);
+    return { ...detected, kind: renderer === "plain" ? null : renderer };
+  }, [content, kindRegistry]);
   // Bespoke summary for agent review / findings docs. null for ordinary docs,
   // so this is entirely non-invasive — nothing below changes when it's null.
-  const review = useMemo(() => detectReviewDoc(content), [content]);
+  const review = useMemo(
+    () => (kindRegistry && info.kind !== "review" ? null : detectReviewDoc(content)),
+    [content, kindRegistry, info.kind],
+  );
 
   // Subscribe to pending remote OT ops for the margin badge layer.
   const pendingOps = useDocumentStore((s) => s.pendingOps);
@@ -612,6 +630,7 @@ export const Renderer = memo(function Renderer({ content }: RendererProps) {
           />
         )
       )}
+      {info.kind === "plan" && <PlanStatusRenderer content={content} />}
       {hasBadges && <OtChangeBadgeLayer ops={pendingOps} />}
       {!embedded && <RemoteImagesBanner rootRef={rootRef} />}
       <TaskSourceContext.Provider value={content}>

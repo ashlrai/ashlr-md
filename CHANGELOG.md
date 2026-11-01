@@ -3,9 +3,35 @@
 All notable changes to Ashlr MD are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+<!-- fresh:begin version-table -->
+| Component | Released version |
+|---|---|
+| Desktop app | 0.4.0 |
+| CLI and MCP sidecars (bundled) | 0.4.0 |
+
+Released 2026-06-06. [Release notes and downloads](https://github.com/ashlrai/ashlr-md/releases/tag/v0.4.0).
+<!-- fresh:end -->
+
 ## [0.4.1] — Unreleased
 
 ### Added
+- **`mdopener-mcp setup --local [--json]`** finds Ollama (`127.0.0.1:11434`)
+  and oMLX (`127.0.0.1:8000`) with the same loopback-only, key-free probe as
+  `doctor`, probes the configured `localInference` block when there is one,
+  and prints the exact next steps: the model pull command (`ollama pull
+  qwen3.8:27b` or the configured model; oMLX has no pull command and is told
+  so), the `localInference` block to add with `"offline": true`, and the
+  `doctor` check. It downloads nothing and writes nothing. The JSON form is
+  `kind: ashlr.setup-local` with `downloads: false` and `writes: false`.
+- **`mdopener-mcp doctor` reports `offline: verified`.** A second check,
+  `offline`, is `verified` when `localInference.offline` is on, the configured
+  server is loopback and it answered the probe (no remote endpoint is used and
+  cloud AI is refused), `unverified` (warn) when offline is on but no loopback
+  server answered, and `not-enabled` (info) when the flag is off. Text output
+  adds one `doctor: offline [...]` line; `--json` appends the check to the
+  `ashlr.doctor` v1 envelope after `local-inference`, additive, exit code
+  unchanged. End-to-end test against a fake loopback OpenAI-compatible server
+  (`bins/mdopener-mcp/tests/offline_e2e.rs`, plain std TCP, runs on Linux).
 - **Opt-in offline mode** (`"offline": true` on `localInference` in
   `~/.ashlr/config.json`, default off). Unset or `false` leaves chat,
   embeddings, search and the MCP sidecar exactly as they are. When it is
@@ -202,6 +228,74 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **The command palette highlight goes back to the first row when the recent
+  files change while it is open.** It stayed on the old index, on another row.
+- **A folder moved into the watched folder lists its notes in Activity at
+  once.** They used to appear only after the next full scan.
+- **The open note's Activity entry is marked when the watched folder is a
+  link.** An entry listed under a path the tab never opened (through a folder
+  link) is now read once to learn whether it is the open file.
+- **A deleted or moved-away note leaves semantic search without a full
+  reindex.** The per-file re-index now drops indexed notes no longer on disk,
+  and a removal in the watched folder starts one.
+- **The keyboard shortcut sheet scrolls from the keyboard.** Its list holds
+  nothing focusable, so with focus on the close button the arrow and Page
+  keys could not scroll it to the shortcuts below the fold. The list is now
+  a named region with a Tab stop of its own.
+- **Export no longer closes a dialog you just opened again.** After a
+  successful export the dialog closes itself after a short pause; closing it
+  first and opening Export again within that pause (or while a slow export
+  was still finishing) shut the new dialog on its own. The pause now belongs
+  to the dialog that started it.
+- **A folder deleted or moved inside the watched folder takes its notes off
+  the Activity list.** The watcher sent removals only for Markdown paths, and
+  a folder's removal reports the folder alone, so the notes in it stayed
+  listed (and failed when opened). The folder's removal is now sent after
+  the same settle check, and the list drops every note under it.
+- **The theme picker in Settings answers the arrow keys.** It is announced
+  as a radio group but every swatch was its own Tab stop and the arrow keys
+  did nothing. It is now one Tab stop (the chosen theme), and the arrow keys
+  (and Home/End) move to and choose the next or previous theme.
+- **Tabs with the same file name can be told apart.** Two `README.md` tabs
+  from different folders looked identical. A tab whose file name another tab
+  shares now shows the fewest parent folders that tell it apart (also read
+  out by screen readers); other tabs are unchanged.
+- **The Activity list marks the open note under any spelling.** Its entry
+  was marked only when the document's path matched the listed path exactly,
+  so a note opened through a link to the watched folder (or in other case
+  where case is ignored) had no marked entry, and opening the drawer focused
+  the newest entry instead of it. Entries are now matched by file identity.
+- **The last-active document is active again after a restore, under any
+  spelling.** The saved active path was matched to a tab by its exact path,
+  so one that opened as another spelling of a file already open (other case
+  where case is ignored, a link) had no tab and the last tab reopened stayed
+  active. Tabs are now found by file identity, as opening a file finds them.
+- **Opening the app with a file keeps your last session.** A launch with a
+  file (a double-click, `mdopen`, a link) skipped the session restore, and the
+  first save of the session then replaced the saved tabs with that file alone,
+  so they were lost for every later launch too. The saved tabs now reopen and
+  the file opens after them, as the active tab.
+- **An embed of a note changed or deleted since shows it as it is now.** An
+  `![[note]]` embed read its note once: when a file changed on disk wikilinks
+  resolved again but embeds did not, so an embed of a note deleted or
+  rewritten since kept its old text. Embeds now resolve and read the note
+  again.
+- **A document changed on disk keeps your place in the read view.** Each
+  change another app or an agent wrote to a clean document scrolled the read
+  view to the top, so a reader following an agent's writes lost their place.
+  A reload of the document shown now keeps the scroll position, and it no
+  longer takes focus from a field that has it (the find bar, the AI
+  sidebar); a different document still opens at the top.
+- **A note deleted, renamed or moved in the watched folder leaves the Activity
+  list.** The folder watcher sent only creates and changes, so a note deleted
+  elsewhere stayed listed (and failed when opened), and wikilinks to it kept
+  resolving to the old file. The `activity://file` event now also has a
+  `"removed"` kind (sent once the path has stayed gone for a moment, so an
+  editor's save by rename is not a removal); a rename is a removal of the old
+  path and a change of the new one. The other fields are unchanged.
+- **A canvas image card's title shows the image in its folder.** Clicking it
+  opened the image as a document, which failed with a toast. It now reveals
+  the image in the file manager, and the canvas stays in view.
 - **Switching tabs keeps your place in the read view.** Every switch scrolled
   the read view to the top, so going back to a long document lost where it
   was being read. A tab switched back to now returns to where it was; a newly
@@ -3494,7 +3588,8 @@ callouts), WYSIWYG + source editing, PDF/DOCX/HTML export, local-first tiered
 AI, agent hand-off (`mdopen` CLI · `mdopener://` · MCP server), the macOS `.md`
 default handler, and smart agent-output rendering.
 
-[0.4.0]: https://github.com/ashlrai/ashlr-md/compare/v0.3.0...HEAD
-[0.3.0]: https://github.com/ashlrai/ashlr-md/releases/tag/v0.3.0
+[0.4.1]: https://github.com/ashlrai/ashlr-md/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/ashlrai/ashlr-md/releases/tag/v0.4.0
+[0.3.0]: https://github.com/ashlrai/ashlr-md/compare/v0.2.0...v0.4.0
 [0.2.0]: https://github.com/ashlrai/ashlr-md/releases/tag/v0.2.0
-[0.1.0]: https://github.com/ashlrai/ashlr-md/releases/tag/v0.1.0
+[0.1.0]: https://github.com/ashlrai/ashlr-md/releases

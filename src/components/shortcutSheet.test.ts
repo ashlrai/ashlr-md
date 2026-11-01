@@ -59,6 +59,7 @@ describe("<ShortcutSheet />", () => {
   afterEach(() => {
     act(() => root.unmount());
     host.remove();
+    vi.restoreAllMocks();
   });
 
   it("mod+/ opens it (closing the palette), and it shows platform labels", () => {
@@ -90,5 +91,42 @@ describe("<ShortcutSheet />", () => {
       window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
     });
     expect(useUiStore.getState().shortcutsOpen).toBe(false);
+  });
+
+  it("its list is a named Tab stop, so the keyboard can scroll it", () => {
+    useUiStore.setState({ shortcutsOpen: true });
+    act(() => root.render(createElement(ShortcutSheet)));
+    const list = host.querySelector<HTMLElement>(".shortcut-sheet-body");
+    expect(list?.tabIndex).toBe(0);
+    expect(list?.getAttribute("role")).toBe("region");
+    expect(list?.getAttribute("aria-label")).toBe("Shortcuts");
+  });
+
+  it("cycles focus between the close button and scroll region, then restores it", () => {
+    // happy-dom has no layout; the real focus trap filters zero-size elements.
+    vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(100);
+    const trigger = document.createElement("button");
+    document.body.appendChild(trigger);
+    trigger.focus();
+    act(() => root.render(createElement(ShortcutSheet)));
+    const close = host.querySelector<HTMLButtonElement>(".settings-close-btn")!;
+    const list = host.querySelector<HTMLElement>(".shortcut-sheet-body")!;
+    expect(document.activeElement).toBe(close);
+    close.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "Tab",
+        shiftKey: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    expect(document.activeElement).toBe(list);
+    list.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true }),
+    );
+    expect(document.activeElement).toBe(close);
+    act(() => root.render(null));
+    expect(document.activeElement).toBe(trigger);
+    trigger.remove();
   });
 });

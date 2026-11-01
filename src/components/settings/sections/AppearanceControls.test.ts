@@ -15,6 +15,7 @@ vi.mock("@tauri-apps/api/event", () => ({
   listen: vi.fn().mockResolvedValue(() => {}),
 }));
 
+import { useSettingsStore } from "../../../store/settingsStore";
 import {
   ContentWidthStepper,
   FontSizeStepper,
@@ -49,5 +50,78 @@ describe("Appearance controls have accessible names", () => {
   ])("%o is named", (component, selector, name) => {
     act(() => root.render(createElement(component)));
     expect(host.querySelector(selector)?.getAttribute("aria-label")).toBe(name);
+  });
+});
+
+describe("the theme radio group", () => {
+  let host: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    host = document.createElement("div");
+    document.body.appendChild(host);
+    root = createRoot(host);
+    useSettingsStore.setState({ theme: "paper" });
+    act(() => root.render(createElement(ThemePicker)));
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    host.remove();
+  });
+
+  const radios = () => Array.from(host.querySelectorAll<HTMLElement>('[role="radio"]'));
+  const press = (el: HTMLElement, key: string) =>
+    act(() => {
+      el.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+    });
+
+  it("leaves modified keys such as Ctrl+End alone", () => {
+    radios()[0].focus();
+    const e = new KeyboardEvent("keydown", {
+      key: "End",
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    act(() => {
+      radios()[0].dispatchEvent(e);
+    });
+    expect(e.defaultPrevented).toBe(false);
+    expect(useSettingsStore.getState().theme).toBe("paper");
+  });
+
+  it("is one Tab stop, the chosen theme", () => {
+    expect(radios().map((r) => r.tabIndex)).toEqual([0, -1, -1]);
+  });
+
+  it("handles Home/End on the radios without making the group a Tab stop", () => {
+    expect(host.querySelector<HTMLElement>('[role="radiogroup"]')?.tabIndex).toBe(-1);
+    radios()[0].focus();
+    press(radios()[0], "End");
+    expect(useSettingsStore.getState().theme).toBe("midnight");
+    expect(document.activeElement).toBe(radios()[2]);
+    press(radios()[2], "ArrowUp");
+    expect(useSettingsStore.getState().theme).toBe("sepia");
+    press(radios()[1], "Home");
+    expect(document.activeElement).toBe(radios()[0]);
+    expect(radios().map((r) => r.tabIndex)).toEqual([0, -1, -1]);
+  });
+
+  it("moves to and chooses a theme with the arrow keys, wrapping", () => {
+    radios()[0].focus();
+    press(radios()[0], "ArrowRight");
+    expect(useSettingsStore.getState().theme).toBe("sepia");
+    expect(document.activeElement).toBe(radios()[1]);
+    expect(radios().map((r) => r.tabIndex)).toEqual([-1, 0, -1]);
+    press(radios()[1], "ArrowDown");
+    expect(useSettingsStore.getState().theme).toBe("midnight");
+    press(radios()[2], "ArrowRight");
+    expect(useSettingsStore.getState().theme).toBe("paper");
+    press(radios()[0], "ArrowLeft");
+    expect(useSettingsStore.getState().theme).toBe("midnight");
+    press(radios()[2], "Home");
+    expect(useSettingsStore.getState().theme).toBe("paper");
+    expect(document.activeElement).toBe(radios()[0]);
   });
 });

@@ -79,11 +79,19 @@ export function resolveFromDocument(
       : ""
     : (parts[0] ?? "");
   const out = absolute ? [root] : parts;
+  // Preserve UNC roots, including the extra device/UNC components in DOS device
+  // Windows paths (both ? and . prefixes), before handling ordinary shares.
+  const rootLength =
+    !absolute && /^\\\\[?.]\\UNC[\\/][^\\/]+[\\/][^\\/]+[\\/]/i.test(docPath ?? "")
+      ? 6
+      : !absolute && /^\\\\[^\\/]+[\\/][^\\/]+[\\/]/.test(docPath ?? "")
+        ? 4
+        : 1;
   const rest = absolute && root !== "" ? rel.slice(2) : rel;
   for (const seg of rest.split(/[\\/]/)) {
     if (seg === "" || seg === ".") continue;
     if (seg === "..") {
-      if (out.length > 1) out.pop();
+      if (out.length > rootLength) out.pop();
       continue;
     }
     out.push(seg);
@@ -321,6 +329,9 @@ export function scrollToFragment(fragment: string): () => void {
   let tries = 0;
   let timer: ReturnType<typeof setTimeout> | null = null;
   const tick = () => {
+    // The retry can outlive its caller's cleanup (and the DOM itself under
+    // test teardown); bail instead of dereferencing a gone document.
+    if (typeof document === "undefined") return;
     const el = anchorElement(fragment);
     if (el) {
       el.scrollIntoView({ behavior: smoothScrollBehavior(), block: "start" });

@@ -244,8 +244,11 @@ export function applyHunksTo(
  *
  * Fuzz 0 needs every context line to match; each further level drops one
  * line from the outer end of each side. At each level the match nearest to
- * `hint` wins; two equally near is ambiguous and the hunk is not placed. A
- * pure insertion (no removed lines) needs at least one context line to
+ * `hint` wins; two equally near is ambiguous and the hunk is not placed.
+ * A hunk made with context must retain at least one of its context lines:
+ * otherwise a remaining duplicate of its old lines could be a different
+ * passage entirely. Explicit context-zero replacements still use old lines.
+ * A pure insertion (no removed lines) needs at least one context line to
  * match. One with no context at all (a diff made with `context: 0`, or an
  * insertion into an empty base) has nothing to look for, so it goes at
  * `hint`, as `patch` places a zero-context hunk by its line number.
@@ -265,7 +268,7 @@ export function locateHunk(
   for (let fuzz = 0; fuzz <= maxFuzz; fuzz++) {
     const needBefore = Math.max(0, before.length - fuzz);
     const needAfter = Math.max(0, after.length - fuzz);
-    if (oldLines.length === 0 && needBefore === 0 && needAfter === 0) break;
+    if (maxFuzz > 0 && needBefore === 0 && needAfter === 0) break;
 
     let best: number | null = null;
     let bestDist = Number.POSITIVE_INFINITY;

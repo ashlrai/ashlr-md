@@ -26,7 +26,7 @@ export function AnthropicKeySection() {
 
   useEffect(() => {
     let live = true;
-    anthropicEnvKeyStatus().then((s) => {
+    void anthropicEnvKeyStatus().then((s) => {
       if (live) setEnvKey(s);
     });
     return () => {

@@ -16,7 +16,7 @@ export function MermaidBlock({ code }: MermaidBlockProps) {
 
   useEffect(() => {
     let active = true;
-    (async () => {
+    void (async () => {
       try {
         const mermaid = (await import("mermaid")).default;
         // Re-init each render so a theme change is reflected.
