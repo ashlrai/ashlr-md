@@ -6403,6 +6403,16 @@ fn export_text_preserves_brackets_in_fenced_code() {
     }
 }
 
+#[test]
+fn export_text_preserves_adjacent_bracketed_words_in_prose() {
+    let md = "Read [first] [second], then [third][fourth]. See [link](https://example.com).\n";
+    let result = run_export_text_on(md);
+    assert_eq!(
+        result["text"].as_str().unwrap(),
+        "Read [first] [second], then [third][fourth]. See link."
+    );
+}
+
 /// `char_count` said only "character counts", leaving an agent to guess
 /// bytes or characters. The description says Unicode characters, and the
 /// count of a non-ASCII document is its chars, not its bytes.
