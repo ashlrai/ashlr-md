@@ -8946,6 +8946,22 @@ fn export_text_keeps_bracketed_todo_in_surrounding_prose() {
 }
 
 #[test]
+fn export_text_matches_documented_bracket_preservation_examples() {
+    let docs = include_str!("../../../../docs/integration-bracket-preservation.md");
+    let mut examples = 0;
+    for section in docs.split("Input:\n```markdown\n").skip(1) {
+        let (input, rest) = section
+            .split_once("\n```\nOutput:\n```text\n")
+            .expect("each input has an output");
+        let (expected, _) = rest.split_once("\n```").expect("output fence closes");
+        let result = run_export_text_on(&format!("{input}\n"));
+        assert_eq!(result["text"].as_str().unwrap(), expected, "{input:?}");
+        examples += 1;
+    }
+    assert_eq!(examples, 12, "all documented examples must be checked");
+}
+
+#[test]
 fn export_text_keeps_literal_brackets_in_blockquote_prose() {
     let markdown = "> See note [1] and the [guide](/guide).\n";
     let result = run_export_text_on(markdown);
