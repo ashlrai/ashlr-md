@@ -397,6 +397,35 @@ describe("rule:invalid-link-target", () => {
 
   it.each([
     "",
+    " \t ",
+    "#",
+    "?",
+  ])("fixes destination %j at the beginning without changing following content", (destination) => {
+    for (const newline of ["\n", "\r\n"]) {
+      const link = `[draft](${destination})`;
+      const following = ` — read [guide](./guide.md#details).${newline}${newline}Keep café and  spacing.${newline}`;
+      const doc = link + following;
+      const expected = "[draft](TODO)" + following;
+      const rules = [ruleInvalidLinkTarget];
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations).toHaveLength(1);
+      expect(violations[0]).toMatchObject({
+        ruleId: "invalid-link-target",
+        range: { from: { offset: 0 }, to: { offset: link.length } },
+      });
+      expect(violations[0].fix).not.toBeNull();
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      const remaining = lintDocument(fixed, { rules });
+      expect(remaining).toEqual([]);
+      expect(applyAllFixes(fixed, remaining)).toBe(expected);
+    }
+  });
+
+  it.each([
+    "",
     "\r\n",
   ])("preserves CRLF and surrounding document content when fixing an interior link (ending %j)", (ending) => {
     const doc =
