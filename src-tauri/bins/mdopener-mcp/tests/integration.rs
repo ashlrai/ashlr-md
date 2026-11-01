@@ -8962,6 +8962,22 @@ fn export_text_matches_documented_bracket_preservation_examples() {
 }
 
 #[test]
+fn export_text_matches_bracket_history_examples() {
+    let docs = include_str!("../../../../docs/mdopener-bracket-history.md");
+    let mut examples = 0;
+    for section in docs.split("Input:\n```markdown\n").skip(1) {
+        let (input, rest) = section
+            .split_once("\n```\nOutput:\n```text\n")
+            .expect("each input has an output");
+        let (expected, _) = rest.split_once("\n```").expect("output fence closes");
+        let result = run_export_text_on(&format!("{input}\n"));
+        assert_eq!(result["text"].as_str().unwrap(), expected, "{input:?}");
+        examples += 1;
+    }
+    assert_eq!(examples, 4, "all history examples must be checked");
+}
+
+#[test]
 fn bracketed_prose_example_table_matches_outputs() {
     let docs = include_str!("../../../../docs/bracketed-prose-example-table.md");
     let mut count = 0;
