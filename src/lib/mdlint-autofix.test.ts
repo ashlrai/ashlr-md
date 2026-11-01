@@ -1421,6 +1421,46 @@ describe("rule:missing-alt-text", () => {
   });
 
   it.each([
+    "\n",
+    "\r\n",
+  ])("keeps image alt placeholders stable with a remaining warning and %j line endings", (newline) => {
+    const doc = [
+      "# First",
+      "",
+      "## Second",
+      "",
+      "See ![](images/chart.png?size=2#preview) and ![TODO: describe image](existing.png).",
+      "Then see ![ \t ](images/map.svg) and ![A diagram](diagram.svg).",
+      "",
+    ].join(newline);
+    const expected = [
+      "# First",
+      "",
+      "## Second",
+      "",
+      "See ![TODO: describe image](images/chart.png?size=2#preview) and ![TODO: describe image](existing.png).",
+      "Then see ![TODO: describe image](images/map.svg) and ![A diagram](diagram.svg).",
+      "",
+    ].join(newline);
+    const rules = [ruleOrphanedHeading, ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "orphaned-heading",
+      "missing-alt-text",
+      "missing-alt-text",
+    ]);
+
+    const once = applyAllFixes(doc, violations);
+    expect(once).toBe(expected);
+    const remaining = lintDocument(once, { rules });
+    expect(remaining.map((violation) => violation.ruleId)).toEqual([
+      "orphaned-heading",
+    ]);
+    expect(remaining[0].fix).toBeNull();
+    expect(applyAllFixes(once, remaining)).toBe(once);
+  });
+
+  it.each([
     '"Café chart"',
     "'Café chart'",
   ])("preserves an image destination and title %s across autofix passes", (title) => {
