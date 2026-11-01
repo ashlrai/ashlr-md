@@ -40,3 +40,4 @@ also matches the link-shaped part of an image: `![chart](?)` becomes
 and indented code, HTML blocks, inline code, and inline math are masked from
 this rule. For overlapping image warnings and their fixes, see the
 [autofix guide](mdlint-autofix-guide.md#when-both-warnings-overlap).
+For the matching boundaries, see [link rule boundaries](mdlint-link-rule-boundaries.md).
