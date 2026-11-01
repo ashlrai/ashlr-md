@@ -8928,6 +8928,20 @@ fn export_text_keeps_brackets_unless_a_reference_is_defined() {
         ("[a]\n\n```\n[a]: /u\n```", "[a]\n\n[a]: /u"),
         ("[n]\n\n[^n]: note", "[n]\n\n[n] note"),
     ];
+    let docs = include_str!("../../../../docs/mdopener-bracket-input-output.md");
+    let documented: Vec<(String, String)> = serde_json::from_str(
+        docs.split_once("````json\n")
+            .expect("documented pairs start with a JSON fence")
+            .1
+            .split_once("\n````")
+            .expect("documented pairs have a closing fence")
+            .0,
+    )
+    .expect("documented pairs are JSON strings");
+    assert_eq!(documented.len(), cases.len());
+    for ((input, output), (doc, want)) in documented.iter().zip(cases) {
+        assert_eq!((input.as_str(), output.as_str()), (doc, want));
+    }
     for (doc, want) in cases {
         assert_eq!(strip_markdown(doc), want, "{doc:?}");
     }
