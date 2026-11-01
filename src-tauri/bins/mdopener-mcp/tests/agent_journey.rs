@@ -341,6 +341,14 @@ fn an_agent_works_a_vault_from_disk_without_the_app() {
         assert!(is_error, "vault {bad}: {msg}");
         assert!(msg.contains("`vault`"), "{msg}");
     }
+    // A hidden directory cannot be used as the vault root either, even if it
+    // contains a matching Markdown file.
+    let (is_error, msg) = c.call(
+        "search_vault",
+        json!({ "query": "changelog", "semantic": false, "vault": ".git" }),
+    );
+    assert!(is_error, "hidden vault: {msg}");
+    assert!(msg.contains("hidden folder"), "{msg}");
     // So is reading the open document when there is no app to ask.
     let (is_error, msg) = c.call("export_text", json!({}));
     assert!(is_error, "export_text without a path or app: {msg}");
