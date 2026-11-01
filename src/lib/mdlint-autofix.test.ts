@@ -2893,8 +2893,10 @@ describe("chained violations and multi-line fixes", () => {
 
   it("sequential rule passes produce the same result as applyAllFixes", () => {
     const doc = "Look ![](img.png) and visit [here]().\n";
+    const expected = "Look ![TODO: describe image](img.png) and visit [here](TODO).\n";
+    const rules = [ruleMissingAltText, ruleInvalidLinkTarget];
     const allViolations = lintDocument(doc, {
-      rules: [ruleMissingAltText, ruleInvalidLinkTarget],
+      rules,
     });
     const allFixed = applyAllFixes(doc, allViolations);
 
@@ -2907,14 +2909,18 @@ describe("chained violations and multi-line fixes", () => {
 
     // Both approaches should eliminate all the original violations
     const remaining = lintDocument(allFixed, {
-      rules: [ruleMissingAltText, ruleInvalidLinkTarget],
+      rules,
     });
     expect(remaining).toHaveLength(0);
+    expect(allFixed).toBe(expected);
+    expect(applyAllFixes(allFixed, remaining)).toBe(allFixed);
 
     const remainingSeq = lintDocument(seq, {
-      rules: [ruleMissingAltText, ruleInvalidLinkTarget],
+      rules,
     });
     expect(remainingSeq).toHaveLength(0);
+    expect(seq).toBe(allFixed);
+    expect(applyAllFixes(seq, remainingSeq)).toBe(seq);
   });
 
   it("fix for invalid-link-target leaves valid links untouched", () => {
