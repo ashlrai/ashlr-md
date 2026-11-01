@@ -2955,11 +2955,12 @@ describe("LinterToast violation history", () => {
   });
 
   it.each([
+    "",
     "\n",
     "\r\n",
     "\n\n",
     "\r\n\r\n",
-  ])("Fix all preserves the trailing newline sequence %j after an invalid link", (ending) => {
+  ])("Fix all preserves the document ending %j after an invalid link", (ending) => {
     const doc = `Opening paragraph.\n\nRead [draft]()${ending}`;
     const rules = [ruleInvalidLinkTarget];
     const violations = lintDocument(doc, { rules });
