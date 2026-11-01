@@ -1365,6 +1365,32 @@ describe("rule:missing-alt-text", () => {
   });
 
   it.each([
+    "\n",
+    "\r\n",
+  ])("fixes an earlier image without adding a final newline with %j line endings", (newline) => {
+    const doc = ["Gallery: café", "![](images/view.png)", "Closing text."].join(
+      newline,
+    );
+    const expected = [
+      "Gallery: café",
+      "![TODO: describe image](images/view.png)",
+      "Closing text.",
+    ].join(newline);
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "missing-alt-text",
+    ]);
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.endsWith("\n")).toBe(false);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
     true,
     false,
   ])("fixes an empty-alt image next to a valid link (image first: %s)", (imageFirst) => {
