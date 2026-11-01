@@ -318,6 +318,38 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    "\n",
+    "\r\n",
+  ])("fixes a later-line link without changing any other line with %j line endings", (newline) => {
+    const lines = [
+      "# Café guide",
+      "",
+      "```md",
+      "[draft]()",
+      "```",
+      "",
+      "Read [draft]() next.",
+      "",
+      "Keep  spacing and a tab:\t☕.",
+      "",
+    ];
+    const doc = lines.join(newline);
+    const expectedLines = [...lines];
+    expectedLines[6] = "Read [draft](TODO) next.";
+    const expected = expectedLines.join(newline);
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].range?.from.line).toBe(7);
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
     "",
     " \t ",
     "#",
