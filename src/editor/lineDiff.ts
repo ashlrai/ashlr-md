@@ -30,8 +30,7 @@ export interface DiffOp {
 export function splitLines(text: string): string[] {
   const out: string[] = [];
   let start = 0;
-  let i = 0;
-  while (i < text.length) {
+  for (let i = 0; i < text.length; i++) {
     const c = text.charCodeAt(i);
     if (c === 10 /* \n */) {
       out.push(text.slice(start, i + 1));
@@ -40,10 +39,8 @@ export function splitLines(text: string): string[] {
       const end = text.charCodeAt(i + 1) === 10 ? i + 2 : i + 1;
       out.push(text.slice(start, end));
       start = end;
-      i = end;
-      continue;
+      i = end - 1;
     }
-    i++;
   }
   if (start < text.length) out.push(text.slice(start));
   return out;
@@ -212,9 +209,11 @@ function canonical(ops: DiffOp[]): DiffOp[] {
       if (last?.kind === "equal") last.lines = [...last.lines, ...op.lines];
       else out.push({ kind: "equal", lines: [...op.lines] });
     } else if (op.kind === "delete") {
-      del.push(...op.lines);
+      // Coarse replacements can contain more lines than a JS engine's
+      // function argument limit, so do not spread a run into push().
+      for (const line of op.lines) del.push(line);
     } else {
-      ins.push(...op.lines);
+      for (const line of op.lines) ins.push(line);
     }
   }
   flush();

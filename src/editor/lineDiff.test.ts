@@ -18,8 +18,10 @@ function rebuild(a: readonly string[], ops: DiffOp[]): { a: string[]; b: string[
   const fromA: string[] = [];
   const fromB: string[] = [];
   for (const op of ops) {
-    if (op.kind !== "insert") fromA.push(...op.lines);
-    if (op.kind !== "delete") fromB.push(...op.lines);
+    for (const line of op.lines) {
+      if (op.kind !== "insert") fromA.push(line);
+      if (op.kind !== "delete") fromB.push(line);
+    }
   }
   expect(fromA).toEqual(a);
   return { a: fromA, b: fromB };
@@ -163,6 +165,14 @@ describe("diffLines", () => {
     const started = performance.now();
     const ops = diffLines(a, b);
     expect(performance.now() - started).toBeLessThan(3000);
+    expect(rebuild(a, ops).b).toEqual(b);
+  });
+
+  it("round-trips a coarse rewrite beyond the engine's argument limit", () => {
+    const a = Array.from({ length: 200_000 }, (_, i) => `old ${i}\n`);
+    const b = Array.from({ length: 200_000 }, (_, i) => `new ${i}\n`);
+    const ops = diffLines(a, b, 0);
+    expect(ops.map((op) => op.kind)).toEqual(["delete", "insert"]);
     expect(rebuild(a, ops).b).toEqual(b);
   });
 });

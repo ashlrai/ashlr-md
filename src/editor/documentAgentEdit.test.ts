@@ -1,12 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // A document store with just what the binding uses: the open document's
-// path and text, and setContent.
+// path and text, and external replacement signal.
 const doc = vi.hoisted(() => {
   const state = {
     path: null as string | null,
     content: "",
-    setContent: (content: string) => {
+    reloadNonce: 0,
+    replaceContent: (content: string) => {
+      state.reloadNonce++;
       state.content = content;
       state.writes.push(content);
     },
@@ -40,6 +42,7 @@ beforeEach(() => {
   doc.path = PATH;
   doc.content = BASE;
   doc.writes = [];
+  doc.reloadNonce = 0;
 });
 
 describe("liveDocument", () => {
@@ -68,6 +71,7 @@ describe("review mode", () => {
     );
     expect(result).toMatchObject({ ok: true, status: "proposed" });
     expect(doc.writes).toEqual([]);
+    expect(doc.reloadNonce).toBe(0);
     expect(store.getState().proposals[PATH].diff.stats.hunks).toBe(1);
 
     store.getState().decideAll(PATH, "accepted");
@@ -75,6 +79,7 @@ describe("review mode", () => {
     expect(committed).toMatchObject({ ok: true, applied: 1 });
     expect(doc.content).toBe(BASE.replace("## Draft", "## Final"));
     expect(doc.writes).toHaveLength(1);
+    expect(doc.reloadNonce).toBe(1);
   });
 
   it("commits against what the user typed while the proposal waited", () => {
@@ -94,6 +99,7 @@ describe("review mode", () => {
     submitAgentChange({ ...meta, proposed: `${BASE}More.\n` }, store);
     expect(commitOpenProposal(store)).toMatchObject({ ok: true, applied: 0 });
     expect(doc.writes).toEqual([]);
+    expect(doc.reloadNonce).toBe(0);
   });
 
   it("passes on the reason a change cannot be proposed", () => {
@@ -169,5 +175,6 @@ describe("no document open", () => {
     });
     expect(undoAgentEdit(store)).toEqual({ ok: false, reason: "empty" });
     expect(doc.writes).toEqual([]);
+    expect(doc.reloadNonce).toBe(0);
   });
 });
