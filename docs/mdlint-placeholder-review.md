@@ -5,6 +5,8 @@ an author can supply the intended content. **Every placeholder requires review**
 before the document is ready to share. A warning disappearing does not mean the
 link works or the image has useful alternative text: the linter accepts these
 nonempty placeholders and does not check destinations or judge descriptions.
+The behavior below follows the rules in [mdlint.ts](../src/lib/mdlint.ts) and
+the examples in [mdlint-autofix.test.ts](../src/lib/mdlint-autofix.test.ts).
 
 Search the document for `TODO` after applying fixes. Review each match in context;
 some may be unrelated author notes. The two generated forms are a `TODO` link or
@@ -79,11 +81,30 @@ misleading filler text.
 
 ## Review images with both placeholders
 
-An image can need both a source and a description. For example, `![](?)` needs
-two Fix all passes: the first inserts the alt placeholder, and the next replaces
-the invalid destination. Review both parts of the resulting
-`![TODO: describe image](TODO)` independently. An empty source such as `![]()`
-is first flagged for its destination; after that fix, the alt rule can flag it.
+An image can need both a source and a description. For example:
+
+<!-- example: overlap before -->
+```md
+![](?)
+```
+
+The first Fix all pass inserts the alt placeholder:
+
+<!-- example: overlap first pass -->
+```md
+![TODO: describe image](?)
+```
+
+A second lint and Fix all pass replaces the invalid destination:
+
+<!-- example: overlap second pass -->
+```md
+![TODO: describe image](TODO)
+```
+
+Replace both placeholders independently with a meaningful description and the
+intended image source. An empty source such as `![]()` is first flagged for its
+destination; after that fix, the alt rule can flag it.
 
 For the exact rule scope, excluded Markdown regions, and examples of overlapping
 fixes, see the [autofix guide](mdlint-autofix-guide.md).
