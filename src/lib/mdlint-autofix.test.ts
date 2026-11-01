@@ -2513,6 +2513,37 @@ describe("LinterToast violation history", () => {
     expect(getLintHistory()).toEqual(historyAfterFirstPass);
   });
 
+  it.each([
+    "\n",
+    "\r\n",
+  ])("fixes multiple link placeholders only once with %j line endings", (newline) => {
+    const doc = [
+      "Read [draft]() and [draft](TODO).",
+      "See [section](#), [search](?), and [guide](./guide.md).",
+    ].join(newline);
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "invalid-link-target",
+      "invalid-link-target",
+      "invalid-link-target",
+    ]);
+
+    const once = fixAllViolations(doc, violations);
+    expect(once).toBe(
+      [
+        "Read [draft](TODO) and [draft](TODO).",
+        "See [section](TODO), [search](TODO), and [guide](./guide.md).",
+      ].join(newline),
+    );
+    const historyAfterFirstPass = [...getLintHistory()];
+    expect(historyAfterFirstPass).toHaveLength(3);
+    const remaining = lintDocument(once, { rules });
+    expect(remaining).toEqual([]);
+    expect(fixAllViolations(once, remaining)).toBe(once);
+    expect(getLintHistory()).toEqual(historyAfterFirstPass);
+  });
+
   it("getLintHistory returns an empty array initially", () => {
     expect(getLintHistory()).toHaveLength(0);
   });
