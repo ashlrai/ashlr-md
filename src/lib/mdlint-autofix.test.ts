@@ -877,6 +877,27 @@ describe("rule:invalid-link-target", () => {
     expect(applyAllFixes(once, remaining)).toBe(once);
   });
 
+  it.each([
+    "\n",
+    "\r\n",
+  ])("keeps an invalid link and trailing whitespace fixed on a second pass with %j line endings", (newline) => {
+    const doc = ["Opening paragraph.", "", "Read [draft]() next.   "].join(newline);
+    const rules = [ruleInvalidLinkTarget, ruleNoTrailingSpaces];
+    const violations = lintDocument(doc, { rules });
+    expect(violations.map((violation) => violation.ruleId).sort()).toEqual([
+      "invalid-link-target",
+      "no-trailing-spaces",
+    ]);
+
+    const once = applyAllFixes(doc, violations);
+    expect(once).toBe(
+      ["Opening paragraph.", "", "Read [draft](TODO) next."].join(newline),
+    );
+    const remaining = lintDocument(once, { rules });
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(once, remaining)).toBe(once);
+  });
+
   it("is idempotent when fixing multiple invalid destinations across lines", () => {
     const doc =
       "📚 [draft]() and [section](#); keep [guide](./guide.md).\r\n" +
