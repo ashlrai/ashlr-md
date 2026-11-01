@@ -7,6 +7,9 @@ stdin and requires the server to exit cleanly. Temporary directories stay alive
 for the duration of each test and are removed when their `TempDir` handles are
 dropped.
 
+For the vault helper's creation and cleanup lifecycle, see
+[The mdopener agent journey fixture](mdopener-agent-journey-fixture.md).
+
 ## Why the vault needs a visible name
 
 The offline `search_vault` path resolves the supplied directory before checking

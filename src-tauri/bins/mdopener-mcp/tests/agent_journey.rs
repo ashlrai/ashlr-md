@@ -140,6 +140,27 @@ fn vault() -> tempfile::TempDir {
 }
 
 #[test]
+fn vault_fixture_is_visible_and_removed_when_dropped() {
+    let dir = vault();
+    let path = dir.path().to_owned();
+    assert!(path
+        .file_name()
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .starts_with("vault-"));
+    assert!(path.join("plan.md").is_file());
+    assert!(path.join(".hidden.md").is_file());
+
+    drop(dir);
+    assert!(
+        !path.exists(),
+        "fixture was not removed: {}",
+        path.display()
+    );
+}
+
+#[test]
 fn an_agent_works_a_vault_from_disk_without_the_app() {
     let home = tempfile::tempdir().unwrap();
     let vault = vault();
