@@ -1269,6 +1269,37 @@ describe("rule:invalid-link-target", () => {
 // ─── 3. Rule: missing-alt-text ────────────────────────────────────────────────
 
 describe("rule:missing-alt-text", () => {
+  it.each([
+    "\n",
+    "\r\n",
+  ])("preserves Unicode prose around an image when fixing alt text with %j line endings", (newline) => {
+    const prefix = "😀 café cafe\u0301 日本語 ";
+    const suffix = " مرحبا 👩🏽‍💻 שלום 🌍";
+    const image = '![](images/view.png?size=2#preview "View")';
+    const doc = ["前文 🚀", `${prefix}${image}${suffix}`, "終わり", ""].join(newline);
+    const expected = [
+      "前文 🚀",
+      `${prefix}![TODO: describe image](images/view.png?size=2#preview "View")${suffix}`,
+      "終わり",
+      "",
+    ].join(newline);
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "missing-alt-text",
+    ]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(image);
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    const remaining = lintDocument(fixed, { rules });
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(fixed, remaining)).toBe(expected);
+  });
+
   it("fixes the first image without changing a following described image", () => {
     const doc = "![](first.png)\n![A mountain at sunrise](second.png)\n";
     const expected =
