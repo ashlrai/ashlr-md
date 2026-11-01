@@ -3433,6 +3433,41 @@ describe("edge cases", () => {
     expect(applyAllFixes(doc, violations)).toBe(doc);
   });
 
+  it("leaves a valid document holding a link and a described image unchanged", () => {
+    const link = "[the guide](https://example.com/guide?topic=lint#links)";
+    const image = '![A café diagram](images/caf%C3%A9.png?size=2#preview "Diagram")';
+    const doc = [
+      "---",
+      "title: Café guide",
+      "---",
+      "",
+      "# Café guide",
+      "",
+      `Read ${link} and see ${image}.`,
+      "",
+      "## Details",
+      "",
+      "Keep  internal spacing and Unicode: ☕.",
+      "",
+    ].join("\n");
+    const ruleSets = [
+      BUILTIN_RULES,
+      BUILTIN_RULES.filter((rule) => LINTER_DEFAULT_ENABLED_RULES.includes(rule.id)),
+    ];
+
+    for (const rules of ruleSets) {
+      const violations = lintDocument(doc, { rules });
+      expect(violations).toEqual([]);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(doc);
+      expect(fixed).toContain(link);
+      expect(fixed).toContain(image);
+      const remaining = lintDocument(fixed, { rules });
+      expect(remaining).toEqual([]);
+      expect(applyAllFixes(fixed, remaining)).toBe(doc);
+    }
+  });
+
   it("lintDocument on an empty string produces no violations for new rules", () => {
     const violations = lintDocument("", {
       rules: [ruleOrphanedHeading, ruleInvalidLinkTarget, ruleMissingAltText],
