@@ -757,13 +757,24 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 
-  it("is idempotent when autofixing a broken link", () => {
-    const doc = "Before [link]() after.\n";
+  it.each([
+    "",
+    " \t ",
+    "#",
+    "?",
+  ])("is idempotent when autofixing an invalid link destination %j", (destination) => {
+    const doc = `Before [link](${destination}) after.\n`;
     const rules = [ruleInvalidLinkTarget];
-    const once = applyAllFixes(doc, lintDocument(doc, { rules }));
-    const twice = applyAllFixes(once, lintDocument(once, { rules }));
+    const violations = lintDocument(doc, { rules });
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("invalid-link-target");
+    expect(violations[0].fix).not.toBeNull();
 
+    const once = applyAllFixes(doc, violations);
     expect(once).toBe("Before [link](TODO) after.\n");
+    const remaining = lintDocument(once, { rules });
+    expect(remaining).toEqual([]);
+    const twice = applyAllFixes(once, remaining);
     expect(twice).toBe(once);
   });
 
