@@ -2486,6 +2486,27 @@ describe("LinterToast violation history", () => {
     expect(getLintHistory()).toEqual([]);
   });
 
+  it.each([
+    "\n",
+    "\r\n",
+  ])("leaves a valid link and image unchanged with %j line endings", (newline) => {
+    const doc = [
+      "---",
+      "title: Café guide",
+      "---",
+      "",
+      "Before: [Café guide](https://example.com/guide?view=full#links).",
+      'See ![A café chart](images/chart.png?size=2#preview "Chart") after.',
+      "",
+    ].join(newline);
+    const violations = lintDocument(doc);
+
+    expect(violations).toEqual([]);
+    expect(applyAllFixes(doc, violations)).toBe(doc);
+    expect(fixAllViolations(doc, violations)).toBe(doc);
+    expect(getLintHistory()).toEqual([]);
+  });
+
   it("preserves a valid link and surrounding text while fixing images on both sides", () => {
     const doc =
       "Before ![](left.png), read [café guide](./guide.md?view=full#links) " +
