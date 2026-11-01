@@ -6392,12 +6392,12 @@ fn export_text_preserves_code_block_content() {
 fn export_text_preserves_brackets_in_fenced_code() {
     for fence in ["```", "~~~"] {
         let md = format!(
-            "Before [link](https://example.com)\n\n{fence}text\n[bracketed] [link](url) [[wiki]] [^note]\n{fence}\n\nAfter [link](url)\n"
+            "[Opening prose] Before [link](https://example.com)\n\n{fence}text\n[bracketed] [link](url) [[wiki]] [^note]\n{fence}\n\nAfter [link](url) [Closing prose]\n"
         );
         let result = run_export_text_on(&md);
         assert_eq!(
             result["text"].as_str().unwrap(),
-            "Before link\n\n[bracketed] [link](url) [[wiki]] [^note]\n\nAfter link",
+            "[Opening prose] Before link\n\n[bracketed] [link](url) [[wiki]] [^note]\n\nAfter link [Closing prose]",
             "fence: {fence}"
         );
     }
