@@ -334,7 +334,7 @@ See [`docs/VISION.md`](./docs/VISION.md) for the north star and
 
 ## Repair with doctor --fix
 
-`mdopener-mcp doctor --fix` previews repairs to Ashlr MD's state folder, `~/.mdopener`, and writes nothing (exit 0). `mdopener-mcp doctor --fix --apply` makes them. `mdopener-mcp doctor --apply` without `--fix` is refused with exit 2. Add `--json` for one `{ mode, plan, outcome }` object. This is in source (main, 0.4.1 unreleased) and not yet in a release.
+`mdopener-mcp doctor --fix` previews repairs to Ashlr MD's state folder, `~/.mdopener`, and writes nothing (exit 0). `mdopener-mcp doctor --fix --apply` makes them. `mdopener-mcp doctor --apply` without `--fix` is refused with exit 2. Add `--json` for one `{ mode, plan, outcome }` object. This is in source (main, 0.5.0 unreleased) and not yet in a release.
 
 ```console
 $ mdopener-mcp doctor --fix

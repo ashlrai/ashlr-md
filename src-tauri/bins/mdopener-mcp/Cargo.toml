@@ -1,6 +1,6 @@
 [package]
 name = "mdopener-mcp"
-version = "0.4.0"
+version = "0.5.0"
 description = "MCP (Model Context Protocol) server for MD Opener: lets coding agents drive the app"
 authors = ["MD Opener contributors"]
 license = "MIT"

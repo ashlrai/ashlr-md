@@ -1,7 +1,7 @@
 {
   "name": "md-opener",
   "private": true,
-  "version": "0.4.0",
+  "version": "0.5.0",
   "type": "module",
   "scripts": {
     "check:crypto": "node --test scripts/check-crypto.test.mjs && node scripts/check-crypto.mjs",

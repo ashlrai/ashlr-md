@@ -11,7 +11,7 @@ contract is implemented by `locus`, `stack` (ashlr-stack), `ashlr-plugin` and
   "schema_version": 1,
   "name": "ashlr-md",
   "command": "mdopener-mcp",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "protocols": { "ashlr.handshake": 1, "mcp": 1 },
   "capabilities": ["mcp-server", "markdown-viewer", "review-annotations", "document-edit", "export", "vault-search", "agent-setup", "doctor-fix"],
   "health": { "status": "ok", "checks": [{ "id": "app-running", "status": "absent" }] },
