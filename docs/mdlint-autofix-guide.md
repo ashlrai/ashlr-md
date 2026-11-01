@@ -15,6 +15,8 @@ and examples of replacing them with reviewed content, or the
 For a source-linked summary, see the [fix output reference](mdlint-fix-output-reference.md).
 For focused before-and-after examples, see
 [surrounding text in autofixes](mdlint-autofix-surrounding-text.md).
+For an image-specific review workflow, see the
+[image alt-text review checklist](mdlint-image-review-checklist.md).
 
 ## Invalid link targets
 
