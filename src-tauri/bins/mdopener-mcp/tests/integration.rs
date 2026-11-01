@@ -8960,6 +8960,33 @@ fn export_text_keeps_bracketed_todo_in_surrounding_prose() {
 }
 
 #[test]
+fn export_text_matches_prose_brackets_documentation() {
+    let docs = include_str!("../../../../docs/mdopener-prose-brackets.md");
+    let expected = [
+        ("Please review [TODO] before the next release.\n", "Please review [TODO] before the next release."),
+        ("The report says the result was 'definately [sic] confirmed' by [the authors](https://example.com).\n", "The report says the result was 'definately [sic] confirmed' by the authors."),
+    ];
+    let examples: Vec<_> = docs
+        .split("Input:\n```markdown\n")
+        .skip(1)
+        .map(|section| {
+            let (input, rest) = section
+                .split_once("\n```\nOutput:\n```text\n")
+                .expect("each input has an output");
+            let (output, _) = rest.split_once("\n```").expect("output fence closes");
+            (format!("{input}\n"), output)
+        })
+        .collect();
+    assert_eq!(examples.len(), expected.len());
+    for ((input, output), (fixture_input, fixture_output)) in examples.iter().zip(expected) {
+        assert_eq!(input, fixture_input);
+        assert_eq!(*output, fixture_output);
+        let result = run_export_text_on(input);
+        assert_eq!(result["text"].as_str().unwrap(), *output, "{input:?}");
+    }
+}
+
+#[test]
 fn export_text_matches_bracket_change_context_examples() {
     let docs = include_str!("../../../../docs/mdopener-bracket-change-context.md");
     let expected = [
