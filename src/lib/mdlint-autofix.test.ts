@@ -2063,6 +2063,17 @@ describe("rule:missing-alt-text", () => {
     expect(lintDocument(expected, { rules })).toHaveLength(0);
   });
 
+  it("autofixes an image on the final line without adding a newline", () => {
+    const doc = "Introduction.\n\n![](diagram.png)";
+    const violations = lintDocument(doc, { rules: [ruleMissingAltText] });
+    expect(violations).toHaveLength(1);
+
+    const expected = "Introduction.\n\n![TODO: describe image](diagram.png)";
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules: [ruleMissingAltText] })).toHaveLength(0);
+  });
+
   it("flags multiple images missing alt text", () => {
     const doc = "![](a.png) text ![](b.png) more.\n";
     const rules = [ruleMissingAltText];
