@@ -494,6 +494,25 @@ describe("rule:invalid-link-target", () => {
     expect(fixed).toBe("Before [link](TODO) after.\n");
   });
 
+  it("fixes a link between unchanged Unicode prose", () => {
+    const doc =
+      "🚀 Before: keep  this text; read [draft guide](?) now. Keep  this text. 🌱\n";
+    const expected =
+      "🚀 Before: keep  this text; read [draft guide](TODO) now. Keep  this text. 🌱\n";
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("invalid-link-target");
+    expect(violations[0].fix).not.toBeNull();
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe("[draft guide](?)");
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
   it.each([
     "\n",
     "\r\n",
