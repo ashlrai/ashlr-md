@@ -45,4 +45,22 @@ describe("placeholder review guide", () => {
     expect(second.map((violation) => violation.ruleId)).toEqual(["missing-alt-text"]);
     expect(applyAllFixes(placeholder, second)).toBe("![TODO: describe image](TODO)");
   });
+
+  it("shows both passes when image fixes overlap", () => {
+    const before = example("overlap before");
+    const first = lintDocument(before, { rules });
+    expect(first.map((violation) => violation.ruleId)).toEqual([
+      "missing-alt-text",
+      "invalid-link-target",
+    ]);
+    const once = applyAllFixes(before, first);
+    expect(once).toBe(example("overlap first pass"));
+    const second = lintDocument(once, { rules });
+    expect(second.map((violation) => violation.ruleId)).toEqual([
+      "invalid-link-target",
+    ]);
+    const twice = applyAllFixes(once, second);
+    expect(twice).toBe(example("overlap second pass"));
+    expect(lintDocument(twice, { rules })).toEqual([]);
+  });
 });
