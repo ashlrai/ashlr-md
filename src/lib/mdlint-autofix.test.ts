@@ -93,6 +93,28 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(doc, { rules: [ruleInvalidLinkTarget] })).toHaveLength(0);
   });
 
+  it.each([
+    "",
+    " ",
+    "#",
+    "?",
+  ])("fixes two identical invalid hrefs %j on one line without changing the text between them", (href) => {
+    const doc = `Before [draft](${href}) — \`[example]()\`  café\t& then [draft](${href}) after.\r\n`;
+    const expected =
+      "Before [draft](TODO) — `[example]()`  café\t& then [draft](TODO) after.\r\n";
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "invalid-link-target",
+      "invalid-link-target",
+    ]);
+    expect(violations.every((violation) => violation.fix !== null)).toBe(true);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(applyAllFixes(doc, [...violations].reverse())).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+
   it("fixes an invalid link followed by a valid link", () => {
     const doc =
       "---\ntitle: Guide\n---\n\nRead [draft]() then [guide](https://example.com/guide).\n";
