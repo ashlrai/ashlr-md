@@ -24,7 +24,8 @@ context. The placeholder clears the warning, but the rule does not judge whether
 nonempty alt text is useful or whether the image source exists. Empty alt text
 can be appropriate for a decorative image, although this rule will still flag
 it; see the [placeholder review guide](mdlint-placeholder-review.md) for how to
-review that case.
+review that case and the [accessibility guide](mdlint-placeholder-accessibility.md)
+for choosing alt text based on an image's purpose.
 
 The rule uses a pattern for inline images, rather than a complete Markdown
 parser. An empty source such as `![]()` does not match this rule; the separate
