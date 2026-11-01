@@ -34,15 +34,14 @@ git push origin vX.Y.Z
 This triggers `.github/workflows/release.yml`, which fans out across the full
 build matrix and **uploads each platform's bundles as workflow artifacts**.
 
-> **The workflow does NOT create the GitHub Release.** The org disables
-> `GITHUB_TOKEN` write access, so `release.yml` is build-only: it never calls
-> the Release API and never publishes `latest.json`. A maintainer assembles and
+> **The workflow does NOT create the GitHub Release.** `release.yml` is
+> build-only: it does not call the Release API or publish `latest.json`.
+> A maintainer assembles and
 > publishes the Release manually from the uploaded artifacts (see §4). Until
 > that manual step is done, **no release exists and the updater sees nothing.**
 
-> **Pre-release tags:** any tag containing a hyphen (`v0.2.0-beta.1`) sets
-> `prerelease: true` automatically. Use this for testing the pipeline without
-> shipping to stable update channels.
+> A pre-release tag is not automatically marked as a pre-release by this
+> build-only workflow. Set the Release status explicitly when publishing.
 
 ---
 
@@ -64,11 +63,14 @@ step 4).
 | Windows x86_64 | `windows-latest` | `Ashlr MD_X.Y.Z_x64-setup.exe` (NSIS) | `Ashlr_MD_X.Y.Z_x64-setup.exe` |
 | Windows x86_64 | `windows-latest` | `Ashlr MD_X.Y.Z_x64_en-US.msi` | `Ashlr_MD_X.Y.Z_x64_en-US.msi` |
 
-Each bundle comes with its updater `.sig` file where the updater signs it.
-
-Each leg uploads a platform-specific entry to the Tauri updater manifest.
-After all four legs complete, `latest.json` in the release contains aggregated
-entries for every platform; this is what `tauri-plugin-updater` polls.
+The updater needs a signed artifact for each target, in addition to installer
+bundles: macOS uses the `.app.tar.gz` archive and its `.sig` (not the DMG),
+Linux uses the AppImage and its `.sig`, and Windows uses one selected signed
+installer and its `.sig`. The two macOS archives must be distinguished by
+architecture when staged. The workflow does **not** produce `latest.json`
+or manifest fragments: the pinned `tauri-action` is called without a release ID
+or tag name. Artifact upload runs even after failure and warns on missing files;
+a successful upload does not prove the inventory is complete.
 
 ### Sidecar binaries per platform
 
@@ -104,32 +106,100 @@ runtime support.
 
 ## 4. Assembling & Publishing the GitHub Release
 
-Because `release.yml` only uploads artifacts (see §2), you assemble the Release
-yourself with your own credentials:
+Because `release.yml` only uploads artifacts (see §2), a maintainer must
+assemble and independently validate the release before publishing. Do not publish
+if required evidence is missing. The local helper is a candidate, not yet
+qualified on four actual artifacts from one eligible run. It does not publish.
 
-1. Open the completed workflow run at **github.com/ashlrai/ashlr-md/actions**
-   and **download every leg's uploaded artifacts** (the `.dmg`/`.deb`/
-   `.AppImage`/`.exe`/`.msi` bundles, their `.sig` files, and each leg's updater
-   manifest fragment).
-2. **Assemble `latest.json`** by merging the per-platform updater entries from
-   every leg into one manifest (`version`, `pub_date`, and a `platforms` map of
-   `{ signature, url }` per target). The `url` of each entry must point at the
-   renamed asset you upload in step 5.
-3. Create a new Release at **github.com/ashlrai/ashlr-md/releases/new** for the
-   `vX.Y.Z` tag (mark it pre-release for hyphenated tags). Paste the matching
-   `CHANGELOG.md` section as the notes.
-4. **Rename each bundle to its "Publish as" name in §3** (the space in
-   `Ashlr MD` becomes `_`, and the `.rpm` becomes `Ashlr_MD_X.Y.Z_x86_64.rpm`),
-   and each `.sig` to match. Uploaded as built, GitHub turns the space into a
-   `.` (`Ashlr.MD_X.Y.Z_amd64.deb`), and every download link in the docs and
-   packaging templates 404s.
-5. Attach all renamed bundles **and** the assembled `latest.json` as release
-   assets, then **Publish**.
+1. Obtain the original, unmodified ZIP for each of the four workflow artifacts
+   from the completed release run. Keep them in one directory, named
+   `bundle-macos-15.zip`, `bundle-macos-15-intel.zip`,
+   `bundle-ubuntu-22.04.zip` and `bundle-windows-latest.zip`. Do not substitute
+   extracted files or ZIPs from another run. The helper queries GitHub's public
+   API itself, binds the reviewed full SHA to the peeled tag and release run,
+   checks the push event, successful full-CI gate, all four native jobs and
+   their build/upload steps, and an exact-SHA manual CI run with successful
+   Linux and macOS full-suite jobs. It compares each original ZIP's SHA-256 to
+   the live API's artifact digest before privately and safely extracting it.
+   The source blob SHA-1 comparison follows Git's legacy object-ID protocol;
+   it is not a collision-resistant signature or independent authentication.
+   GitHub API errors, expired/missing artifacts, mismatches or incomplete data
+   stop assembly. Artifact metadata does not identify the producing job/attempt:
+   **only release run attempt 1 is supported**. A rerun requires a separately
+   designed job-bound proof; do not retag or bump a release just to pass this.
 
-Publishing makes `latest.json` live at the updater endpoint; existing installs
-prompt to update on next launch. (If you later automate this, a PAT with
-`contents:write` in the workflow would let `tauri-action` create the Release
-directly and this manual step goes away.)
+   On Linux x86-64, install Python 3.11+, Cargo, and the pinned Python dependency
+   in an isolated environment:
+
+   ```bash
+   python3 -m venv /path/to/release-venv
+   /path/to/release-venv/bin/pip install --require-hashes --only-binary=:all: -r scripts/release-assembly-requirements.txt
+   ```
+
+   Download the official [7-Zip 26.05 Linux x64 release](https://github.com/ip7z/7zip/releases/tag/26.05),
+   verify its archive SHA-256 is
+   `22cf82fcc6eb7474f1d5bb4f02c0f8ebd573a718089d6833dc30f8350a3b232e`,
+   extract `7zz` into a local tools directory, and set `ASHLR_MD_7ZZ` to its
+   absolute path in a trusted, non-writable-by-others tools directory. The helper
+   checks the executable's SHA-256 too; protect it from replacement between the
+   check and execution. Then run
+   from this checkout, substituting the reviewed values and actual intended
+   publication time. The output name must be a simple new basename, not a path;
+   output is created only under this checkout’s private `.release-staging/`.
+   The checkout and its ancestors must be trusted against concurrent modification:
+
+   ```bash
+   /path/to/release-venv/bin/python scripts/assemble-updater.py /path/to/original-zips release-vX.Y.Z \
+     --tag vX.Y.Z --source-sha <reviewed-full-sha> --run-id <release-run-id> \
+     --pub-date YYYY-MM-DDTHH:MM:SSZ
+   ```
+
+   It verifies each staged updater signature using the public key fetched from
+   the exact source SHA before inspecting payloads. It checks the Linux AppImage's
+   embedded app ELF architecture, but not an embedded app version: Linux version
+   evidence is the source-bound CI run and artifact provenance, not runtime
+   version proof. `provenance.json` records run/SHA, artifact IDs and ZIP digests,
+   and selected entry hashes. It supports stable three-component versions, thin
+   macOS archives and the Windows NSIS `.exe` (not MSI). It does not stage DMGs,
+   debs, RPMs or MSI installers, prove native OS signing/notarization, or exercise
+   an app. Successful helper tests or output alone do not establish release readiness.
+
+2. Match the exact source version in `src-tauri/tauri.conf.json`, `Cargo.toml`
+   and `package.json`. Require exactly one updater pair per platform: macOS
+   ARM `darwin-aarch64` and Intel `darwin-x86_64` `.app.tar.gz` archives,
+   Linux `linux-x86_64` AppImage, and Windows `windows-x86_64` one explicitly
+   selected `.exe` or `.msi` (the helper supports only NSIS `.exe`). Each
+   needs its matching `.sig`. Reject missing,
+   duplicate, wrong-version or wrong-platform assets. Inspect the actual
+   artifact inventory rather than assuming names or manifest fragments.
+3. Verify **each updater signature cryptographically** against the configured
+   public key in `src-tauri/tauri.conf.json` using a trusted Tauri-compatible
+   verifier. The helper preserves signature bytes and uses Tauri’s strict
+   base64 decoding; it does not trim a trailing newline. The public v0.4.0
+   Windows `.sig` observed during compatibility testing had none. A present
+   `.sig` or a successful build is not verification. If a
+   verifier is unavailable or any signature fails, stop; do not fabricate or
+   reuse signatures. Never read or expose the private signing key for assembly.
+4. Rename each bundle to its “Publish as” name in §3 before attaching it;
+   for example, the RPM becomes `Ashlr_MD_X.Y.Z_x86_64.rpm`. Copy the bytes
+   without rebuilding or re-signing, including for architecture-qualified macOS
+   archives, and preserve matching `.sig` files. Check hashes before and after
+   each rename, reject name collisions and check the intended download URLs.
+5. Construct one `latest.json` with the source `version`, a truthful publication
+   date and one entry for each of the four Tauri platform keys. Each entry's
+   `signature` is the **contents** of its matching `.sig` file, not a URL;
+   `url` points to the exact staged updater asset. Independently validate its
+   version, platform set, signatures and URLs against the staged inventory.
+6. Only with separate release authorization, create the GitHub Release for the
+   tag, explicitly set pre-release status as appropriate, add the matching
+   changelog notes, attach the validated staged assets and manifest, and publish.
+   Verify the downloaded assets and manifest after publication.
+
+Updater signatures are not Apple Developer ID signing/notarization or Windows
+Authenticode. Verify those independently, along with native install, update and
+UI behavior on each OS/architecture. The full CI suite covers Linux and macOS,
+not Windows; successful CI is not evidence of Windows UI qualification. No
+publication or platform qualification follows from assembling a manifest alone.
 
 ---
 

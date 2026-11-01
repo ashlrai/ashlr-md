@@ -841,8 +841,22 @@ describe("doc facts: release asset names", () => {
 
   it("RELEASING.md says to rename the bundles before attaching them", () => {
     const publish = releasingDoc.split("\n## 4.")[1]?.split("\n## ")[0] ?? "";
-    expect(publish, `${RELEASING} §4`).toMatch(/Rename each bundle/);
-    expect(publish, `${RELEASING} §4`).toContain(`\`${pub}_${v}_x86_64.rpm\``);
+    const rename = publish.indexOf("4. Rename each bundle");
+    const manifest = publish.indexOf("5. Construct one `latest.json`");
+    const publication = publish.indexOf("6. Only with separate release authorization");
+    expect(rename, `${RELEASING} §4: missing rename step`).toBeGreaterThanOrEqual(0);
+    expect(manifest, `${RELEASING} §4: manifest must follow rename`).toBeGreaterThan(
+      rename,
+    );
+    expect(
+      publication,
+      `${RELEASING} §4: publication must follow manifest`,
+    ).toBeGreaterThan(manifest);
+    const renameStep = publish.slice(rename, manifest);
+    expect(renameStep).toContain(`\`${pub}_${v}_x86_64.rpm\``);
+    expect(renameStep).toMatch(/before attaching/);
+    expect(renameStep).toMatch(/without rebuilding or re-signing/);
+    expect(renameStep).toMatch(/Check hashes before and after/);
   });
 
   it("the install guide downloads only published names", () => {

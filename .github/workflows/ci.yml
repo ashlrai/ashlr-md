@@ -184,6 +184,19 @@ jobs:
         with:
           components: clippy
 
+      # The release-assembly validator uses Python's stdlib tomllib (3.11+).
+      - name: Set up Python for release validator tests
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+
+      - name: Test release assembly validator
+        run: |
+          python3 scripts/test-release-provenance.py
+          python3 scripts/test-release-archive.py
+          python3 scripts/test-assemble-updater.py
+          cargo test --locked --manifest-path scripts/release-signature-check/Cargo.toml
+
       # Caches ~/.cargo AND src-tauri/target (previously only the registry was
       # cached, so every run recompiled the whole Tauri tree).
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
