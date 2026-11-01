@@ -1316,6 +1316,32 @@ describe("rule:invalid-link-target", () => {
 // ─── 3. Rule: missing-alt-text ────────────────────────────────────────────────
 
 describe("rule:missing-alt-text", () => {
+  it("fixes two adjacent images with empty alt text on the same line", () => {
+    const first = "![](./images/chart%20one.png?size=2#preview)";
+    const second = '![](../assets/map.svg?view=full#north "Map")';
+    const fixedFirst =
+      "![TODO: describe image](./images/chart%20one.png?size=2#preview)";
+    const fixedSecond =
+      '![TODO: describe image](../assets/map.svg?view=full#north "Map")';
+    const doc = `Gallery: ${first}${second}.\r\n`;
+    const expected = `Gallery: ${fixedFirst}${fixedSecond}.\r\n`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+      "missing-alt-text",
+      "missing-alt-text",
+    ]);
+    expect(
+      violations.map(({ range }) => doc.slice(range!.from.offset, range!.to.offset)),
+    ).toEqual([first, second]);
+    expect(applyFix(doc, violations[0])).toBe(`Gallery: ${fixedFirst}${second}.\r\n`);
+    expect(applyFix(doc, violations[1])).toBe(`Gallery: ${first}${fixedSecond}.\r\n`);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
   it.each([
     "\n",
     "\r\n",
