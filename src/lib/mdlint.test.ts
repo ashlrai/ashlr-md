@@ -636,6 +636,35 @@ describe("rule:no-consecutive-blank-lines", () => {
 
 // ─── 4. lintDocument engine ───────────────────────────────────────────────────
 
+describe("rule:invalid-link-target", () => {
+  it.each([
+    ["empty", ""],
+    ["whitespace-only", " \t "],
+  ])("flags %s link destinations", (_description, destination) => {
+    const link = `[label](${destination})`;
+    const doc = `Before ${link} after`;
+    const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0]).toMatchObject({
+      ruleId: "invalid-link-target",
+      severity: "warning",
+      range: {
+        from: { offset: 7, line: 1, col: 7 },
+        to: { offset: 7 + link.length, line: 1, col: 7 + link.length },
+      },
+    });
+  });
+
+  it("accepts a nonempty destination", () => {
+    expect(
+      lintDocument("Before [label](./guide.md) after", {
+        rules: [ruleInvalidLinkTarget],
+      }),
+    ).toEqual([]);
+  });
+});
+
 describe("lintDocument", () => {
   it("returns an empty array for an empty document with no rules", () => {
     expect(lintDocument("", { rules: [] })).toHaveLength(0);
