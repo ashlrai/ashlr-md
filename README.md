@@ -22,7 +22,7 @@ free, private, **on-device AI** built in.
 [![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-24c8db.svg)](https://tauri.app)
 
 [**Website**](https://md.ashlr.ai) ·
-[Download](https://github.com/ashlrai/ashlr-md/releases) ·
+[Download](https://github.com/ashlrai/ashlr-md/releases/latest) ·
 [Contributing](./CONTRIBUTING.md) ·
 [Roadmap](./ROADMAP.md) ·
 [Plugs into Phantom](#how-ashlr-md-plugs-into-phantom) ·
@@ -36,7 +36,7 @@ free, private, **on-device AI** built in.
 
 ## 30-second start
 
-1. Download v0.4.0 for your OS from [Releases](https://github.com/ashlrai/ashlr-md/releases/latest): `.dmg` (Apple Silicon), `.msi`/`-setup.exe` (Windows), `.deb`/`.rpm`/`.AppImage` (Linux).
+1. Download the [latest release](https://github.com/ashlrai/ashlr-md/releases/latest) for your OS: `.dmg` (Apple Silicon), `.msi`/`-setup.exe` (Windows), `.deb`/`.rpm`/`.AppImage` (Linux).
 2. Double-click any `.md` file, or run `mdopen notes.md` after **Preferences → Command-line tool → Install mdopen** (the app's installers leave `mdopen` off your `PATH`; see [docs/AGENTS.md](./docs/AGENTS.md#install)).
 3. Ask the AI sidebar about it. On a Mac with Apple Silicon and macOS 26 or later, the built-in on-device model needs no account and no API key: turn on Apple Intelligence in System Settings, then restart Ashlr MD. On Windows and Linux, install [Ollama](https://ollama.com) for free local AI, or add an Anthropic API key in Preferences.
 

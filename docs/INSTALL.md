@@ -45,10 +45,10 @@ There are no Homebrew, winget or AUR packages yet.
 **Silent install** (for IT/automation):
 
 <!-- fresh:begin install-snippet -->
-Download the [v0.4.0 release](https://github.com/ashlrai/ashlr-md/releases/tag/v0.4.0), then run the Windows silent installer:
+Download the desired release from [Releases](https://github.com/ashlrai/ashlr-md/releases/latest), replace `X.Y.Z` with that download's version, then run the Windows silent installer:
 
 ```bat
-Ashlr_MD_0.4.0_x64-setup.exe /S
+Ashlr_MD_X.Y.Z_x64-setup.exe /S
 ```
 <!-- fresh:end -->
 
