@@ -432,6 +432,27 @@ describe("rule:invalid-link-target", () => {
     " \t ",
     "#",
     "?",
+  ])("preserves the exact Unicode label when fixing destination %j", (href) => {
+    const label = "café / cafe\u0301 — 日本語 👩🏽‍💻";
+    const doc = `🌍 Read [${label}](${href}) beside [guide](./guide.md).\r\n`;
+    const expected = `🌍 Read [${label}](TODO) beside [guide](./guide.md).\r\n`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("invalid-link-target");
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
+    "",
+    " \t ",
+    "#",
+    "?",
   ])("fixes destination %j at the beginning without changing following content", (destination) => {
     for (const newline of ["\n", "\r\n"]) {
       const link = `[draft](${destination})`;
