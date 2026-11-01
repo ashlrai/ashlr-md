@@ -2312,6 +2312,29 @@ describe("chained violations and multi-line fixes", () => {
     expect(lintDocument(fixed, { rules })).toHaveLength(0);
   });
 
+  it("fixes a link before an image on separate lines and preserves surrounding text", () => {
+    const doc =
+      "Intro: café\tand spacing.\r\nRead [draft]() for details.\r\n" +
+      "Keep  this middle line.\r\nSee ![](images/chart.png?size=2#data) here.\r\nEnd.\r\n";
+    const expected =
+      "Intro: café\tand spacing.\r\nRead [draft](TODO) for details.\r\n" +
+      "Keep  this middle line.\r\nSee ![TODO: describe image](images/chart.png?size=2#data) here.\r\nEnd.\r\n";
+    const rules = [ruleMissingAltText, ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "invalid-link-target",
+      "missing-alt-text",
+    ]);
+    expect(
+      violations.map(({ range }) => doc.slice(range!.from.offset, range!.to.offset)),
+    ).toEqual(["[draft]()", "![](images/chart.png?size=2#data)"]);
+    expect(violations.every((violation) => violation.fix !== null)).toBe(true);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
   it.each([
     "\n",
     "\r\n",
