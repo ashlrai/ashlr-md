@@ -2241,6 +2241,33 @@ describe("rule:missing-alt-text", () => {
     expect(applyAllFixes(fixed, remaining)).toBe(fixed);
   });
 
+  it("inserts the placeholder and keeps a long Unicode filename that the message truncates", () => {
+    // >40 UTF-16 code units: the message shows an excerpt (with a surrogate
+    // pair inside it), but the fix must still splice in the destination whole.
+    const src = "images/桜🌸-長いファイル名-2026年-最終版-保存用-写真データ.png";
+    expect(src.length).toBeGreaterThan(40);
+    const doc = `See ![](${src}) for the report.\n`;
+    const expected = `See ![TODO: describe image](${src}) for the report.\n`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("missing-alt-text");
+    expect(violations[0].message).toBe(
+      `Image is missing alt text: ${src.slice(0, 37)}…`,
+    );
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(`![](${src})`);
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain(`](${src})`);
+    const remaining = lintDocument(fixed, { rules });
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(fixed, remaining)).toBe(expected);
+  });
+
   it("fixes an empty alt at the start of a later line without changing surrounding lines", () => {
     const doc =
       "Intro: café and 😀.\n\n![](images/chart.png?size=2#preview) explains the data.\n" +
