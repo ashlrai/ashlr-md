@@ -920,8 +920,16 @@ describe("rule:invalid-link-target", () => {
 
   it("flags multiple invalid links in one document", () => {
     const doc = "[first]() and [second](#) and [valid](https://example.com).\n";
-    const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
     expect(violations).toHaveLength(2);
+    expect(violations.every((violation) => violation.fix !== null)).toBe(true);
+
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(
+      "[first](TODO) and [second](TODO) and [valid](https://example.com).\n",
+    );
+    expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 
   it("fixes every invalid destination among repeated labels across paragraphs", () => {
