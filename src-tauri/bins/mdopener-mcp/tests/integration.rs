@@ -9214,6 +9214,29 @@ fn export_text_keeps_repeated_prose_brackets_in_order() {
 }
 
 #[test]
+fn export_text_preserves_bracketed_prose_across_multiple_paragraphs() {
+    let markdown = "[Draft] The first finding needs [review].\n\n\
+        The second paragraph repeats [review] and cites [the guide](/guide).\n\
+        Its next line adds [context].\n\n\
+        [Third] The quotation was accurate [sic].\n\n\
+        Finally, [review] follows [the reference][source] and [last].\n\n\
+        [source]: /source\n";
+    let expected = "[Draft] The first finding needs [review].\n\n\
+        The second paragraph repeats [review] and cites the guide.\n\
+        Its next line adds [context].\n\n\
+        [Third] The quotation was accurate [sic].\n\n\
+        Finally, [review] follows the reference and [last].";
+
+    let file_result = run_export_text_on(markdown);
+    assert_eq!(file_result["text"].as_str().unwrap(), expected);
+
+    let ipc = MockIpc::new().on_get("/content", Ok(json!({ "content": markdown })));
+    let response = tool_export_text(id(2), &json!({}), &ipc);
+    assert!(response.error.is_none());
+    assert_eq!(content_text(&response)["text"].as_str().unwrap(), expected);
+}
+
+#[test]
 fn export_text_keeps_escaped_opening_and_closing_brackets() {
     for (markdown, expected) in [
         (
