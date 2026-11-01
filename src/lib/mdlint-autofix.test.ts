@@ -1567,11 +1567,29 @@ describe("rule:missing-alt-text", () => {
     expect(lintDocument(expected, { rules })).toHaveLength(0);
   });
 
-  it("autofix preserves surrounding text", () => {
-    const doc = "Before ![](img.png) after.\n";
-    const violations = lintDocument(doc, { rules: [ruleMissingAltText] });
-    const fixed = applyFix(doc, violations[0]);
-    expect(fixed).toBe("Before ![TODO: describe image](img.png) after.\n");
+  it("autofixes an image while preserving its source and surrounding prose", () => {
+    const source = "../images/chart%20one.png?size=2&view=full#preview";
+    const doc =
+      `Opening paragraph.\r\n\r\nSee ![](${source}) for the café report.\r\n` +
+      "\r\nClosing paragraph with  spacing.\r\n";
+    const expected =
+      "Opening paragraph.\r\n\r\n" +
+      "See ![TODO: describe image](../images/chart%20one.png?size=2&view=full#preview) for the café report.\r\n" +
+      "\r\nClosing paragraph with  spacing.\r\n";
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "missing-alt-text",
+    ]);
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain(`](${source})`);
+    const remaining = lintDocument(fixed, { rules });
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(fixed, remaining)).toBe(expected);
   });
 
   it("preserves the text before and after an empty-alt image exactly, metacharacters included", () => {
