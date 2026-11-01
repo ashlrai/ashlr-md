@@ -2967,6 +2967,7 @@ describe("chained violations and multi-line fixes", () => {
         "See ![](chart.png) for data.",
         "",
         "Contact [us]() for more.",
+        "Read [the guide](./guide.md) and [the draft](#).",
       ].join("\n") + "\n";
 
     const violations = lintDocument(doc, {
@@ -2988,6 +2989,27 @@ describe("chained violations and multi-line fixes", () => {
     expect(fixed).toContain("![TODO: describe image](chart.png)");
     // Invalid link fixed
     expect(fixed).toContain("[us](TODO)");
+    expect(fixed).toBe(
+      "# Section A\n\n## Section B\n\n## Section C\n\nBody text.\n\n" +
+        "See ![TODO: describe image](chart.png) for data.\n\n" +
+        "Contact [us](TODO) for more.\n" +
+        "Read [the guide](./guide.md) and [the draft](TODO).\n",
+    );
+
+    const remaining = lintDocument(fixed, {
+      rules: [
+        ruleNoTrailingSpaces,
+        ruleOrphanedHeading,
+        ruleMissingAltText,
+        ruleInvalidLinkTarget,
+      ],
+    });
+    expect(remaining.map((violation) => violation.ruleId)).toEqual([
+      "orphaned-heading",
+      "orphaned-heading",
+    ]);
+    expect(remaining.every((violation) => violation.fix === null)).toBe(true);
+    expect(applyAllFixes(fixed, remaining)).toBe(fixed);
   });
 
   it("sequential rule passes produce the same result as applyAllFixes", () => {
