@@ -6413,6 +6413,31 @@ fn export_text_preserves_adjacent_bracketed_words_in_prose() {
     );
 }
 
+#[test]
+fn export_text_keeps_prose_brackets_beside_formatted_links() {
+    for (markdown, expected) in [
+        (
+            "[café][**the guide**](/guide)[要確認]\n",
+            "[café]the guide[要確認]",
+        ),
+        (
+            "Compare [*draft*] with [**final**](/final) and [*approved*].\n",
+            "Compare [draft] with final and [approved].",
+        ),
+    ] {
+        let result = run_export_text_on(markdown);
+        assert_eq!(result["text"].as_str().unwrap(), expected, "{markdown:?}");
+        assert_eq!(
+            result["char_count"].as_u64().unwrap() as usize,
+            expected.chars().count()
+        );
+        assert_eq!(
+            result["word_count"].as_u64().unwrap() as usize,
+            count_words(expected)
+        );
+    }
+}
+
 /// `char_count` said only "character counts", leaving an agent to guess
 /// bytes or characters. The description says Unicode characters, and the
 /// count of a non-ASCII document is its chars, not its bytes.
