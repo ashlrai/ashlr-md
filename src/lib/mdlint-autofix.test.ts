@@ -1827,6 +1827,28 @@ describe("rule:missing-alt-text", () => {
     expect(lintDocument(expected, { rules })).toHaveLength(0);
   });
 
+  it("preserves a Unicode filename when fixing an image and a later link", () => {
+    const source = "images/cafe\u0301-星🌟.png?size=2#preview";
+    const doc = `See ![](${source}) and [details]().\r\n`;
+    const expected = `See ![TODO: describe image](${source}) and [details](TODO).\r\n`;
+    const rules = [ruleMissingAltText, ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "missing-alt-text",
+      "invalid-link-target",
+    ]);
+    expect(violations.every((violation) => violation.fix !== null)).toBe(true);
+    expect(applyFix(doc, violations[0])).toBe(
+      `See ![TODO: describe image](${source}) and [details]().\r\n`,
+    );
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    const remaining = lintDocument(fixed, { rules });
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(fixed, remaining)).toBe(expected);
+  });
+
   it.each([
     // Composed (NFC) accents with a CJK directory, query and fragment.
     "galerie/café-大学.png?größe=2#vorschau",
