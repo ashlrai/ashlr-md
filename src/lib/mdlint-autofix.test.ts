@@ -132,6 +132,31 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    true,
+    false,
+  ])("fixes an adjacent invalid link without changing its valid namesake (valid first: %s)", (validFirst) => {
+    const valid = '[guide](./guide.md?next=TODO#links "Guide")';
+    const invalid = "[guide](?)";
+    const links = validFirst ? [valid, invalid] : [invalid, valid];
+    const repaired = validFirst ? [valid, "[guide](TODO)"] : ["[guide](TODO)", valid];
+    const doc = `Read ${links.join("")} next.`;
+    const expected = `Read ${repaired.join("")} next.`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "invalid-link-target",
+    ]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(invalid);
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
     "",
     "#",
     "?",
