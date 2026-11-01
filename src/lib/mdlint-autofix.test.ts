@@ -93,6 +93,22 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(doc, { rules: [ruleInvalidLinkTarget] })).toHaveLength(0);
   });
 
+  it("fixes an invalid link followed by a valid link", () => {
+    const doc =
+      "---\ntitle: Guide\n---\n\nRead [draft]() then [guide](https://example.com/guide).\n";
+    const expected =
+      "---\ntitle: Guide\n---\n\nRead [draft](TODO) then [guide](https://example.com/guide).\n";
+    const violations = lintDocument(doc);
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("invalid-link-target");
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed)).toEqual([]);
+  });
+
   it.each([
     "",
     "#",
