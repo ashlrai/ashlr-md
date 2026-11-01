@@ -1428,6 +1428,28 @@ describe("rule:missing-alt-text", () => {
     expect(fixed).not.toContain("![](diagram.png)");
   });
 
+  it.each([
+    "\n",
+    "\r\n",
+  ])("fixes a later image without changing unrelated lines with %j line endings", (newline) => {
+    const before =
+      ["# Café gallery", "Example: `![](diagram.png)`  ", ""].join(newline) + newline;
+    const after = newline + ["", "Keep\tthis spacing.  ", "Last line."].join(newline);
+    const doc = `${before}See ![](diagram.png) for context.${after}`;
+    const expected = `${before}See ![TODO: describe image](diagram.png) for context.${after}`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("missing-alt-text");
+    expect(violations[0].range?.from.line).toBe(4);
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
   it("autofixes missing alt text while preserving a relative image source exactly", () => {
     const doc = "Before ![](../assets/./chart%20one.png?size=2#preview) after.\r\n";
     const expected =
