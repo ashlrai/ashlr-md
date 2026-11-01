@@ -12,6 +12,7 @@ See [resolving generated placeholders](mdlint-placeholder-resolution.md) for rep
 and the [placeholder review guide](mdlint-placeholder-review.md) for a workflow
 and examples of replacing them with reviewed content, or the
 [placeholder examples](mdlint-placeholder-examples.md) for the immediate fixes.
+For a source-linked summary, see the [fix output reference](mdlint-fix-output-reference.md).
 For focused before-and-after examples, see
 [surrounding text in autofixes](mdlint-autofix-surrounding-text.md).
 
