@@ -2218,6 +2218,30 @@ describe("rule:missing-alt-text", () => {
     expect(lintDocument(expected, { rules })).toHaveLength(0);
   });
 
+  it.each([
+    true,
+    false,
+  ])("preserves distinct destinations beside a described image (described first: %s)", (describedFirst) => {
+    const described = '![A café map](../images/map%20one.svg?view=full#north "Map")';
+    const missing = '![](images/chart.png?size=2#data "Chart")';
+    const repaired = '![TODO: describe image](images/chart.png?size=2#data "Chart")';
+    const doc = `Before ${describedFirst ? described : missing} ${describedFirst ? missing : described} after.\r\n`;
+    const expected = `Before ${describedFirst ? described : repaired} ${describedFirst ? repaired : described} after.\r\n`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(missing);
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    const remaining = lintDocument(fixed, { rules });
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(fixed, remaining)).toBe(expected);
+  });
+
   it("flags multiple images missing alt text", () => {
     const doc = "![](a.png) text ![](b.png) more.\n";
     const rules = [ruleMissingAltText];
