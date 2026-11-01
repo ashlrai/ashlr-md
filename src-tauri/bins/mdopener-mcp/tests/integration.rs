@@ -9405,6 +9405,28 @@ fn export_text_keeps_adjacent_bracketed_phrases_in_order() {
     }
 }
 
+#[test]
+fn export_text_keeps_bracketed_prose_on_separate_lines() {
+    for (markdown, expected) in [
+        ("[first]\n[second]\n[third]\n", "[first]\n[second]\n[third]"),
+        (
+            "Before [sic],\n[TODO] after.\n\n[final] line.\n",
+            "Before [sic],\n[TODO] after.\n\n[final] line.",
+        ),
+        (
+            "[**first**]\n[second *phrase*]\n[guide](/guide)\n",
+            "[first]\n[second phrase]\nguide",
+        ),
+        (
+            "[first]\n[second]\n\n[ref]: /guide\n\n[the guide][ref]\n",
+            "[first]\n[second]\n\nthe guide",
+        ),
+    ] {
+        let result = run_export_text_on(markdown);
+        assert_eq!(result["text"].as_str().unwrap(), expected, "{markdown:?}");
+    }
+}
+
 /// export_text printed a link reference definition as `label: url`,
 /// although the page shows nothing for it, and read any `<` and a letter
 /// up to the next `>` as an HTML tag, so an email autolink read nothing,
