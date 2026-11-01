@@ -53,9 +53,8 @@ jobs:
   #        tauri.macos.conf.json   → mdopen, mdopener-mcp, mdopener-afm, mdopener-setdefault
   #        tauri.linux.conf.json   → mdopen, mdopener-mcp
   #        tauri.windows.conf.json → mdopen.exe, mdopener-mcp.exe
-  #   3. Uploads artifacts to the same GitHub Release draft.
-  #      tauri-action appends per-platform entries to the updater latest.json
-  #      so the final release contains a unified multi-platform update manifest.
+  #   3. Uploads per-platform workflow artifacts for manual assembly.
+  #      No GitHub Release or updater manifest is created by this workflow.
   #
   # Apple signing/notarization is gated behind HAS_APPLE_SIGNING so the
   # macOS job still succeeds on forks without certificates.
@@ -266,15 +265,14 @@ jobs:
 
       # ---- Tauri build + GitHub Release ------------------------------------
       # tauri-action auto-detects the platform config overlay.
-      # All matrix legs target the same tagName / releaseName so tauri-action
-      # updates the same GitHub Release draft and appends platform-specific
-      # entries to the updater latest.json on each run.
+      # No tagName or releaseId is supplied; tauri-action does not create
+      # a Release or updater manifest in this build-only invocation.
 
-      # Build only — we do NOT publish from CI. The ashlrai org disables write
-      # for the workflow GITHUB_TOKEN, so the release is assembled and published
+      # Build only — we do NOT publish from CI. The release is assembled and published
       # with a maintainer's credentials from the per-platform artifacts uploaded
       # below. Omitting tagName makes tauri-action build without touching the
-      # release API. Updater signing still runs so each bundle has its .sig.
+      # release API. Updater signing runs for eligible updater artifacts;
+      # assembly must still verify the actual inventory and signatures.
       - name: Build Tauri app
         id: tauri
         uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0
