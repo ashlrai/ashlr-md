@@ -8962,6 +8962,43 @@ fn export_text_matches_documented_bracket_preservation_examples() {
 }
 
 #[test]
+fn bracketed_prose_example_table_matches_outputs() {
+    let docs = include_str!("../../../../docs/bracketed-prose-example-table.md");
+    let mut count = 0;
+    for line in docs
+        .lines()
+        .filter(|line| line.starts_with("| `export_") || line.starts_with("| `heading_"))
+    {
+        let cells: Vec<_> = line.split(" | ").collect();
+        assert_eq!(cells.len(), 4, "invalid table row: {line}");
+        let operation = cells[1].trim_matches('`');
+        let parse = |cell: &str| -> String {
+            let json = cell.trim().trim_matches('`').trim();
+            serde_json::from_str(json).expect("table cell is a JSON string")
+        };
+        let input = parse(cells[2]);
+        let expected = parse(cells[3].trim_end_matches(" |"));
+        let actual = match operation {
+            "strip_inline_markdown" => mdopener_mcp::strip_inline_markdown(&input),
+            "strip_markdown" => strip_markdown(&input),
+            "export_text" => run_export_text_on(&input)["text"]
+                .as_str()
+                .unwrap()
+                .to_owned(),
+            "export_text (trimmed)" => run_export_text_on(&input)["text"]
+                .as_str()
+                .unwrap()
+                .trim()
+                .to_owned(),
+            _ => panic!("unknown table operation: {operation}"),
+        };
+        assert_eq!(actual, expected, "{}: {input:?}", cells[0]);
+        count += 1;
+    }
+    assert_eq!(count, 65, "all table examples must be checked");
+}
+
+#[test]
 fn export_text_keeps_literal_brackets_in_blockquote_prose() {
     let markdown = "> See note [1] and the [guide](/guide).\n";
     let result = run_export_text_on(markdown);
