@@ -663,6 +663,18 @@ describe("rule:invalid-link-target", () => {
       }),
     ).toEqual([]);
   });
+
+  it("reports only the invalid link alongside a valid link with default rules", () => {
+    const doc = "See [documentation](https://example.com/guide) and [draft]().\n";
+    const violations = lintDocument(doc).filter(
+      (v) => v.ruleId === "invalid-link-target",
+    );
+
+    expect(violations).toHaveLength(1);
+    expect(
+      doc.slice(violations[0].range!.from.offset, violations[0].range!.to.offset),
+    ).toBe("[draft]()");
+  });
 });
 
 describe("lintDocument", () => {
