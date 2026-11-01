@@ -8960,6 +8960,26 @@ fn export_text_keeps_bracketed_todo_in_surrounding_prose() {
 }
 
 #[test]
+fn export_text_keeps_bracketed_prose_beside_inline_links() {
+    let cases = [
+        (
+            "Review [TODO] and read [the guide](https://example.com/guide).\n",
+            "Review [TODO] and read the guide.",
+        ),
+        (
+            "Read [the guide](https://example.com/guide), then check [TODO].\n",
+            "Read the guide, then check [TODO].",
+        ),
+        ("[sic][source](https://example.com)\n", "[sic]source"),
+        ("[source](https://example.com)[sic]\n", "source[sic]"),
+    ];
+    for (markdown, expected) in cases {
+        let result = run_export_text_on(markdown);
+        assert_eq!(result["text"].as_str().unwrap(), expected, "{markdown:?}");
+    }
+}
+
+#[test]
 fn export_text_matches_prose_brackets_documentation() {
     let docs = include_str!("../../../../docs/mdopener-prose-brackets.md");
     let expected = [
