@@ -1180,6 +1180,28 @@ describe("rule:invalid-link-target", () => {
 
 describe("rule:missing-alt-text", () => {
   it.each([
+    "",
+    "\n",
+    "\r\n",
+  ])("fixes an image at the end of a document with ending %j", (ending) => {
+    const doc = `# Gallery\n\nA café view.\n\n![](images/view.png?size=2#preview)${ending}`;
+    const expected = `# Gallery\n\nA café view.\n\n![TODO: describe image](images/view.png?size=2#preview)${ending}`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "missing-alt-text",
+    ]);
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    const remaining = lintDocument(fixed, { rules });
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(fixed, remaining)).toBe(expected);
+  });
+
+  it.each([
     true,
     false,
   ])("fixes an empty-alt image next to a valid link (image first: %s)", (imageFirst) => {
