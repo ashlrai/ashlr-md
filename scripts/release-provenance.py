@@ -65,7 +65,8 @@ def source(api, path, sha):
     if obj.get('encoding') != 'base64' or obj.get('path') != path or not isinstance(obj.get('content'), str): fail(f'invalid source response {path}')
     raw = base64.b64decode(''.join(obj['content'].split()), validate=True)
     if len(raw) > 2 * 1024 * 1024: fail(f'source too large: {path}')
-    # Git's object ID independently checks the bytes returned by the API.
+    # Git's legacy SHA-1 blob ID is a protocol identity check, not a
+    # collision-resistant signature or an independent source of authenticity.
     blob = hashlib.sha1(b'blob ' + str(len(raw)).encode() + b'\0' + raw).hexdigest()
     if obj.get('sha') != blob or obj.get('size') != len(raw): fail(f'source blob mismatch: {path}')
     return raw

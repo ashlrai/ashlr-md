@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Stage four Tauri updater assets locally; never publishes a release."""
 import argparse
+import ctypes
+import errno
 import datetime as dt
 import hashlib
 import importlib.util
@@ -11,6 +13,7 @@ import plistlib
 import re
 import resource
 import shutil
+import stat
 import struct
 import subprocess
 import tarfile
@@ -19,6 +22,7 @@ import tomllib
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
+STAGING_ROOT = ROOT / '.release-staging'
 LEGS = {"darwin-aarch64": "bundle-macos-15", "darwin-x86_64": "bundle-macos-15-intel", "linux-x86_64": "bundle-ubuntu-22.04", "windows-x86_64": "bundle-windows-latest"}
 
 
@@ -84,10 +88,16 @@ def bounded_7zz(tool, args, limit):
         return out.read()
 
 
-def verify_linux_payload(path):
+def verified_7zz():
+    # Never hash ./7zz and then let subprocess resolve a different PATH entry.
     tool = Path(os.environ.get('ASHLR_MD_7ZZ', ''))
-    if not tool.is_file() or digest(tool) != 'd32657a7a0e4cdc0a8aa57cafe474746944d76e861e753e9c902b9c9356fa886':
-        fail('set ASHLR_MD_7ZZ to the verified official Linux x64 7zz 26.05 binary')
+    if not tool.is_absolute() or not tool.is_file() or digest(tool) != 'd32657a7a0e4cdc0a8aa57cafe474746944d76e861e753e9c902b9c9356fa886':
+        fail('set ASHLR_MD_7ZZ to the verified official Linux x64 7zz 26.05 binary using an absolute path')
+    return tool
+
+
+def verify_linux_payload(path):
+    tool = verified_7zz()
     listing = bounded_7zz(tool, ['l', '-slt', '-ba', '-sccUTF-8', str(path)], 16 * 1024 * 1024).decode('utf-8')
     entries = []
     for block in listing.strip().split('\n\n'):
@@ -110,9 +120,7 @@ def verify_linux_payload(path):
 
 
 def verify_windows_payload(path, version):
-    tool = Path(os.environ.get('ASHLR_MD_7ZZ', ''))
-    if not tool.is_file() or digest(tool) != 'd32657a7a0e4cdc0a8aa57cafe474746944d76e861e753e9c902b9c9356fa886':
-        fail('set ASHLR_MD_7ZZ to the verified official Linux x64 7zz 26.05 binary')
+    tool = verified_7zz()
     listing = bounded_7zz(tool, ['l', '-slt', '-ba', '-sccUTF-8', str(path)], 16 * 1024 * 1024).decode('utf-8')
     entries = []
     for block in listing.strip().split('\n\n'):
@@ -213,23 +221,59 @@ def load_local(name):
     return module
 
 
+def rename_no_replace(source, destination, destination_dirfd=-100):
+    """Publish staging atomically without replacing even an empty directory.
+
+    The supported host is Linux/glibc. Fail closed if renameat2 is unavailable
+    or the filesystem cannot honor RENAME_NOREPLACE; never fall back to rename.
+    """
+    libc = ctypes.CDLL(None, use_errno=True)
+    try: renameat2 = libc.renameat2
+    except AttributeError: raise OSError(errno.ENOSYS, 'renameat2 unavailable; cannot publish without replacement')
+    renameat2.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
+    renameat2.restype = ctypes.c_int
+    if renameat2(-100, os.fsencode(source), destination_dirfd, os.fsencode(destination), 1) != 0:
+        code = ctypes.get_errno()
+        raise OSError(code, os.strerror(code), os.fspath(destination))
+
+
+def prepare_staging_root(name):
+    """Limit outputs to a private root in the trusted checkout."""
+    if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{0,63}', name):
+        fail('output name must be a simple basename (letters, digits, dot, underscore or hyphen)')
+    try: STAGING_ROOT.mkdir(mode=0o700)
+    except FileExistsError: pass
+    info = STAGING_ROOT.lstat()
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
+        fail('fixed staging root must be a private owner-controlled directory, not a symlink')
+    fd = os.open(STAGING_ROOT, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    opened = os.fstat(fd)
+    if (opened.st_dev, opened.st_ino) != (info.st_dev, info.st_ino):
+        os.close(fd); fail('staging root changed during validation')
+    return fd
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('zip_directory', type=Path, help='directory with the four original bundle-<runner>.zip files')
-    p.add_argument('output', type=Path, help='new output directory; parent must exist')
+    p.add_argument('output_name', help='new simple directory name under the fixed .release-staging root')
     p.add_argument('--tag', required=True, help='reviewed stable release tag vX.Y.Z')
     p.add_argument('--source-sha', required=True, help='reviewed full commit SHA, must match peeled tag and live run')
     p.add_argument('--run-id', type=int, required=True, help='successful release workflow run ID, attempt 1 only')
     p.add_argument('--pub-date', required=True, help='explicit UTC timestamp, YYYY-MM-DDTHH:MM:SSZ')
     args = p.parse_args()
     try:
-        if args.output.exists() or args.output.is_symlink(): fail('output already exists')
+        staging_fd = prepare_staging_root(args.output_name)
+        output = STAGING_ROOT / args.output_name
+        try: os.stat(args.output_name, dir_fd=staging_fd, follow_symlinks=False)
+        except FileNotFoundError: pass
+        else: fail('output already exists')
         provenance = load_local('release-provenance')
         archives = load_local('release-archive')
         zips = {name: args.zip_directory / (name + '.zip') for name in provenance.LEGS}
         # The API adapter is fixed in code; callers cannot supply a receipt.
         evidence = provenance.verify_provenance(provenance.fetch, args.tag, args.source_sha, args.run_id, zips)
-        with tempfile.TemporaryDirectory(prefix='md-verified-inventory-', dir=args.output.parent) as tmp:
+        with tempfile.TemporaryDirectory(prefix='md-verified-inventory-', dir=STAGING_ROOT) as tmp:
             root = Path(tmp)
             for name in provenance.LEGS:
                 archives.unpack_verified(zips[name], evidence['artifacts'][name]['digest'], root / name)
@@ -240,10 +284,11 @@ def main():
             if current.get('object') != evidence['tag_object']: fail('tag changed before staging completed')
             run = provenance.fetch(f'{provenance.REPO}/actions/runs/{args.run_id}')
             if (run.get('id') != args.run_id or run.get('run_attempt') != 1 or run.get('workflow_id') != evidence['release_workflow_id'] or run.get('head_sha') != args.source_sha or (run.get('status'), run.get('conclusion')) != ('completed', 'success')): fail('release run changed before staging completed')
-            if args.output.exists() or args.output.is_symlink(): fail('output already exists')
-            os.rename(staging, args.output)
+            rename_no_replace(staging, args.output_name, staging_fd)
     except (ValueError, OSError, KeyError, struct.error, tarfile.TarError, zipfile.BadZipFile, subprocess.SubprocessError) as error:
         p.exit(1, f'assembly failed: {error}\n')
-    print(f'Local updater assets staged in {args.output}; not published.')
+    finally:
+        if 'staging_fd' in locals(): os.close(staging_fd)
+    print(f'Local updater assets staged in {output}; not published.')
 
 if __name__ == '__main__': main()

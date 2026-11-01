@@ -121,6 +121,8 @@ qualified on four actual artifacts from one eligible run. It does not publish.
    their build/upload steps, and an exact-SHA manual CI run with successful
    Linux and macOS full-suite jobs. It compares each original ZIP's SHA-256 to
    the live API's artifact digest before privately and safely extracting it.
+   The source blob SHA-1 comparison follows Git's legacy object-ID protocol;
+   it is not a collision-resistant signature or independent authentication.
    GitHub API errors, expired/missing artifacts, mismatches or incomplete data
    stop assembly. Artifact metadata does not identify the producing job/attempt:
    **only release run attempt 1 is supported**. A rerun requires a separately
@@ -138,13 +140,16 @@ qualified on four actual artifacts from one eligible run. It does not publish.
    verify its archive SHA-256 is
    `22cf82fcc6eb7474f1d5bb4f02c0f8ebd573a718089d6833dc30f8350a3b232e`,
    extract `7zz` into a local tools directory, and set `ASHLR_MD_7ZZ` to its
-   absolute path. The helper checks the executable's SHA-256 too. Then run
+   absolute path in a trusted, non-writable-by-others tools directory. The helper
+   checks the executable's SHA-256 too; protect it from replacement between the
+   check and execution. Then run
    from this checkout, substituting the reviewed values and actual intended
-   publication time. The output directory must not exist; its parent must be
-   a trusted directory that already exists:
+   publication time. The output name must be a simple new basename, not a path;
+   output is created only under this checkout’s private `.release-staging/`.
+   The checkout and its ancestors must be trusted against concurrent modification:
 
    ```bash
-   /path/to/release-venv/bin/python scripts/assemble-updater.py /path/to/original-zips /path/to/new-output \
+   /path/to/release-venv/bin/python scripts/assemble-updater.py /path/to/original-zips release-vX.Y.Z \
      --tag vX.Y.Z --source-sha <reviewed-full-sha> --run-id <release-run-id> \
      --pub-date YYYY-MM-DDTHH:MM:SSZ
    ```
@@ -175,10 +180,11 @@ qualified on four actual artifacts from one eligible run. It does not publish.
    `.sig` or a successful build is not verification. If a
    verifier is unavailable or any signature fails, stop; do not fabricate or
    reuse signatures. Never read or expose the private signing key for assembly.
-4. Copy (do not rebuild or re-sign) assets to unique release names, including
-   architecture-qualified macOS archives. Check hashes before and after each
-   rename. Rename installers to the “Publish as” names in §3; preserve matching
-   `.sig` files. Reject name collisions and check the intended download URLs.
+4. Rename each bundle to its “Publish as” name in §3 before attaching it;
+   for example, the RPM becomes `Ashlr_MD_X.Y.Z_x86_64.rpm`. Copy the bytes
+   without rebuilding or re-signing, including for architecture-qualified macOS
+   archives, and preserve matching `.sig` files. Check hashes before and after
+   each rename, reject name collisions and check the intended download URLs.
 5. Construct one `latest.json` with the source `version`, a truthful publication
    date and one entry for each of the four Tauri platform keys. Each entry's
    `signature` is the **contents** of its matching `.sig` file, not a URL;

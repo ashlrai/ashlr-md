@@ -182,9 +182,10 @@ class ProvenanceTests(unittest.TestCase):
             spec = importlib.util.spec_from_file_location(name, Path(__file__).with_name(filename)); result = importlib.util.module_from_spec(spec); spec.loader.exec_module(result); return result
         archive = module('release-archive.py', 'test_release_archive')
         asm = module('assemble-updater.py', 'test_release_assembly')
-        out = Path(self.tmp.name) / 'staged'
-        argv = ['assemble-updater.py', self.tmp.name, str(out), '--tag','v0.4.0','--source-sha',SHA,'--run-id',str(RUN),'--pub-date','2026-01-01T00:00:00Z']
-        with patch.object(p, 'fetch', self.api), patch.object(asm, 'load_local', side_effect=load), patch.object(asm, 'verify_platform'), patch.object(sys, 'argv', argv):
+        staging_root = Path(self.tmp.name) / 'private-release-staging'
+        out = staging_root / 'staged'
+        argv = ['assemble-updater.py', self.tmp.name, 'staged', '--tag','v0.4.0','--source-sha',SHA,'--run-id',str(RUN),'--pub-date','2026-01-01T00:00:00Z']
+        with patch.object(asm, 'STAGING_ROOT', staging_root), patch.object(p, 'fetch', self.api), patch.object(asm, 'load_local', side_effect=load), patch.object(asm, 'verify_platform'), patch.object(sys, 'argv', argv):
             asm.main()
         manifest = json.loads((out/'latest.json').read_text()); report = json.loads((out/'provenance.json').read_text())
         self.assertEqual(set(manifest['platforms']), {'darwin-aarch64','darwin-x86_64','linux-x86_64','windows-x86_64'})
@@ -194,14 +195,14 @@ class ProvenanceTests(unittest.TestCase):
         self.assertEqual((out/'Ashlr_MD_0.4.0_amd64.AppImage').read_bytes(), b'test')
         # A substituted original ZIP cannot produce output despite valid API metadata.
         self.zips['bundle-macos-15'].write_bytes(b'substituted')
-        bad = Path(self.tmp.name) / 'bad'; argv[2] = str(bad)
-        with patch.object(p, 'fetch', self.api), patch.object(asm, 'load_local', side_effect=load), patch.object(asm, 'verify_platform'), patch.object(sys, 'argv', argv):
+        bad = staging_root / 'bad'; argv[2] = 'bad'
+        with patch.object(asm, 'STAGING_ROOT', staging_root), patch.object(p, 'fetch', self.api), patch.object(asm, 'load_local', side_effect=load), patch.object(asm, 'verify_platform'), patch.object(sys, 'argv', argv):
             with self.assertRaises(SystemExit) as error: asm.main()
         self.assertEqual(error.exception.code, 1); self.assertFalse(bad.exists())
         # An unavailable API likewise blocks before extraction or output.
-        failed = Path(self.tmp.name) / 'api-failed'; argv[2] = str(failed)
+        failed = staging_root / 'api-failed'; argv[2] = 'api-failed'
         def unavailable(_): raise OSError('synthetic API failure')
-        with patch.object(p, 'fetch', unavailable), patch.object(asm, 'load_local', side_effect=load), patch.object(asm, 'verify_platform'), patch.object(sys, 'argv', argv):
+        with patch.object(asm, 'STAGING_ROOT', staging_root), patch.object(p, 'fetch', unavailable), patch.object(asm, 'load_local', side_effect=load), patch.object(asm, 'verify_platform'), patch.object(sys, 'argv', argv):
             with self.assertRaises(SystemExit) as error: asm.main()
         self.assertEqual(error.exception.code, 1); self.assertFalse(failed.exists())
         # Even a ZIP whose API digest is internally consistent cannot make an
@@ -211,8 +212,8 @@ class ProvenanceTests(unittest.TestCase):
             z.writestr('bundle/' + name, b'tampered signed bytes')
             z.writestr('bundle/' + name + '.sig', b64(sig))
         original['digest'] = 'sha256:' + hashlib.sha256(path.read_bytes()).hexdigest(); original['size_in_bytes'] = path.stat().st_size
-        bad_sig = Path(self.tmp.name) / 'bad-signature'; argv[2] = str(bad_sig)
-        with patch.object(p, 'fetch', self.api), patch.object(asm, 'load_local', side_effect=load), patch.object(asm, 'verify_platform'), patch.object(sys, 'argv', argv):
+        bad_sig = staging_root / 'bad-signature'; argv[2] = 'bad-signature'
+        with patch.object(asm, 'STAGING_ROOT', staging_root), patch.object(p, 'fetch', self.api), patch.object(asm, 'load_local', side_effect=load), patch.object(asm, 'verify_platform'), patch.object(sys, 'argv', argv):
             with self.assertRaises(SystemExit) as error: asm.main()
         self.assertEqual(error.exception.code, 1); self.assertFalse(bad_sig.exists())
     def test_source_versions_disagree(self):

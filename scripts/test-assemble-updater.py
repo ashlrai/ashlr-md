@@ -43,6 +43,70 @@ class InventoryTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, 'architecture mismatch'): a.verify_linux_payload(self.root / 'x')
             with mock.patch.object(a, 'bounded_7zz', return_value=b'Path = ../escape\nSize = 1\nMode = -rwx\n\n'):
                 with self.assertRaisesRegex(ValueError, 'unsafe'): a.verify_linux_payload(self.root / 'x')
+    def test_relative_7zz_is_rejected_before_hash_or_execution(self):
+        with mock.patch.dict(os.environ, {'ASHLR_MD_7ZZ': '7zz'}), \
+             mock.patch.object(a, 'digest') as digest, \
+             mock.patch.object(a, 'bounded_7zz') as execute:
+            for inspect in (lambda: a.verify_linux_payload(self.root / 'x'),
+                            lambda: a.verify_windows_payload(self.root / 'x', '0.4.0')):
+                with self.assertRaisesRegex(ValueError, 'absolute path'): inspect()
+            digest.assert_not_called()
+            execute.assert_not_called()
+    def test_fixed_staging_root_rejects_unsafe_names_and_symlink(self):
+        root = self.root / 'private-stage'
+        with mock.patch.object(a, 'STAGING_ROOT', root):
+            for name in ('..', '.', '../escape', '/tmp/escape', 'a/b', '', 'a\\b'):
+                with self.assertRaisesRegex(ValueError, 'simple basename'): a.prepare_staging_root(name)
+                self.assertFalse(root.exists())
+            outside = self.root / 'outside'; outside.mkdir()
+            root.symlink_to(outside, target_is_directory=True)
+            with self.assertRaisesRegex(ValueError, 'not a symlink'): a.prepare_staging_root('release')
+            root.unlink(); root.mkdir(mode=0o755); root.chmod(0o755)
+            with self.assertRaisesRegex(ValueError, 'private owner-controlled'): a.prepare_staging_root('release')
+            root.chmod(0o700)
+            fd = a.prepare_staging_root('release-v0.4.0'); os.close(fd)
+
+    def test_atomic_output_does_not_replace_late_directory_or_symlink(self):
+        for kind in ('directory', 'symlink'):
+            source = self.root / ('stage-' + kind); source.mkdir()
+            (source / 'result').write_text('staged')
+            destination = self.root / ('out-' + kind)
+            self.assertFalse(destination.exists())  # earlier check observed absence
+            if kind == 'directory':
+                destination.mkdir(); (destination / 'sentinel').write_text('keep')
+            else:
+                target = self.root / 'target'; target.mkdir()
+                (target / 'sentinel').write_text('keep'); destination.symlink_to(target)
+            with self.assertRaises(FileExistsError): a.rename_no_replace(source, destination)
+            self.assertTrue(source.is_dir())
+            self.assertEqual((destination / 'sentinel').read_text(), 'keep')
+        source = self.root / 'successful-stage'; source.mkdir()
+        (source / 'result').write_text('staged')
+        destination = self.root / 'successful-output'
+        a.rename_no_replace(source, destination)
+        self.assertEqual((destination / 'result').read_text(), 'staged')
+
+    def test_atomic_output_does_not_replace_late_empty_directory(self):
+        source = self.root / 'staged-empty-race'; source.mkdir()
+        destination = self.root / 'late-empty'
+        parent_fd = os.open(self.root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            self.assertFalse(destination.exists())  # first check sees no destination
+            destination.mkdir()  # another actor creates an empty directory
+            inode = destination.stat().st_ino
+            with self.assertRaises(FileExistsError):
+                a.rename_no_replace(source, destination.name, parent_fd)
+            self.assertEqual(destination.stat().st_ino, inode)
+            self.assertEqual(list(destination.iterdir()), [])
+            self.assertTrue(source.is_dir())
+        finally:
+            os.close(parent_fd)
+
+    def test_atomic_output_fails_closed_if_renameat2_missing(self):
+        with mock.patch.object(a.ctypes, 'CDLL', return_value=object()):
+            with self.assertRaisesRegex(OSError, 'renameat2 unavailable'):
+                a.rename_no_replace(self.root / 'stage', self.root / 'out')
+
     def test_windows_fails_closed(self):
         data = bytearray(134); data[:2] = b'MZ'; data[60:64] = struct.pack('<I', 128); data[128:134] = b'PE\0\0\x4c\x01'
         p = self.payload('windows-x86_64', 'Ashlr MD_0.4.0_x64-setup.exe', data)
