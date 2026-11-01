@@ -1354,6 +1354,84 @@ describe("rule:invalid-link-target", () => {
     expect(from.offset).toBe(5);
     expect(to.offset).toBe(5 + "[bad]()".length);
   });
+
+  it.each([
+    "",
+    " \t ",
+    "#",
+    "?",
+  ])("preserves the punctuation after an invalid link with destination %j exactly", (destination) => {
+    const link = `[draft](${destination})`;
+    const repaired = "[draft](TODO)";
+    const rules = [ruleInvalidLinkTarget];
+
+    for (const punctuation of [
+      ".",
+      ",",
+      ";",
+      ":",
+      "!",
+      "?",
+      "…",
+      "—",
+      ")",
+      "'s",
+      "...",
+      "!!",
+      ").",
+    ]) {
+      const doc = `Read ${link}${punctuation} then [guide](./guide.md).\n`;
+      const expected = `Read ${repaired}${punctuation} then [guide](./guide.md).\n`;
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations).toHaveLength(1);
+      expect(violations[0].ruleId).toBe("invalid-link-target");
+      const { from, to } = violations[0].range!;
+      expect(doc.slice(from.offset, to.offset)).toBe(link);
+      expect(violations[0].fix).not.toBeNull();
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+    }
+  });
+
+  it.each([
+    ["Read [draft](), then publish it.\n", "Read [draft](TODO), then publish it.\n"],
+    ["(see [draft](#)), then continue.\n", "(see [draft](TODO)), then continue.\n"],
+    ["Click [next](?); it's ready.\n", "Click [next](TODO); it's ready.\n"],
+    ["The [draft]( \t )'s content.\n", "The [draft](TODO)'s content.\n"],
+    ["Read [draft](#).", "Read [draft](TODO)."],
+  ])("replaces the invalid destination and preserves the punctuation in %j", (doc, expected) => {
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("invalid-link-target");
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it("preserves each punctuation mark when fixing several invalid links on one line", () => {
+    const doc = "See [a](), [b](#); then [c](?)! Keep [docs](./guide.md).\r\n";
+    const expected =
+      "See [a](TODO), [b](TODO); then [c](TODO)! Keep [docs](./guide.md).\r\n";
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "invalid-link-target",
+      "invalid-link-target",
+      "invalid-link-target",
+    ]);
+    expect(violations.every((violation) => violation.fix !== null)).toBe(true);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(applyAllFixes(doc, [...violations].reverse())).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
 });
 
 // ─── 3. Rule: missing-alt-text ────────────────────────────────────────────────
