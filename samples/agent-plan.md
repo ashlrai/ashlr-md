@@ -9,12 +9,11 @@
 > [!TIP]
 > Run the tests after each phase.
 
-<!-- fresh:begin example-version-pin -->
-Example release pin for automation (update with `bun run fresh:sync`):
+<!-- fresh:begin example-release-page -->
+Example release page for automation (resolve and verify the matching artifact before installing):
 
 ```sh
-ASHLR_MD_VERSION='0.4.0'
-ASHLR_MD_RELEASE='https://github.com/ashlrai/ashlr-md/releases/tag/v0.4.0'
+ASHLR_MD_RELEASE='https://github.com/ashlrai/ashlr-md/releases/latest'
 ```
 <!-- fresh:end -->
 
