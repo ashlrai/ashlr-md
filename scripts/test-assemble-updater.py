@@ -55,7 +55,7 @@ class InventoryTests(unittest.TestCase):
     def test_fixed_staging_root_rejects_unsafe_names_and_symlink(self):
         root = self.root / 'private-stage'
         with mock.patch.object(a, 'STAGING_ROOT', root):
-            for name in ('..', '.', '../escape', '/tmp/escape', 'a/b', '', 'a\\b'):
+            for name in ('..', '.', '../escape', str(self.root / 'escape'), 'a/b', '', 'a\\b'):
                 with self.assertRaisesRegex(ValueError, 'simple basename'): a.prepare_staging_root(name)
                 self.assertFalse(root.exists())
             outside = self.root / 'outside'; outside.mkdir()
