@@ -1663,6 +1663,36 @@ describe("rule:missing-alt-text", () => {
     expect(lintDocument(expected, { rules })).toHaveLength(0);
   });
 
+  it.each([
+    "\n",
+    "\r\n",
+  ])("preserves the prose before an empty-alt image at the end of a %j line", (newline) => {
+    const src = "images/line-end.png?size=2#preview";
+    const prose = `Ends with [a link](./guide.md#top) and ![A map](map.svg) then `;
+    const lastLine = "Trailing paragraph keeps its  spacing.";
+    const doc = [prose + `![](${src})`, lastLine, ""].join(newline);
+    const expected = [prose + `![TODO: describe image](${src})`, lastLine, ""].join(
+      newline,
+    );
+    const rules = [ruleMissingAltText, ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "missing-alt-text",
+    ]);
+    expect(violations[0].fix).not.toBeNull();
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(0, from.offset)).toBe(prose);
+    expect(doc.slice(from.offset, to.offset)).toBe(`![](${src})`);
+    expect(doc.slice(to.offset)).toBe(`${newline}${lastLine}${newline}`);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    const remaining = lintDocument(fixed, { rules });
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(fixed, remaining)).toBe(expected);
+  });
+
   it("only fixes an empty alt before an image with descriptive alt", () => {
     const doc = "Before ![](first.png) between ![A sleeping cat](cat.jpg) after.\n";
     const violations = lintDocument(doc, { rules: [ruleMissingAltText] });
