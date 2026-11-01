@@ -9320,6 +9320,15 @@ fn export_text_keeps_punctuation_immediately_after_prose_brackets() {
 fn export_text_keeps_adjacent_bracketed_phrases_in_order() {
     for (markdown, expected) in [
         (
+            "Citations [1][2] support this claim.\n",
+            "Citations [1][2] support this claim.",
+        ),
+        (
+            "[sic][TODO] starts the note; it ends [draft][final].\n",
+            "[sic][TODO] starts the note; it ends [draft][final].",
+        ),
+        ("Résumé:[été][冬],next.\n", "Résumé:[été][冬],next."),
+        (
             "The notes say [first phrase][second phrase] here.\n",
             "The notes say [first phrase][second phrase] here.",
         ),
