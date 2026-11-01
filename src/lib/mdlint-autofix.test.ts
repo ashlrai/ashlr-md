@@ -1438,6 +1438,27 @@ describe("rule:invalid-link-target", () => {
 
 describe("rule:missing-alt-text", () => {
   it.each([
+    ["", "."],
+    [" ", ","],
+    ["\t", ";:!?"],
+    ["", ')."'],
+  ])("preserves punctuation following missing alt text %j: %j", (alt, punctuation) => {
+    const image = `![${alt}](images/chart.png?size=2#preview)`;
+    const doc = `See ${image}${punctuation} Next.\r\n`;
+    const expected = `See ![TODO: describe image](images/chart.png?size=2#preview)${punctuation} Next.\r\n`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(image);
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+
+  it.each([
     ["> ", "\n"],
     ["> ", "\r\n"],
     ["> > ", "\n"],
