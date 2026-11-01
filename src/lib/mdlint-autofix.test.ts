@@ -1916,16 +1916,29 @@ describe("rule:missing-alt-text", () => {
     expect(applyAllFixes(fixed, remaining)).toBe(fixed);
   });
 
-  it.each(["", " \t "])("is idempotent when autofixing image alt text %j", (alt) => {
-    const doc = `Before ![${alt}](images/chart.png?size=2#preview) after.\n`;
+  it.each([
+    ["", ""],
+    ["", "\n"],
+    ["", "\r\n"],
+    [" \t ", ""],
+    [" \t ", "\n"],
+    [" \t ", "\r\n"],
+  ])("is idempotent for image alt %j with ending %j", (alt, ending) => {
+    const doc = `Before ![${alt}](images/chart.png?size=2#preview) after.${ending}`;
     const rules = [ruleMissingAltText];
-    const once = applyAllFixes(doc, lintDocument(doc, { rules }));
-    const twice = applyAllFixes(once, lintDocument(once, { rules }));
+    const violations = lintDocument(doc, { rules });
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "missing-alt-text",
+    ]);
+    expect(violations[0].fix).not.toBeNull();
 
+    const once = applyAllFixes(doc, violations);
     expect(once).toBe(
-      "Before ![TODO: describe image](images/chart.png?size=2#preview) after.\n",
+      `Before ![TODO: describe image](images/chart.png?size=2#preview) after.${ending}`,
     );
-    expect(twice).toBe(once);
+    const remaining = lintDocument(once, { rules });
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(once, remaining)).toBe(once);
   });
 
   it("keeps a missing-alt fix stable across default-rule passes with a remaining warning", () => {
