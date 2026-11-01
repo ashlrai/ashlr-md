@@ -9,6 +9,7 @@ dropped.
 
 For the vault helper's creation and cleanup lifecycle, see
 [The mdopener agent journey fixture](mdopener-agent-journey-fixture.md).
+For the visible-root requirement, see [Visible vault fixture setup](mdopener-visible-fixture-setup.md).
 
 ## Why the vault needs a visible name
 
