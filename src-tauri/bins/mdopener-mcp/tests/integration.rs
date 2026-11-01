@@ -1620,7 +1620,11 @@ fn search_vault_keyword_search_forwarded() {
     let resp = tool_search_vault(id(1), &json!({ "query": "hello world" }), &ipc);
     assert!(resp.error.is_none());
     let calls = ipc.calls();
-    let path = &calls[0].1;
+    let path = &calls
+        .iter()
+        .find(|(_, path, _)| path.starts_with("/search?"))
+        .expect("search IPC call")
+        .1;
     assert!(
         path.contains("hello%20world") || path.contains("hello+world"),
         "query should be URL-encoded, got: {path}"
@@ -1632,10 +1636,14 @@ fn search_vault_default_limit_is_50() {
     let ipc = MockIpc::new().on_get("/search", Ok(json!({ "results": [] })));
     tool_search_vault(id(1), &json!({ "query": "x" }), &ipc);
     let calls = ipc.calls();
+    let path = &calls
+        .iter()
+        .find(|(_, path, _)| path.starts_with("/search?"))
+        .expect("search IPC call")
+        .1;
     assert!(
-        calls[0].1.contains("limit=50"),
-        "default limit should be 50, got: {}",
-        calls[0].1
+        path.contains("limit=50"),
+        "default limit should be 50, got: {path}"
     );
 }
 
@@ -1644,7 +1652,12 @@ fn search_vault_custom_limit() {
     let ipc = MockIpc::new().on_get("/search", Ok(json!({ "results": [] })));
     tool_search_vault(id(1), &json!({ "query": "x", "limit": 5 }), &ipc);
     let calls = ipc.calls();
-    assert!(calls[0].1.contains("limit=5"));
+    let path = &calls
+        .iter()
+        .find(|(_, path, _)| path.starts_with("/search?"))
+        .expect("search IPC call")
+        .1;
+    assert!(path.contains("limit=5"));
 }
 
 #[test]
@@ -9230,7 +9243,10 @@ fn export_text_preserves_bracketed_prose_across_multiple_paragraphs() {
     let file_result = run_export_text_on(markdown);
     assert_eq!(file_result["text"].as_str().unwrap(), expected);
 
-    let ipc = MockIpc::new().on_get("/content", Ok(json!({ "content": markdown })));
+    let ipc = MockIpc::new().on_get(
+        "/content",
+        Ok(json!({ "path": "/docs/test.md", "content": markdown })),
+    );
     let response = tool_export_text(id(2), &json!({}), &ipc);
     assert!(response.error.is_none());
     assert_eq!(content_text(&response)["text"].as_str().unwrap(), expected);
@@ -9387,6 +9403,25 @@ fn export_text_keeps_bracketed_sic_in_surrounding_prose() {
         result["text"].as_str().unwrap(),
         "The report says the result was 'definately [sic] confirmed' by the authors."
     );
+}
+
+#[test]
+fn export_text_keeps_sic_followed_by_punctuation_in_prose() {
+    let markdown = "The witness wrote 'definately [sic].' Was it 'acommodated [sic]'? Yes [sic]!\n\
+        The [report](/report) says [sic], then [sic]; finally [sic]: done.\n";
+    let expected = "The witness wrote 'definately [sic].' Was it 'acommodated [sic]'? Yes [sic]!\n\
+        The report says [sic], then [sic]; finally [sic]: done.";
+
+    let file_result = run_export_text_on(markdown);
+    assert_eq!(file_result["text"].as_str().unwrap(), expected);
+
+    let ipc = MockIpc::new().on_get(
+        "/content",
+        Ok(json!({ "path": "/docs/test.md", "content": markdown })),
+    );
+    let response = tool_export_text(id(2), &json!({}), &ipc);
+    assert!(response.error.is_none());
+    assert_eq!(content_text(&response)["text"].as_str().unwrap(), expected);
 }
 
 #[test]
