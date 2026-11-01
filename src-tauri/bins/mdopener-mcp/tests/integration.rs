@@ -8946,6 +8946,35 @@ fn export_text_keeps_bracketed_todo_in_surrounding_prose() {
 }
 
 #[test]
+fn export_text_matches_plain_bracket_examples() {
+    let docs = include_str!("../../../../docs/mdopener-plain-bracket-examples.md");
+    let expected = [
+        ("Please review [TODO] before the next release.\n", "Please review [TODO] before the next release."),
+        ("The report says the result was 'definately [sic] confirmed' by [the authors](https://example.com).\n", "The report says the result was 'definately [sic] confirmed' by the authors."),
+        ("Studies [1] and [23] support the finding; see [42] for details.\n\n[42]: https://example.com\n", "Studies [1] and [23] support the finding; see 42 for details."),
+        ("- [x] Check the quote [sic].\n- [ ] Follow up [TODO].\n", "Check the quote [sic].\nFollow up [TODO]."),
+    ];
+    let examples: Vec<_> = docs
+        .split("Input:\n```markdown\n")
+        .skip(1)
+        .map(|section| {
+            let (input, rest) = section
+                .split_once("\n```\nOutput:\n```text\n")
+                .expect("each input has an output");
+            let (output, _) = rest.split_once("\n```").expect("output fence closes");
+            (format!("{input}\n"), output)
+        })
+        .collect();
+    assert_eq!(examples.len(), expected.len());
+    for ((input, output), (fixture_input, fixture_output)) in examples.iter().zip(expected) {
+        assert_eq!(input, fixture_input);
+        assert_eq!(*output, fixture_output);
+        let result = run_export_text_on(input);
+        assert_eq!(result["text"].as_str().unwrap(), *output, "{input:?}");
+    }
+}
+
+#[test]
 fn export_text_matches_documented_bracket_preservation_examples() {
     let docs = include_str!("../../../../docs/integration-bracket-preservation.md");
     let mut examples = 0;
