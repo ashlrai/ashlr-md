@@ -10,6 +10,8 @@ destination or describe the image.
 See the [placeholder review guide](mdlint-placeholder-review.md) for a workflow
 and examples of replacing them with reviewed content, or the
 [placeholder examples](mdlint-placeholder-examples.md) for the immediate fixes.
+For focused before-and-after examples, see
+[surrounding text in autofixes](mdlint-autofix-surrounding-text.md).
 
 ## Invalid link targets
 
