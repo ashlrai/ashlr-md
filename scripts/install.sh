@@ -91,7 +91,7 @@ cd "$REPO_ROOT"
 
 # ── 3. Install JS/TS dependencies ─────────────────────────────────────────────
 info "Installing JS dependencies (bun install)…"
-bun install --frozen-lockfile
+bun install --frozen-lockfile --ignore-scripts
 
 # ── 4. Build the sidecar binaries ─────────────────────────────────────────────
 if [[ "$(uname -s)" == "Darwin" && "$SKIP_APP_BUILD" != "1" ]]; then
