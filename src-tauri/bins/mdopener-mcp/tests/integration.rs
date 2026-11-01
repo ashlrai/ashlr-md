@@ -9242,6 +9242,10 @@ fn export_text_keeps_adjacent_bracketed_phrases_in_order() {
             "Review [TODO][sic] before the release.",
         ),
         (
+            "Keep these [one][two][three] words together in prose.\n",
+            "Keep these [one][two][three] words together in prose.",
+        ),
+        (
             "Keep [first][second] together.\n\n[first]: /guide\n",
             "Keep [first][second] together.",
         ),
