@@ -161,6 +161,26 @@ fn vault_fixture_is_visible_and_removed_when_dropped() {
 }
 
 #[test]
+fn default_tempdir_is_not_a_searchable_vault_root() {
+    let hidden = tempfile::tempdir().unwrap();
+    let visible = vault();
+
+    assert!(hidden
+        .path()
+        .file_name()
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .starts_with('.'));
+    let error = mdopener_mcp::disk_vault_dir(hidden.path().to_str().unwrap()).unwrap_err();
+    assert!(error.contains("hidden folder"), "{error}");
+    assert_eq!(
+        mdopener_mcp::disk_vault_dir(visible.path().to_str().unwrap()).unwrap(),
+        visible.path().canonicalize().unwrap()
+    );
+}
+
+#[test]
 fn an_agent_works_a_vault_from_disk_without_the_app() {
     let home = tempfile::tempdir().unwrap();
     let vault = vault();
