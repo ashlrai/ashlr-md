@@ -1831,8 +1831,15 @@ describe("rule:missing-alt-text", () => {
 
   it("flags multiple images missing alt text", () => {
     const doc = "![](a.png) text ![](b.png) more.\n";
-    const violations = lintDocument(doc, { rules: [ruleMissingAltText] });
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
     expect(violations).toHaveLength(2);
+    expect(violations.every((violation) => violation.fix !== null)).toBe(true);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(
+      "![TODO: describe image](a.png) text ![TODO: describe image](b.png) more.\n",
+    );
+    expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 
   it("fixes every empty alt when image targets repeat across lines", () => {
