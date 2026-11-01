@@ -1341,6 +1341,35 @@ describe("rule:invalid-link-target", () => {
 // ─── 3. Rule: missing-alt-text ────────────────────────────────────────────────
 
 describe("rule:missing-alt-text", () => {
+  it.each([
+    ["> ", "\n"],
+    ["> ", "\r\n"],
+    ["> > ", "\n"],
+    ["> > ", "\r\n"],
+  ])("fixes an image inside a blockquote with marker %j and line ending %j", (marker, newline) => {
+    const image = '![](images/chart.png?view=full#data "Chart")';
+    const doc = ["Introduction.", `${marker}See ${image} for details.`, "", ""].join(
+      newline,
+    );
+    const expected = [
+      "Introduction.",
+      `${marker}See ![TODO: describe image](images/chart.png?view=full#data "Chart") for details.`,
+      "",
+      "",
+    ].join(newline);
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(image);
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
   it("fixes two adjacent images with empty alt text on the same line", () => {
     const first = "![](./images/chart%20one.png?size=2#preview)";
     const second = '![](../assets/map.svg?view=full#north "Map")';
