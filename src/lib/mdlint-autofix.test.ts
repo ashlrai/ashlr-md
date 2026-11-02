@@ -400,6 +400,33 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    "\n",
+    "\r\n",
+  ])("changes only the link destination for an invalid link and valid image in one wrapped paragraph (%j)", (newline) => {
+    const image =
+      '![Café *diagram*](images/caf%C3%A9.png?size=2#preview "Diagram (v2)")';
+    const prefix = `Intro café, then the ${image} and`;
+    const middle = "see the [draft **notes**](";
+    const suffix = `) before **done**.  ${newline}Next line stays.${newline}`;
+    const doc = `${prefix}${newline}${middle}#${suffix}`;
+    const expected = `${prefix}${newline}${middle}TODO${suffix}`;
+    const rules = [ruleInvalidLinkTarget, ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "invalid-link-target",
+    ]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe("[draft **notes**](#)");
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // Image, link text, trailing spaces and line endings are byte-identical.
+    expect(fixed).toContain(image);
+    expect(fixed.length - doc.length).toBe("TODO".length - "#".length);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
     true,
     false,
   ])("fixes an invalid link beside an image missing alt text (image first: %s)", (imageFirst) => {
