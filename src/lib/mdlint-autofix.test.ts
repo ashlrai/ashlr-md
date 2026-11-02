@@ -6613,6 +6613,24 @@ describe("invalid-link-target autofix: link label preservation", () => {
     expect(fixed).toBe(`See [${label}](TODO) now.\n`);
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
+
+  it.each([
+    'Wait, what? Yes: it\'s "done"; see v1.2-beta!',
+    "50% off / 100% free @ home #1 ~ now",
+    "Q&A (part 1) - notes, etc...",
+    "*emphasis*, _more_ and ~~gone~~!",
+  ])("keeps a label with punctuation %j and the surrounding text when replacing an empty href", (label) => {
+    const doc = `- Before: [${label}]() (see also [ok](./ok.md)), after.\n`;
+    const expected = `- Before: [${label}](TODO) (see also [ok](./ok.md)), after.\n`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
 });
 
 describe("invalid-link-target autofix: preserves surrounding content", () => {
