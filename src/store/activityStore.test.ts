@@ -51,7 +51,7 @@ vi.mock("./uiStore", () => ({
 import type { ActivityEvent, MdFileInfo } from "../lib/activity";
 import { listMarkdownFiles, scanMarkdownFiles } from "../lib/activity";
 import { embedIndex } from "../lib/embedSearch";
-import { useActivityStore } from "./activityStore";
+import { MAX_FILES, useActivityStore } from "./activityStore";
 
 const listMock = listMarkdownFiles as ReturnType<typeof vi.fn>;
 const scanMock = scanMarkdownFiles as ReturnType<typeof vi.fn>;
@@ -158,6 +158,214 @@ describe("activityStore", () => {
     expect(useActivityStore.getState().truncated).toBe(true);
   });
 
+  it("a removed event drops the file and its badge, without a toast or re-index", () => {
+    autoEmbedIndex = true;
+    vi.mocked(embedIndex).mockClear();
+    try {
+      const a = makeFile("a.md", 1000);
+      const b = makeFile("b.md", 2000);
+      useActivityStore.setState({ files: [b, a], unseen: ["/watch/a.md"] });
+      useActivityStore.getState().applyEvent(makeEvent("a.md", "removed", 0));
+      const s = useActivityStore.getState();
+      expect(s.files.map((f) => f.name)).toEqual(["b.md"]);
+      expect(s.unseen).toEqual([]);
+      vi.advanceTimersByTime(5000);
+      expect(toastInfoMock).not.toHaveBeenCalled();
+      expect(embedIndex).not.toHaveBeenCalled();
+    } finally {
+      autoEmbedIndex = false;
+    }
+  });
+
+  it("a rename inside the folder replaces the old entry with the new one", () => {
+    useActivityStore.setState({ files: [makeFile("old.md", 1000)] });
+    useActivityStore.getState().applyEvent(makeEvent("new.md", "modified", 2000));
+    useActivityStore.getState().applyEvent(makeEvent("old.md", "removed", 0));
+    expect(useActivityStore.getState().files.map((f) => f.name)).toEqual(["new.md"]);
+  });
+
+  it("a removal from a list cut short lists the folder again", async () => {
+    listMock.mockResolvedValue([makeFile("older.md", 1)]);
+    useActivityStore.setState({
+      watchedDir: "/watch",
+      files: [makeFile("a.md", 2)],
+      truncated: true,
+    });
+    useActivityStore.getState().applyEvent(makeEvent("a.md", "removed", 0));
+    await vi.waitFor(() =>
+      expect(useActivityStore.getState().files.map((f) => f.name)).toEqual([
+        "older.md",
+      ]),
+    );
+    expect(listMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("an older listing that finishes last does not overwrite a newer one", async () => {
+    // The first listing still names a file a later removal dropped; a
+    // refill started meanwhile lists the folder as it is now.
+    let resolveOld: (f: MdFileInfo[]) => void = () => {};
+    listMock.mockImplementationOnce(
+      () =>
+        new Promise<MdFileInfo[]>((r) => {
+          resolveOld = r;
+        }),
+    );
+    listMock.mockResolvedValueOnce([makeFile("b.md", 1)]);
+    useActivityStore.setState({ watchedDir: "/watch" });
+    const older = useActivityStore.getState().loadFiles();
+    await useActivityStore.getState().loadFiles();
+    resolveOld([makeFile("a.md", 2), makeFile("b.md", 1)]);
+    await older;
+    expect(useActivityStore.getState().files.map((f) => f.name)).toEqual(["b.md"]);
+  });
+
+  it("a listing keeps the files written and removed while it ran", async () => {
+    // The walk saw old.md and missed fresh.md; both changed before it finished.
+    let resolveScan: (f: MdFileInfo[]) => void = () => {};
+    listMock.mockImplementationOnce(
+      () =>
+        new Promise<MdFileInfo[]>((r) => {
+          resolveScan = r;
+        }),
+    );
+    useActivityStore.setState({ watchedDir: "/watch" });
+    const pending = useActivityStore.getState().loadFiles();
+    useActivityStore.getState().applyEvent(makeEvent("fresh.md", "created", 3));
+    useActivityStore.getState().applyEvent(makeEvent("old.md", "removed", 0));
+    resolveScan([makeFile("old.md", 2), makeFile("kept.md", 1)]);
+    await pending;
+    expect(useActivityStore.getState().files.map((f) => f.name)).toEqual([
+      "fresh.md",
+      "kept.md",
+    ]);
+  });
+
+  it("an older note heard during a listing keeps its place by time", async () => {
+    let resolveScan: (f: MdFileInfo[]) => void = () => {};
+    listMock.mockImplementationOnce(
+      () =>
+        new Promise<MdFileInfo[]>((r) => {
+          resolveScan = r;
+        }),
+    );
+    useActivityStore.setState({ watchedDir: "/watch" });
+    const pending = useActivityStore.getState().loadFiles();
+    useActivityStore.getState().applyEvent(makeEvent("old.md", "modified", 1));
+    useActivityStore.getState().applyEvent(makeEvent("mid.md", "modified", 15));
+    resolveScan([makeFile("new.md", 30), makeFile("low.md", 10)]);
+    await pending;
+    expect(useActivityStore.getState().files.map((f) => f.name)).toEqual([
+      "new.md",
+      "mid.md",
+      "low.md",
+      "old.md",
+    ]);
+  });
+
+  it("a note the listing read later than an event heard keeps the listing's time", async () => {
+    let resolveScan: (f: MdFileInfo[]) => void = () => {};
+    listMock.mockImplementationOnce(
+      () =>
+        new Promise<MdFileInfo[]>((r) => {
+          resolveScan = r;
+        }),
+    );
+    useActivityStore.setState({ watchedDir: "/watch" });
+    const pending = useActivityStore.getState().loadFiles();
+    useActivityStore.getState().applyEvent(makeEvent("note.md", "modified", 5));
+    resolveScan([makeFile("note.md", 40), makeFile("other.md", 20)]);
+    await pending;
+    const files = useActivityStore.getState().files;
+    expect(files.map((f) => [f.name, f.mtimeMs])).toEqual([
+      ["note.md", 40],
+      ["other.md", 20],
+    ]);
+  });
+
+  it("a removal heard during a listing cut short lists the folder again", async () => {
+    let resolveScan: (f: MdFileInfo[]) => void = () => {};
+    listMock.mockImplementationOnce(
+      () =>
+        new Promise<MdFileInfo[]>((r) => {
+          resolveScan = r;
+        }),
+    );
+    listMock.mockResolvedValueOnce([makeFile("older.md", 1)]);
+    useActivityStore.setState({ watchedDir: "/watch" });
+    const pending = useActivityStore.getState().loadFiles();
+    useActivityStore.getState().applyEvent(makeEvent("gone.md", "removed", 0));
+    // One more than the list keeps: the folder has more than it shows.
+    resolveScan(
+      Array.from({ length: MAX_FILES + 1 }, (_, i) =>
+        i === 0 ? makeFile("gone.md", 9999) : makeFile(`n${i}.md`, 9000 - i),
+      ),
+    );
+    await pending;
+    await vi.waitFor(() => expect(listMock).toHaveBeenCalledTimes(2));
+    // The second listing's older note takes the removed one's place.
+    await vi.waitFor(() => {
+      const paths = useActivityStore.getState().files.map((f) => f.path);
+      expect(paths).toContain("/watch/older.md");
+      expect(paths).not.toContain("/watch/gone.md");
+    });
+  });
+
+  it("an older note heard keeps its place by time, never pushing newer ones out", () => {
+    // The notes of a folder moved in are sent with their own (older) times.
+    const newer = Array.from({ length: MAX_FILES }, (_, i) =>
+      makeFile(`n${i}.md`, 10_000 - i),
+    );
+    useActivityStore.setState({ watchedDir: "/watch", files: newer });
+    useActivityStore.getState().applyEvent(makeEvent("old.md", "modified", 1));
+    let s = useActivityStore.getState();
+    expect(s.files.map((f) => f.name)).toEqual(newer.map((f) => f.name));
+    expect(s.truncated).toBe(true);
+    // One between two listed notes goes between them.
+    useActivityStore.setState({ files: [makeFile("a.md", 30), makeFile("c.md", 10)] });
+    useActivityStore.getState().applyEvent(makeEvent("b.md", "modified", 20));
+    s = useActivityStore.getState();
+    expect(s.files.map((f) => f.name)).toEqual(["a.md", "b.md", "c.md"]);
+  });
+
+  it("a removal from a whole list does not list the folder again", () => {
+    useActivityStore.setState({ watchedDir: "/watch", files: [makeFile("a.md", 2)] });
+    useActivityStore.getState().applyEvent(makeEvent("a.md", "removed", 0));
+    expect(listMock).not.toHaveBeenCalled();
+  });
+
+  it("a removed folder drops every file under it, and nothing beside it", () => {
+    const under = (path: string, mtimeMs: number): MdFileInfo => ({
+      path,
+      name: path.split("/").pop() ?? "",
+      dir: path.slice(0, path.lastIndexOf("/")),
+      mtimeMs,
+      size: 1,
+    });
+    useActivityStore.setState({
+      files: [
+        under("/watch/notes/a.md", 4),
+        under("/watch/notes/deep/b.md", 3),
+        under("/watch/notes-old/c.md", 2),
+        under("/watch/d.md", 1),
+      ],
+      unseen: ["/watch/notes/a.md", "/watch/d.md"],
+    });
+    useActivityStore.getState().applyEvent({
+      kind: "removed",
+      path: "/watch/notes",
+      name: "notes",
+      dir: "/watch",
+      mtimeMs: 0,
+      size: 0,
+    });
+    const s = useActivityStore.getState();
+    expect(s.files.map((f) => f.path)).toEqual([
+      "/watch/notes-old/c.md",
+      "/watch/d.md",
+    ]);
+    expect(s.unseen).toEqual(["/watch/d.md"]);
+  });
+
   // ── Unseen badge ────────────────────────────────────────────────────────
 
   it("applyEvent adds path to unseen when the drawer is closed", () => {
@@ -219,6 +427,49 @@ describe("activityStore", () => {
       ]);
     });
 
+    it("runs an incremental re-index on a removal, so the gone note leaves the index", async () => {
+      autoEmbedIndex = true;
+      useActivityStore.getState().applyEvent(makeEvent("gone.md", "removed", 1));
+      await vi.advanceTimersByTimeAsync(2500);
+      expect(embedIndex).toHaveBeenCalledWith(["/watch/gone.md"], false);
+    });
+
+    it("keeps a batch that met a busy index and sends it again", async () => {
+      autoEmbedIndex = true;
+      vi.mocked(embedIndex).mockResolvedValueOnce({
+        indexed: 0,
+        skipped: 0,
+        removed: 0,
+        total: 0,
+        busy: true,
+      });
+      useActivityStore.getState().applyEvent(makeEvent("gone.md", "removed", 1));
+      await vi.advanceTimersByTimeAsync(2500);
+      expect(embedIndex).toHaveBeenCalledOnce();
+      await vi.advanceTimersByTimeAsync(2500);
+      expect(embedIndex).toHaveBeenCalledTimes(2);
+      expect(vi.mocked(embedIndex).mock.calls[1]).toEqual([["/watch/gone.md"], false]);
+      // Not busy: nothing more is sent.
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(embedIndex).toHaveBeenCalledTimes(2);
+    });
+
+    it("drops a busy batch when the setting was turned off meanwhile", async () => {
+      autoEmbedIndex = true;
+      vi.mocked(embedIndex).mockImplementationOnce(async () => {
+        autoEmbedIndex = false;
+        return { indexed: 0, skipped: 0, removed: 0, total: 0, busy: true };
+      });
+      useActivityStore.getState().applyEvent(makeEvent("a.md", "modified", 1));
+      await vi.advanceTimersByTimeAsync(2500);
+      expect(embedIndex).toHaveBeenCalledOnce();
+      // Turned on again: the dropped batch is not sent with the next one.
+      autoEmbedIndex = true;
+      useActivityStore.getState().applyEvent(makeEvent("b.md", "modified", 2));
+      await vi.advanceTimersByTimeAsync(2500);
+      expect(vi.mocked(embedIndex).mock.calls[1]).toEqual([["/watch/b.md"], false]);
+    });
+
     it("drops a queued batch if the setting is turned off before it fires", async () => {
       autoEmbedIndex = true;
       useActivityStore.getState().applyEvent(makeEvent("a.md", "modified", 1));
@@ -238,6 +489,22 @@ describe("activityStore", () => {
   });
 
   // ── clearWatch ──────────────────────────────────────────────────────────
+
+  it("clearWatch safely clears an empty activity history", () => {
+    useActivityStore.setState({ watchedDir: "/watch", files: [], unseen: [] });
+    expect(useActivityStore.getState().files).toEqual([]);
+
+    expect(() => {
+      useActivityStore.getState().clearWatch();
+      useActivityStore.getState().clearWatch();
+    }).not.toThrow();
+
+    const s = useActivityStore.getState();
+    expect(s.watchedDir).toBeNull();
+    expect(s.files).toEqual([]);
+    expect(s.unseen).toEqual([]);
+    expect(s.lastError).toBeNull();
+  });
 
   it("clearWatch resets all runtime state", () => {
     useActivityStore.setState({

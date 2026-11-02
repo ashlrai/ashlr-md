@@ -140,6 +140,47 @@ fn vault() -> tempfile::TempDir {
 }
 
 #[test]
+fn vault_fixture_is_visible_and_removed_when_dropped() {
+    let dir = vault();
+    let path = dir.path().to_owned();
+    assert!(path
+        .file_name()
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .starts_with("vault-"));
+    assert!(path.join("plan.md").is_file());
+    assert!(path.join(".hidden.md").is_file());
+
+    drop(dir);
+    assert!(
+        !path.exists(),
+        "fixture was not removed: {}",
+        path.display()
+    );
+}
+
+#[test]
+fn default_tempdir_is_not_a_searchable_vault_root() {
+    let hidden = tempfile::tempdir().unwrap();
+    let visible = vault();
+
+    assert!(hidden
+        .path()
+        .file_name()
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .starts_with('.'));
+    let error = mdopener_mcp::disk_vault_dir(hidden.path().to_str().unwrap()).unwrap_err();
+    assert!(error.contains("hidden folder"), "{error}");
+    assert_eq!(
+        mdopener_mcp::disk_vault_dir(visible.path().to_str().unwrap()).unwrap(),
+        visible.path().canonicalize().unwrap()
+    );
+}
+
+#[test]
 fn an_agent_works_a_vault_from_disk_without_the_app() {
     let home = tempfile::tempdir().unwrap();
     let vault = vault();
@@ -341,6 +382,14 @@ fn an_agent_works_a_vault_from_disk_without_the_app() {
         assert!(is_error, "vault {bad}: {msg}");
         assert!(msg.contains("`vault`"), "{msg}");
     }
+    // A hidden directory cannot be used as the vault root either, even if it
+    // contains a matching Markdown file.
+    let (is_error, msg) = c.call(
+        "search_vault",
+        json!({ "query": "changelog", "semantic": false, "vault": ".git" }),
+    );
+    assert!(is_error, "hidden vault: {msg}");
+    assert!(msg.contains("hidden folder"), "{msg}");
     // So is reading the open document when there is no app to ask.
     let (is_error, msg) = c.call("export_text", json!({}));
     assert!(is_error, "export_text without a path or app: {msg}");

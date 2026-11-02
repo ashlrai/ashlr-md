@@ -29,7 +29,7 @@ export function scan(root, { allow = {}, dirs = ['.'], selfNames = ['check-crypt
       if (/(^|\/)(__tests__|tests?)\//.test(rel) || /\.test\.[a-z]+$/.test(rel)) continue;
       const kinds = new Set();
       for (const [kind, re] of PATTERNS) if (re.test(readFileSync(p, 'utf8'))) kinds.add(kind);
-      if (kinds.size) hits.push({ file: rel, kinds: [...kinds].sort(), allowed: rel in allow, reason: allow[rel] });
+      if (kinds.size) hits.push({ file: rel, kinds: [...kinds].sort((a, b) => a.localeCompare(b)), allowed: rel in allow, reason: allow[rel] });
     }
   };
   for (const d of dirs) walk(resolve(root, d));

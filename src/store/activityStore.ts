@@ -31,6 +31,10 @@ export const MAX_FILES = 200;
 const TOAST_COALESCE_MS = 700;
 let pendingNew: MdFileInfo[] = [];
 let pendingTimer: ReturnType<typeof setTimeout> | null = null;
+/** Counts `loadFiles` calls: only the latest one's listing is kept. */
+let scans = 0;
+/** Events heard while the latest listing runs (null when none does). */
+let heard: ActivityEvent[] | null = null;
 
 function flushNewFileToast() {
   pendingTimer = null;
@@ -71,10 +75,10 @@ const EMBED_DEBOUNCE_MS = 2000;
 const pendingEmbedPaths = new Set<string>();
 let embedTimer: ReturnType<typeof setTimeout> | null = null;
 
-function scheduleEmbedIndex(path: string) {
+function scheduleEmbedIndex(path?: string) {
   // Opt-in (Settings > Semantic search). Off: nothing is queued.
   if (!useSettingsStore.getState().autoEmbedIndex) return;
-  pendingEmbedPaths.add(path);
+  if (path !== undefined) pendingEmbedPaths.add(path);
   if (embedTimer) clearTimeout(embedTimer);
   embedTimer = setTimeout(() => {
     embedTimer = null;
@@ -82,8 +86,16 @@ function scheduleEmbedIndex(path: string) {
     pendingEmbedPaths.clear();
     // Turned off while the debounce was pending: drop the batch.
     if (!useSettingsStore.getState().autoEmbedIndex) return;
-    import("../lib/embedSearch").then(({ embedIndex }) => {
-      void embedIndex(paths, false); // incremental — additive, never prunes
+    void import("../lib/embedSearch").then(async ({ embedIndex }) => {
+      // Incremental: drops only files gone from disk.
+      const result = await embedIndex(paths, false);
+      // Another run held the index and may have looked for removed notes
+      // before these changed: the batch waits for the next turn, so a
+      // deleted note does not stay searchable.
+      if (result?.busy && useSettingsStore.getState().autoEmbedIndex) {
+        for (const p of paths) pendingEmbedPaths.add(p);
+        scheduleEmbedIndex();
+      }
     });
   }, EMBED_DEBOUNCE_MS);
 }
@@ -125,11 +137,15 @@ interface ActivityState {
   setWatchedDir: (dir: string | null) => void;
   /** Load the file listing for the current watched folder. */
   loadFiles: () => Promise<void>;
-  /** Apply a live event: upsert to top, mark unseen when the drawer is closed. */
+  /**
+   * Apply a live event: upsert to top, mark unseen when the drawer is closed;
+   * a `"removed"` event drops the file instead.
+   */
   applyEvent: (ev: ActivityEvent) => void;
   /**
-   * Drop `path` from the list: a file found gone when opened (the watcher
-   * reports no deletions, so it stayed listed).
+   * Drop `path` from the list: a file the watcher saw go, or one found gone
+   * when opened (a removal the watcher missed). A folder's path drops every
+   * file under it.
    */
   removeFile: (path: string) => void;
   /** Clear the unseen badge (drawer viewed). */
@@ -149,9 +165,33 @@ function toFileInfo(ev: ActivityEvent): MdFileInfo {
   };
 }
 
-/** Upsert `file` to the front, de-duping by path, capped at MAX_FILES. */
+/**
+ * `path` is `removed` or inside it: a folder deleted or moved away is sent
+ * as one removal (the watcher sends none for the notes inside it).
+ */
+function isAtOrUnder(path: string, removed: string): boolean {
+  return (
+    path === removed ||
+    path.startsWith(`${removed}/`) ||
+    path.startsWith(`${removed}\\`)
+  );
+}
+
+/**
+ * `files` (newest first) with `file` in its place by modification time, not
+ * capped. It was put on top: the older notes of a folder moved in pushed
+ * newer ones out of a full list.
+ */
+function placeByTime(files: MdFileInfo[], file: MdFileInfo): MdFileInfo[] {
+  const rest = files.filter((f) => f.path !== file.path);
+  const at = rest.findIndex((f) => f.mtimeMs <= file.mtimeMs);
+  rest.splice(at < 0 ? rest.length : at, 0, file);
+  return rest;
+}
+
+/** {@link placeByTime}, capped at MAX_FILES. */
 function upsert(files: MdFileInfo[], file: MdFileInfo): MdFileInfo[] {
-  return [file, ...files.filter((f) => f.path !== file.path)].slice(0, MAX_FILES);
+  return placeByTime(files, file).slice(0, MAX_FILES);
 }
 
 export const useActivityStore = create<ActivityState>()(
@@ -190,6 +230,8 @@ export const useActivityStore = create<ActivityState>()(
 
       loadFiles: async () => {
         const dir = get().watchedDir;
+        const generation = ++scans;
+        heard = dir ? [] : null;
         if (!dir) {
           set({ files: [] });
           return;
@@ -202,25 +244,59 @@ export const useActivityStore = create<ActivityState>()(
           // The walk keeps the newest files of the whole folder, but stops in a
           // very large one; it says so, and the list is then not all of them.
           const scan = await scanMarkdownFiles(dir, MAX_FILES + 1);
-          const listed = scan.files;
+          // A later listing started meanwhile (a refill after a removal):
+          // this older one may still name what it no longer lists.
+          if (generation !== scans) return;
+          // A file written or removed while the folder was walked may be
+          // missing from (or still in) the listing: what was heard wins.
           const depthCut = scan.depthCut === true;
           const scanCut = scan.scanCut || depthCut;
+          let listed = scan.files;
+          const cut = scanCut || listed.length > MAX_FILES;
+          let dropped = false;
+          for (const ev of heard ?? []) {
+            if (ev.kind === "removed") {
+              const kept = listed.filter((f) => !isAtOrUnder(f.path, ev.path));
+              dropped ||= kept.length < listed.length;
+              listed = kept;
+            } else {
+              // The walk may have read a later write than this event (the
+              // watcher drops a second write close behind the first).
+              const walked = listed.find((f) => f.path === ev.path);
+              if (!walked || walked.mtimeMs <= ev.mtimeMs) {
+                listed = placeByTime(listed, toFileInfo(ev));
+              }
+            }
+          }
+          heard = null;
           // The folder changed while this listing ran: it is not this one's.
           if (get().watchedDir !== dir) return;
           set({
             files: listed.slice(0, MAX_FILES),
-            truncated: scanCut || listed.length > MAX_FILES,
+            truncated: cut || listed.length > MAX_FILES,
             scanCut,
             depthCut,
             lastError: null,
           });
+          // A removal heard meanwhile shortened a listing cut short: list
+          // again, so older notes take the removed ones' places.
+          if (cut && dropped) void get().loadFiles();
         } catch (e) {
-          if (get().watchedDir !== dir) return;
+          if (generation === scans) heard = null;
+          if (get().watchedDir !== dir || generation !== scans) return;
           set({ lastError: e instanceof Error ? e.message : String(e) });
         }
       },
 
       applyEvent: (ev) => {
+        heard?.push(ev);
+        // Deleted, or renamed or moved away: the file leaves the list.
+        if (ev.kind === "removed") {
+          get().removeFile(ev.path);
+          // An incremental run drops the gone notes from the semantic index.
+          scheduleEmbedIndex(ev.path);
+          return;
+        }
         // When the drawer is open the user is actively watching, so nothing is
         // "unseen". Otherwise track the path so the toggle can show a count.
         const drawerOpen = useUiStore.getState().activityOpen;
@@ -250,11 +326,16 @@ export const useActivityStore = create<ActivityState>()(
         }
       },
 
-      removeFile: (path) =>
+      removeFile: (path) => {
+        const before = get().files.length;
         set((s) => ({
-          files: s.files.filter((f) => f.path !== path),
-          unseen: s.unseen.filter((p) => p !== path),
-        })),
+          files: s.files.filter((f) => !isAtOrUnder(f.path, path)),
+          unseen: s.unseen.filter((p) => !isAtOrUnder(p, path)),
+        }));
+        // A list cut short has older notes it did not show: list again so
+        // they take the removed ones' places (a removed folder could empty it).
+        if (get().truncated && get().files.length < before) void get().loadFiles();
+      },
 
       markAllSeen: () => set({ unseen: [] }),
 

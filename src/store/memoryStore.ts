@@ -14,6 +14,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { OtLogEntry } from "../lib/ot";
+import { uniqueId } from "../lib/uniqueId";
 
 export interface MemoryItem {
   id: string;
@@ -31,7 +32,7 @@ interface MemoryState {
 }
 
 function makeId(): string {
-  return `mem-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  return uniqueId("mem-", 6);
 }
 
 /** Cap how much memory is injected into a prompt, so it can't grow unbounded. */
@@ -139,11 +140,11 @@ interface ConversationSessionState {
 }
 
 function makeSessionId(): string {
-  return `sess-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  return uniqueId("sess-", 8);
 }
 
 function makeMessageId(): string {
-  return `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  return uniqueId("msg-", 6);
 }
 
 /**

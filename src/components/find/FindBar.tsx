@@ -86,8 +86,20 @@ export function FindBar() {
           }
         }}
       />
-      <span className="find-count">
+      <span className="find-count" aria-hidden="true">
         {query ? (count === 0 ? "0/0" : `${index + 1}/${count}`) : ""}
+      </span>
+      <span
+        className="visually-hidden"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        {query
+          ? count === 0
+            ? "No results"
+            : `${count} ${count === 1 ? "match" : "matches"}. Match ${index + 1} of ${count}.`
+          : ""}
       </span>
       <button
         type="button"

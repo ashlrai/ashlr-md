@@ -29,16 +29,34 @@ export function isMissingFileError(error: unknown): boolean {
 
 const MAX_RECENTS = 12;
 
+function normalizeRecents(recents: RecentFile[]): RecentFile[] {
+  const seen = new Set<string>();
+  return recents
+    .map((recent, index) => ({ recent, index }))
+    .sort((a, b) => {
+      const aTime = Number.isFinite(a.recent.openedAt) ? a.recent.openedAt : -Infinity;
+      const bTime = Number.isFinite(b.recent.openedAt) ? b.recent.openedAt : -Infinity;
+      return (aTime === bTime ? 0 : aTime > bTime ? -1 : 1) || a.index - b.index;
+    })
+    .filter(({ recent }) => {
+      if (seen.has(recent.path)) return false;
+      seen.add(recent.path);
+      return true;
+    })
+    .slice(0, MAX_RECENTS)
+    .map(({ recent }) => recent);
+}
+
 export const useRecentStore = create<RecentState>()(
   persist(
     (set, get) => ({
       recents: [],
       add: (path, fileName, openedAt) =>
         set((s) => ({
-          recents: [
+          recents: normalizeRecents([
             { path, fileName, openedAt },
             ...s.recents.filter((r) => r.path !== path),
-          ].slice(0, MAX_RECENTS),
+          ]),
         })),
       remove: (path) =>
         set((s) => ({ recents: s.recents.filter((r) => r.path !== path) })),
@@ -62,6 +80,16 @@ export const useRecentStore = create<RecentState>()(
         return missing.size;
       },
     }),
-    { name: "mdopener-recents" },
+    {
+      name: "mdopener-recents",
+      merge: (persisted, current) => {
+        const state = persisted as Partial<RecentState> | undefined;
+        return {
+          ...current,
+          ...state,
+          recents: normalizeRecents(Array.isArray(state?.recents) ? state.recents : []),
+        };
+      },
+    },
   ),
 );

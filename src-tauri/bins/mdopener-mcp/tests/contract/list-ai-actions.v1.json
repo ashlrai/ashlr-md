@@ -1,0 +1,13 @@
+{
+  "jsonrpc": "2.0",
+  "id": 3,
+  "result": {
+    "content": [
+      {
+        "text": "{\"actions\":[{\"icon\":\"💡\",\"id\":\"explain\",\"label\":\"Explain\",\"scope\":\"selection\",\"shortLabel\":\"Explain\"},{\"icon\":\"📝\",\"id\":\"summarize\",\"label\":\"Summarize\",\"scope\":\"selection\",\"shortLabel\":\"Summarize\"},{\"icon\":\"✏️\",\"id\":\"rewrite\",\"label\":\"Rewrite (clearer)\",\"scope\":\"selection\",\"shortLabel\":\"Rewrite\"},{\"icon\":\"✓\",\"id\":\"fix-grammar\",\"label\":\"Fix grammar\",\"scope\":\"selection\",\"shortLabel\":\"Fix\"},{\"icon\":\"✂️\",\"id\":\"concise\",\"label\":\"Make concise\",\"scope\":\"selection\",\"shortLabel\":\"Concise\"},{\"icon\":\"➕\",\"id\":\"expand\",\"label\":\"Expand\",\"scope\":\"selection\",\"shortLabel\":\"Expand\"},{\"argument\":\"{arg} is the version of the document on disk; {text} is the version in the editor. The app passes an empty string when there is none.\",\"icon\":\"🔀\",\"id\":\"explain-diff\",\"label\":\"Explain changes\",\"scope\":\"selection\",\"shortLabel\":\"Explain changes\"},{\"argument\":\"{arg} is the language to translate into, by name (e.g. French). The app uses Spanish when none is given.\",\"icon\":\"🌐\",\"id\":\"translate\",\"label\":\"Translate\",\"scope\":\"selection\",\"shortLabel\":\"Translate\"},{\"icon\":\"⚡\",\"id\":\"tldr\",\"label\":\"TL;DR\",\"scope\":\"selection\",\"shortLabel\":\"TL;DR\"},{\"icon\":\"📝\",\"id\":\"doc-summarize\",\"label\":\"Summarize doc\",\"scope\":\"document\",\"shortLabel\":\"Summarize doc\"},{\"icon\":\"📋\",\"id\":\"doc-outline\",\"label\":\"Outline\",\"scope\":\"document\",\"shortLabel\":\"Outline\"},{\"icon\":\"💡\",\"id\":\"doc-explain-selection\",\"label\":\"Explain doc\",\"scope\":\"document\",\"shortLabel\":\"Explain doc\"}],\"count\":12}",
+        "type": "text"
+      }
+    ],
+    "isError": false
+  }
+}

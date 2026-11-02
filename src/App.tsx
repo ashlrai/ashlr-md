@@ -8,9 +8,14 @@ import { installCloseGuard } from "./lib/closeGuard";
 import { classify } from "./lib/docClassifier";
 import { listenForOpenedFiles, openOpenedFiles } from "./lib/fileOpens";
 import { handleGlobalKeyDown } from "./lib/globalKeys";
-import { restoreSession, sessionRestoreMessage } from "./lib/session";
+import {
+  openAtLaunch,
+  type SessionRestore,
+  sessionRestoreMessage,
+} from "./lib/session";
 import { runStartupEmbedIndex } from "./lib/startupEmbedIndex";
 import {
+  type RestoreResult,
   restoreBuffers,
   restoreMessage,
   startKeepingBuffers,
@@ -35,6 +40,11 @@ import "./styles/diff.css";
 
 const MD_EXT = /\.(md|markdown|mdown|mkd|mdx)$/i;
 
+// The launch open runs once per app start. React.StrictMode runs the effect
+// below twice in development; a second restore finishing after the first run
+// opened the launch file would make the saved active tab active again.
+let launchOpen: Promise<{ restored: SessionRestore; kept: RestoreResult }> | undefined;
+
 export default function App() {
   const openPath = useDocumentStore((s) => s.openPath);
   const theme = useSettingsStore((s) => s.theme);
@@ -54,35 +64,44 @@ export default function App() {
     root.style.setProperty("--content-width", `${contentWidth}px`);
   }, [theme, fontSize, contentWidth]);
 
-  // Open files: drain anything buffered before mount; if the user didn't
-  // double-click a file, restore the previous session ("continue where you left
-  // off"). Then start persisting session changes and listen for live opens.
+  // Open files: restore the previous session ("continue where you left off"),
+  // then open anything buffered before mount (a double-clicked file). Then
+  // start persisting session changes and listen for live opens.
   useEffect(() => {
     let unlisten: (() => void) | undefined;
     let unsubSave: (() => void) | undefined;
     let keeping: { stop: () => void } | undefined;
     let gone = false;
-    (async () => {
-      const pending = await invoke<string[]>("take_pending_files").catch(
-        () => [] as string[],
-      );
-      if (pending.length) {
-        // Open every queued file (openPath dedupes); the last stays active.
-        await openOpenedFiles(pending, openPath);
-      } else {
-        const restored = await restoreSession();
-        const said = sessionRestoreMessage(restored);
-        if (said) {
-          if (restored.gone.length > 0) toast.error(said, { timeout: 8000 });
-          else toast.info(said);
-        }
+    void (async () => {
+      // The saved tabs, then every queued file (openPath dedupes); the last
+      // stays active.
+      launchOpen ??= (async () => {
+        const pending = await invoke<string[]>("take_pending_files").catch(
+          () => [] as string[],
+        );
+        // Put back the unsaved text a crash or forced quit left before the
+        // launch files open (see lib/unsavedBuffers.ts), then keep it from
+        // here on.
+        let kept: RestoreResult = { restored: [], recovered: [] };
+        const restored = await openAtLaunch(
+          pending,
+          (paths) => openOpenedFiles(paths, openPath),
+          async () => {
+            kept = await restoreBuffers(openPath);
+          },
+        );
+        return { restored, kept };
+      })();
+      const { restored, kept } = await launchOpen;
+      if (gone) return;
+      const said = sessionRestoreMessage(restored);
+      if (said) {
+        if (restored.gone.length > 0) toast.error(said, { timeout: 8000 });
+        else toast.info(said);
       }
-      // Put back the unsaved text a crash or forced quit left, then keep
-      // it from here on (see lib/unsavedBuffers.ts).
-      const kept = await restoreBuffers(openPath);
       const keptNote = restoreMessage(kept);
       if (keptNote) toast[keptNote.kind](keptNote.text);
-      if (!gone) keeping = startKeepingBuffers();
+      keeping = startKeepingBuffers();
       // Recents whose file was deleted or moved since are dropped, so the
       // Recent list and the agents' `list_recent` only offer real files.
       void useRecentStore.getState().pruneMissing();
@@ -97,7 +116,10 @@ export default function App() {
       // Listen for live opens, then open what arrived between the drain
       // above and the listener being registered.
       unlisten = await listenForOpenedFiles(openPath);
-    })();
+      if (gone) unlisten();
+    })().catch(() => {
+      if (!gone) toast.error("Could not restore files or listen for file opens.");
+    });
     return () => {
       gone = true;
       unlisten?.();
@@ -109,7 +131,8 @@ export default function App() {
   // Native drag-and-drop of files onto the window.
   useEffect(() => {
     let unlisten: (() => void) | undefined;
-    (async () => {
+    let gone = false;
+    void (async () => {
       unlisten = await getCurrentWebview().onDragDropEvent((event) => {
         const p = event.payload;
         if (p.type === "over" || p.type === "enter") {
@@ -117,13 +140,22 @@ export default function App() {
         } else if (p.type === "drop") {
           setDragOver(false);
           const md = p.paths.find((path) => MD_EXT.test(path)) ?? p.paths[0];
-          if (md) openPath(md);
+          if (md)
+            void openPath(md).catch(() => {
+              toast.error("Could not open dropped file.");
+            });
         } else {
           setDragOver(false);
         }
       });
-    })();
-    return () => unlisten?.();
+      if (gone) unlisten();
+    })().catch(() => {
+      if (!gone) toast.error("Could not listen for dropped files.");
+    });
+    return () => {
+      gone = true;
+      unlisten?.();
+    };
   }, [openPath]);
 
   // Ask before closing the window with unsaved edits (Rust holds the close;
@@ -151,26 +183,40 @@ export default function App() {
   // React to external (on-disk) changes of the open file.
   useEffect(() => {
     let unlisten: (() => void) | undefined;
-    (async () => {
+    let gone = false;
+    void (async () => {
       unlisten = await listen<string>("file-changed", (e) => {
         // Re-read it, or flag it missing when it was deleted or moved: the
         // window used to show nothing, and the next save wrote it again.
         void useDocumentStore.getState().refreshFromDisk(e.payload);
       });
-    })();
-    return () => unlisten?.();
+      if (gone) unlisten();
+    })().catch(() => {
+      if (!gone) toast.error("Could not listen for file changes.");
+    });
+    return () => {
+      gone = true;
+      unlisten?.();
+    };
   }, []);
 
   // The open file was renamed on disk (where the platform reports both
   // names): the tab follows it, where it used to read as gone.
   useEffect(() => {
     let unlisten: (() => void) | undefined;
-    (async () => {
+    let gone = false;
+    void (async () => {
       unlisten = await listen<{ from: string; to: string }>("file-renamed", (e) => {
         void useDocumentStore.getState().followRename(e.payload.from, e.payload.to);
       });
-    })();
-    return () => unlisten?.();
+      if (gone) unlisten();
+    })().catch(() => {
+      if (!gone) toast.error("Could not listen for file renames.");
+    });
+    return () => {
+      gone = true;
+      unlisten?.();
+    };
   }, []);
 
   // A file changed, appeared or was renamed on disk: links resolve again, so
@@ -191,7 +237,7 @@ export default function App() {
   // Check for updates shortly after launch (no-op in dev / offline).
   useEffect(() => {
     const t = setTimeout(() => {
-      checkForUpdates();
+      void checkForUpdates();
     }, 3000);
     return () => clearTimeout(t);
   }, []);

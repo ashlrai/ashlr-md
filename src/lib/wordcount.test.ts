@@ -6,6 +6,28 @@ describe("computeDocStats", () => {
     expect(computeDocStats("one two three four five").words).toBe(5);
   });
 
+  it.each([
+    ["leading spaces", "  ", ""],
+    ["trailing spaces", "", "  "],
+    ["leading and trailing blank lines", "\n\n", "\n\n"],
+    ["mixed whitespace on both sides", "\n \n  ", " \t\r\n\n"],
+    ["Unicode whitespace on both sides", "\u00a0", "\u2003"],
+  ])("does not change the prose word count with %s", (_description, prefix, suffix) => {
+    const prose = "one two three four five";
+    expect(computeDocStats(prose).words).toBe(5);
+    expect(computeDocStats(`${prefix}${prose}${suffix}`).words).toBe(5);
+  });
+
+  it("counts accented words separated by Unicode whitespace", () => {
+    expect(
+      computeDocStats("café\u00a0mañana\u2003naïve\nre\u0301sume\u0301").words,
+    ).toBe(4);
+  });
+
+  it("counts punctuation-only prose as whitespace-separated words", () => {
+    expect(computeDocStats("!!! ??? ;;;")).toEqual({ words: 3, minutes: 1 });
+  });
+
   it("excludes YAML frontmatter from the count", () => {
     const md = "---\ntitle: My Post\nauthor: Jane Doe\n---\n\nHello world here";
     expect(computeDocStats(md).words).toBe(3);
@@ -16,6 +38,15 @@ describe("computeDocStats", () => {
     expect(computeDocStats(md).words).toBe(4); // "intro words here" + "outro"
   });
 
+  it("counts surrounding prose but excludes every line of a multiline fence", () => {
+    const fence =
+      "```js\nconst message = 'hello world';\nconsole.log(message);\nreturn message;\n```";
+    expect(computeDocStats(`words before\n\n${fence}\n\nwords after here`).words).toBe(
+      5,
+    );
+    expect(computeDocStats(fence).words).toBe(0);
+  });
+
   it("excludes inline code", () => {
     // "run" + "now"; the inline-code span is removed entirely.
     expect(computeDocStats("run `npm install foo bar` now").words).toBe(2);
@@ -24,6 +55,16 @@ describe("computeDocStats", () => {
   it("returns zero words and zero minutes for empty content", () => {
     expect(computeDocStats("")).toEqual({ words: 0, minutes: 0 });
     expect(computeDocStats("   \n\n")).toEqual({ words: 0, minutes: 0 });
+  });
+
+  it.each([
+    ["spaces", "   "],
+    ["tabs", "\t\t"],
+    ["newlines", "\n\n"],
+    ["mixed whitespace", " \t\n\r\n\t "],
+    ["Unicode whitespace", "\u00a0\u2003"],
+  ])("returns zero words and minutes for %s only", (_label, content) => {
+    expect(computeDocStats(content)).toEqual({ words: 0, minutes: 0 });
   });
 
   it("rounds reading time up to at least one minute for short docs", () => {

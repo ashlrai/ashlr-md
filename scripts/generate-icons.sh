@@ -125,7 +125,7 @@ require_cmd bun "Install Bun from https://bun.sh"
 # ---------------------------------------------------------------------------
 if [[ ! -f "$REPO_ROOT/node_modules/.bin/tauri" ]]; then
   info "@tauri-apps/cli not found in node_modules — running bun install …"
-  cd "$REPO_ROOT" && bun install --frozen-lockfile
+  cd "$REPO_ROOT" && bun install --frozen-lockfile --ignore-scripts
 fi
 
 # ---------------------------------------------------------------------------

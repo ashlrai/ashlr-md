@@ -185,7 +185,7 @@ pub fn doctor_with(json: bool, tier1_json: &str, offline: bool) -> Option<String
     v["status"] = worst.into();
     Some(format!(
         "{}\n",
-        serde_json::to_string_pretty(&v).unwrap_or_default()
+        serde_json::to_string(&v).unwrap_or_default()
     ))
 }
 
@@ -267,6 +267,16 @@ pub fn collect(root: Option<&Value>, timeout: Duration) -> SetupReport {
             probe: probe_default(d.provider, timeout),
         })
         .collect();
+    collect_with_servers(root, timeout, servers)
+}
+
+/// Collect the configured block using supplied default server findings.
+/// Callers can inject deterministic findings without contacting fixed ports.
+pub fn collect_with_servers(
+    root: Option<&Value>,
+    timeout: Duration,
+    servers: Vec<ServerFinding>,
+) -> SetupReport {
     let block = root.and_then(|r| r.get("localInference"));
     let config = match gate::parse_local_inference(block) {
         Ok(None) => ConfigFinding {
@@ -500,7 +510,7 @@ pub fn render_json(r: &SetupReport) -> String {
         "config_snippet": r.config_snippet,
         "next": r.next,
     });
-    format!("{}\n", serde_json::to_string_pretty(&v).unwrap_or_default())
+    format!("{}\n", serde_json::to_string(&v).unwrap_or_default())
 }
 
 pub const SETUP_HELP: &str = "USAGE:

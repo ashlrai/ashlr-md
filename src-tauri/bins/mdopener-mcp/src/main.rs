@@ -11,7 +11,8 @@
 //! `edit_canvas`, `list_ai_actions`, the two conversation tools, and
 //! `export_text` / `export_metadata` given a `path` work without the app, and
 //! `search_vault` given a `vault` directory greps it on disk when the app is
-//! unreachable.
+//! unreachable. `get_user_annotations` reads tasks and saved review verdicts
+//! from disk when the app is unreachable.
 //!
 //! ## Protocol subset implemented
 //!   initialize      → capability handshake
@@ -23,13 +24,9 @@
 //!   prompts/list, prompts/get   (summarize, review_plan, improve_writing)
 //!
 //! ## Tools
-//! The authoritative catalog is `tool_registry()` in `lib.rs` (20 tools):
-//! open_file, get_current_content, list_recent, export, request_review,
-//! get_user_annotations, edit_document, search_vault, present_document,
-//! list_ai_actions, get_conversation_context, save_conversation_message,
-//! diff_documents, edit_canvas, stream_edit, stream_edit_apply, export_text,
-//! export_metadata, and last the two destructive ones, replace_document and
-//! set_content.
+//! The authoritative catalog and ordering come from `tool_registry()` in
+//! `lib.rs`. The user-facing table is in `docs/AGENTS.md`; run
+//! `python3 scripts/check-docs.py` from the repository root to check it.
 //!
 //! `export_markdown_archive`, `export_canvas_graph` and `batch_export_format`
 //! are no longer listed: the app never implemented them. Calling one returns
@@ -53,6 +50,8 @@ USAGE:
     mdopener-mcp               serve MCP on stdin/stdout (launched by an MCP client)
     mdopener-mcp --version     print the version
     mdopener-mcp --help        print this help
+    mdopener-mcp --export-tool-schema
+                               print tool names and input schemas as JSON, then exit
     mdopener-mcp --ashlr-handshake [--json]
                                print the Ashlr companion handshake (JSON)
     mdopener-mcp doctor [--json]
@@ -91,6 +90,11 @@ fn main() {
         .skip(1)
         .map(|a| a.to_string_lossy().into_owned())
         .collect();
+    if args.as_slice() == ["--export-tool-schema"] {
+        let contract = serde_json::to_string_pretty(&mdopener_mcp::tool_contract())
+            .expect("tool contract is JSON");
+        std::process::exit(print_stdout(&format!("{contract}\n")));
+    }
     // Companion handshake (docs/ashlr-handshake.md): one JSON line, before stdin.
     if mdopener_mcp::handshake::requested(&args) {
         let app_running =
@@ -175,6 +179,11 @@ fn print_stdout(text: &str) -> i32 {
 /// read whole into memory, however long it grew.
 const MAX_REQUEST_LINE_BYTES: usize = 4 * MAX_DOCUMENT_BYTES as usize;
 
+/// A line buffer up to this size is reused for the next request; a larger
+/// one is dropped after the line is answered so one big request does not
+/// stay allocated for the life of the session.
+const LINE_BUF_KEEP_BYTES: usize = 1024 * 1024;
+
 /// Answer each newline-delimited JSON-RPC message read from `input` on
 /// `output`, until `input` ends or cannot be read.
 ///
@@ -197,6 +206,9 @@ fn serve_bounded(
 ) {
     let mut buf = Vec::new();
     loop {
+        if buf.capacity() > LINE_BUF_KEEP_BYTES {
+            buf = Vec::new();
+        }
         buf.clear();
         let reply = match read_line_bounded(&mut input, &mut buf, limit) {
             Ok(Line::End) | Err(_) => break,

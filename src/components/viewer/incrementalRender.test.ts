@@ -9,6 +9,7 @@ vi.mock("@tauri-apps/api/event", () => ({
   listen: vi.fn().mockResolvedValue(() => {}),
 }));
 
+import { loadKindRegistry } from "../../lib/renderers/kind-registry";
 import { useDocumentStore } from "../../store/documentStore";
 import { Renderer } from "./Renderer";
 
@@ -73,6 +74,35 @@ it("detects new review findings and updates existing severities after word edits
     expect(
       host.querySelector('.review-badge[data-severity="critical"]'),
     ).not.toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+it("re-evaluates custom registry and plan status with unchanged cached Markdown", async () => {
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  const content =
+    "---\nkind: audit\nstatus: blocked\n---\n# Work\n- [x] Done\n- [ ] Next\n";
+  const plan = loadKindRegistry(
+    JSON.stringify([
+      { name: "audit", renderer: "plan", frontmatter: { kind: "audit" }, sections: {} },
+    ]),
+  );
+  const plain = loadKindRegistry("[]");
+  try {
+    for (const registry of [plan, plain, plan]) {
+      await act(async () =>
+        root.render(createElement(Renderer, { content, kindRegistry: registry })),
+      );
+      expect(host.querySelector(".markdown-body")?.getAttribute("data-doc-kind")).toBe(
+        registry === plan ? "plan" : null,
+      );
+      expect(host.querySelector('[aria-label="Plan status"]') !== null).toBe(
+        registry === plan,
+      );
+      expect(host.querySelectorAll("input.task-checkbox")).toHaveLength(2);
+    }
   } finally {
     await act(async () => root.unmount());
   }

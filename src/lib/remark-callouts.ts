@@ -102,7 +102,7 @@ export function remarkCallouts() {
         }
       }
 
-      if (!calloutType) return; // Normal blockquote — leave untouched.
+      if (!calloutType) return; // Normal blockquote - leave untouched.
 
       // -----------------------------------------------------------------------
       // Annotate the blockquote node so rehype emits a <div> with our classes.
@@ -113,8 +113,7 @@ export function remarkCallouts() {
         ...node.data,
         hName: "div",
         hProperties: {
-          // biome-ignore lint/suspicious/noExplicitAny: mdast hast bridge
-          ...(node.data?.hProperties as any),
+          ...node.data?.hProperties,
           className: ["callout", `callout-${calloutType}`],
           "data-callout": calloutType,
         },

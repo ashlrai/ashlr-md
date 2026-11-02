@@ -208,6 +208,21 @@ export function ExportDialog() {
     setStatus({ kind: "idle" });
   }, []);
 
+  // The success pause's close belongs to this dialog: once it is closed, a
+  // pending pause (or an export finishing late) must not close the next one
+  // opened. It used to: export, close, open Export again within the pause,
+  // and the new dialog shut on its own.
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      if (closeTimer.current) clearTimeout(closeTimer.current);
+      closeTimer.current = null;
+    };
+  }, []);
+
   // Close on Escape, but not on one that ends an IME composition (see
   // isDismissEscape).
   useEffect(() => {
@@ -243,6 +258,10 @@ export function ExportDialog() {
   // (src/lib/export.ts) so the command-palette export paths get them too; the
   // dialog just drives its own inline status + auto-close.
   async function run(label: string, fn: () => Promise<unknown>): Promise<void> {
+    // An earlier export's success pause is over: its timer must not close
+    // the dialog after this one (or a later reopening).
+    if (closeTimer.current) clearTimeout(closeTimer.current);
+    closeTimer.current = null;
     setStatus({ kind: "busy", label: `Exporting ${label}…` });
     try {
       // False: the save dialog was cancelled, and nothing was exported. It
@@ -251,9 +270,10 @@ export function ExportDialog() {
         setStatus({ kind: "idle" });
         return;
       }
+      if (!mounted.current) return;
       setStatus({ kind: "ok", label: `${label} exported.` });
       // Auto-close after a short success pause.
-      setTimeout(close, 1200);
+      closeTimer.current = setTimeout(close, 1200);
     } catch (e) {
       const msg = typeof e === "string" ? e : ((e as Error)?.message ?? String(e));
       setStatus({ kind: "error", message: msg });

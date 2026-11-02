@@ -758,3 +758,69 @@ describe("tables read by the page's rules", () => {
     expect(serializeTable(t)).toBe("| a \\| b | c |\n| --- | --- |\n| 1 | 2 |");
   });
 });
+
+describe("table cell serialization", () => {
+  it.each([
+    0, 1, 2, 3, 4,
+  ])("escapes pipes after %i backslashes without accumulating escapes", (count) => {
+    const slashes = "\\".repeat(count);
+    const content = `before ${slashes}| after |`;
+    const expected = `before ${"\\".repeat(count % 2 ? count : count + 1)}| after \\|`;
+    const table = setCellContent(parseTable(ALIGNED_TABLE), 0, 0, content);
+    const markdown = serializeTable(table);
+    const reparsed = parseTable(markdown);
+    expect(reparsed.rows).toEqual([[expected, "b", "c", "d"]]);
+    expect(reparsed.alignments).toEqual(table.alignments);
+    expect(serializeTable(reparsed)).toBe(markdown);
+  });
+
+  it.each([
+    "\n",
+    "\r\n",
+    "\r",
+  ])("keeps multiline header and copied cell content inside their cells (%j)", (eol) => {
+    const table = parseTable(ALIGNED_TABLE);
+    table.headers[0] = `First|part${eol}Second`;
+    const updated = setCellContent(table, 0, 0, `one${eol}${eol}two | three`);
+    const copied = setCellContent(updated, 0, 1, getCellContent(updated, 0, 0));
+    const markdown = serializeTable(copied);
+    const reparsed = parseTable(markdown);
+    expect(markdown.split("\n")).toHaveLength(3);
+    expect(reparsed.headers).toEqual([
+      "First\\|part<br>Second",
+      "Center",
+      "Right",
+      "None",
+    ]);
+    expect(reparsed.rows).toEqual([
+      ["one<br><br>two \\| three", "one<br><br>two \\| three", "c", "d"],
+    ]);
+    expect(reparsed.alignments).toEqual(table.alignments);
+    expect(serializeTable(reparsed)).toBe(markdown);
+  });
+
+  it("preserves surrounding document and alignments across repeated cell edits", () => {
+    const document = `Before\n\n${ALIGNED_TABLE}\n\nAfter`;
+    const edited = applyTableEdit(document, document.indexOf("Left"), {
+      kind: "setCellContent",
+      row: 0,
+      col: 2,
+      content: "a | b\r\nc",
+    });
+    const copied = applyTableEdit(edited, edited.indexOf("Left"), {
+      kind: "setCellContent",
+      row: 0,
+      col: 3,
+      content: getCellContent(
+        parseTable(findTableRange(edited, edited.indexOf("Left"))!.source),
+        0,
+        2,
+      ),
+    });
+    const table = parseTable(findTableRange(copied, copied.indexOf("Left"))!.source);
+    expect(table.rows).toEqual([["a", "b", "a \\| b<br>c", "a \\| b<br>c"]]);
+    expect(table.alignments).toEqual(parseTable(ALIGNED_TABLE).alignments);
+    expect(copied.startsWith("Before\n\n")).toBe(true);
+    expect(copied.endsWith("\n\nAfter")).toBe(true);
+  });
+});

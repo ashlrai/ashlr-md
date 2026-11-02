@@ -57,6 +57,15 @@
       "profiles": ["quick", "merge"]
     },
     {
+      "id": "doc-links",
+      "kind": "test",
+      "cmd": ["bun", "run", "check:doc-links"],
+      "cwd": ".",
+      "timeoutMs": 120000,
+      "required": true,
+      "profiles": ["quick", "merge"]
+    },
+    {
       "id": "cargo-test",
       "kind": "test",
       "cmd": ["cargo", "--config", "env.TAURI_CONFIG=\"{\\\"bundle\\\":{\\\"resources\\\":null}}\"", "test", "--workspace", "--locked", "--manifest-path", "src-tauri/Cargo.toml"],

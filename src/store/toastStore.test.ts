@@ -48,6 +48,48 @@ describe("toastStore", () => {
     expect(useToastStore.getState().toasts).toHaveLength(0);
   });
 
+  it("dismissing the same toast twice leaves the remaining toasts unchanged", () => {
+    const firstId = useToastStore.getState().push({ message: "first", timeout: 0 });
+    const dismissedId = useToastStore
+      .getState()
+      .push({ message: "gone", timeout: 500 });
+    const lastId = useToastStore.getState().push({ message: "last", timeout: 1000 });
+
+    useToastStore.getState().dismiss(dismissedId);
+    const remaining = useToastStore.getState().toasts;
+    expect(remaining.map((toast) => toast.id)).toEqual([firstId, lastId]);
+    expect(vi.getTimerCount()).toBe(1);
+
+    useToastStore.getState().dismiss(dismissedId);
+    expect(useToastStore.getState().toasts).toEqual(remaining);
+    expect(vi.getTimerCount()).toBe(1);
+
+    vi.advanceTimersByTime(1000);
+    expect(useToastStore.getState().toasts.map((toast) => toast.id)).toEqual([firstId]);
+  });
+
+  it("dismiss preserves the other queued toast and its timeout", () => {
+    const dismissedId = useToastStore
+      .getState()
+      .push({ message: "gone", timeout: 500 });
+    const remainingId = useToastStore
+      .getState()
+      .push({ message: "stays", timeout: 1000 });
+
+    useToastStore.getState().dismiss(dismissedId);
+    expect(useToastStore.getState().toasts).toEqual([
+      expect.objectContaining({ id: remainingId, message: "stays" }),
+    ]);
+    expect(vi.getTimerCount()).toBe(1);
+
+    vi.advanceTimersByTime(500);
+    expect(useToastStore.getState().toasts.map((toast) => toast.id)).toEqual([
+      remainingId,
+    ]);
+    vi.advanceTimersByTime(500);
+    expect(useToastStore.getState().toasts).toHaveLength(0);
+  });
+
   it("clear removes all toasts at once", () => {
     useToastStore.getState().push({ message: "a" });
     useToastStore.getState().push({ message: "b" });

@@ -465,7 +465,7 @@ pub fn run(args: &[String], root: Option<&Path>) -> (String, String, i32) {
         });
         add_doctor_envelope(&mut v, apply, &plan, outcome.as_ref());
         return (
-            format!("{}\n", serde_json::to_string_pretty(&v).unwrap_or_default()),
+            format!("{}\n", serde_json::to_string(&v).unwrap_or_default()),
             String::new(),
             code,
         );

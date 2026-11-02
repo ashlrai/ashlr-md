@@ -20,7 +20,7 @@ import {
 } from "../../store/remoteImagesStore";
 import { useUiStore } from "../../store/uiStore";
 import "katex/dist/katex.min.css";
-import { type DocInfo, type DocKind, detectDocKind } from "../../lib/agent-detect";
+import { type DocKind, detectDocKind } from "../../lib/agent-detect";
 import {
   anchorElement,
   imageSource,
@@ -33,6 +33,11 @@ import {
 import { smoothScrollBehavior } from "../../lib/motion";
 import type { OtOperation } from "../../lib/ot";
 import type { CalloutType } from "../../lib/remark-callouts";
+import {
+  builtInKindRegistry,
+  type KindRegistry,
+} from "../../lib/renderers/kind-registry";
+import { PlanStatusRenderer } from "../../lib/renderers/plan-status-renderer";
 import { detectReviewDoc } from "../../lib/reviewDoc";
 import { IncrementalMarkdown } from "../../render/incremental";
 import { useDocumentStore } from "../../store/documentStore";
@@ -557,9 +562,13 @@ function OtChangeBadgeLayer({ ops }: { ops: OtOperation[] }) {
 
 interface RendererProps {
   content: string;
+  kindRegistry?: KindRegistry;
 }
 
-export const Renderer = memo(function Renderer({ content }: RendererProps) {
+export const Renderer = memo(function Renderer({
+  content,
+  kindRegistry,
+}: RendererProps) {
   const source = useRef(content);
   useLayoutEffect(() => {
     source.current = content;
@@ -568,33 +577,19 @@ export const Renderer = memo(function Renderer({ content }: RendererProps) {
   const taskSource = useMemo(() => ({ source, editable }), [editable]);
   const [markdown] = useState(() => new IncrementalMarkdown(components));
   const rendered = useMemo(() => markdown.render(content), [markdown, content]);
-  const previousInfo = useRef<DocInfo | null>(null);
   const info = useMemo(() => {
-    // Word edits on ordinary lines cannot change ATX headings, task markers,
-    // frontmatter, fences or hunk headers used by document classification.
-    const value =
-      markdown.stats.blockStructureUnchanged && previousInfo.current
-        ? previousInfo.current
-        : detectDocKind(content);
-    previousInfo.current = value;
-    return value;
-  }, [content, markdown]);
+    const detected = detectDocKind(content);
+    if (!kindRegistry && builtInKindRegistry.render(content).renderer === "plain")
+      return detected;
+    const { renderer } = (kindRegistry ?? builtInKindRegistry).render(content);
+    return { ...detected, kind: renderer === "plain" ? null : renderer };
+  }, [content, kindRegistry]);
   // Bespoke summary for agent review / findings docs. null for ordinary docs,
   // so this is entirely non-invasive — nothing below changes when it's null.
-  const previousReview = useRef<{ value: ReturnType<typeof detectReviewDoc> } | null>(
-    null,
+  const review = useMemo(
+    () => (kindRegistry && info.kind !== "review" ? null : detectReviewDoc(content)),
+    [content, kindRegistry, info.kind],
   );
-  const review = useMemo(() => {
-    if (
-      markdown.stats.reviewSignalsUnchanged &&
-      previousReview.current?.value === null
-    ) {
-      return null;
-    }
-    const value = detectReviewDoc(content);
-    previousReview.current = { value };
-    return value;
-  }, [content, markdown]);
 
   // Subscribe to pending remote OT ops for the margin badge layer.
   const pendingOps = useDocumentStore((s) => s.pendingOps);
@@ -631,6 +626,7 @@ export const Renderer = memo(function Renderer({ content }: RendererProps) {
           />
         )
       )}
+      {info.kind === "plan" && <PlanStatusRenderer content={content} />}
       {hasBadges && <OtChangeBadgeLayer ops={pendingOps} />}
       {!embedded && <RemoteImagesBanner rootRef={rootRef} />}
       <TaskSourceContext.Provider value={taskSource}>

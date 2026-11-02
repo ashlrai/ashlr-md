@@ -156,11 +156,13 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
     return scored.map((s) => s.row);
   }, [query, recents]);
 
-  // Keep the active index in bounds when the result set changes.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: reset on every query change
+  // Keep the active index in bounds when the result set changes: a new query,
+  // or recents changing while open (a recent removed left the highlight on
+  // another row, or past the end of the list).
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reset on every query or recents change
   useEffect(() => {
     setActive(0);
-  }, [query]);
+  }, [query, recents]);
 
   // Keep Tab inside the palette and give focus back to what had it on
   // close. The palette used to remember `document.activeElement` in an

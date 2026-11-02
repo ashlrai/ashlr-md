@@ -174,13 +174,10 @@ export function parseDiffHunks(raw: string): ParsedHunk[] {
         }
 
         if (l.startsWith(" ") || l === "") {
-          // Context line (space prefix or blank).
+          // Context line (space prefix or blank): lands in contextBefore
+          // until a change is seen, contextAfter after — the flush decides.
           const content = l.startsWith(" ") ? l.slice(1) : l;
-          if (!seenChange) {
-            pendingContext.push(content);
-          } else {
-            pendingContext.push(content);
-          }
+          pendingContext.push(content);
           i++;
           continue;
         }

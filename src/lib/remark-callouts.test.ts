@@ -68,6 +68,19 @@ describe("remarkCallouts: bracket markers", () => {
     expect(n.data).toBeUndefined();
     expect(n.children[0].children?.[0].value).toBe("[!DANGER] x");
   });
+
+  it("keeps hProperties already on the blockquote while adding its own", () => {
+    const q = {
+      type: "blockquote" as const,
+      children: [para(text("[!NOTE] body"))],
+      data: { hProperties: { id: "keep-me", title: "stay" } },
+    };
+    const n = bq(run(root(q)));
+    expect(n.data?.hProperties?.id).toBe("keep-me");
+    expect(n.data?.hProperties?.title).toBe("stay");
+    expect(n.data?.hProperties?.className).toEqual(["callout", "callout-note"]);
+    expect(n.data?.hProperties?.["data-callout"]).toBe("note");
+  });
 });
 
 describe("remarkCallouts: legacy bold labels", () => {

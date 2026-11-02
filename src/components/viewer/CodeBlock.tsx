@@ -69,9 +69,7 @@ export function CodeBlock({ code, lang }: CodeBlockProps) {
       {output && (
         <div className={`code-output${output.success ? "" : " code-output--error"}`}>
           <div className="code-output-header">
-            <span>
-              {output.success ? "Output" : `Failed${output.stderr ? "" : ""}`}
-            </span>
+            <span>{output.success ? "Output" : "Failed"}</span>
             <button className="copy-btn" type="button" onClick={() => setOutput(null)}>
               Clear
             </button>

@@ -18,15 +18,23 @@ import unittest
 ROOT = Path(__file__).resolve().parent.parent
 
 
+def run_rust_tests(module, binary):
+    subprocess.run([
+        "rustc", "--edition", "2021", "-A", "dead_code", "--test",
+        str(module), "-o", str(binary),
+    ], check=True)
+    subprocess.run([str(binary)], check=True)
+
+
 class CommandTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.scratch = tempfile.TemporaryDirectory(prefix="md-mcp-command-")
+        cls.addClassCleanup(cls.scratch.cleanup)
         cls.directory = Path(cls.scratch.name)
         module = ROOT / "src-tauri/src/mcp_command.rs"
         unit = cls.directory / "formatter-tests"
-        subprocess.run(["rustc", "--test", str(module), "-o", str(unit)], check=True)
-        subprocess.run([str(unit)], check=True)
+        run_rust_tests(module, unit)
         wrapper = cls.directory / "formatter.rs"
         wrapper.write_text(
             f"#[path = {json.dumps(str(module))}] mod mcp_command;\n"
@@ -39,19 +47,18 @@ class CommandTests(unittest.TestCase):
         cls.binary = cls.directory / "formatter"
         subprocess.run(["rustc", str(wrapper), "-o", str(cls.binary)], check=True)
 
-    @classmethod
-    def tearDownClass(cls):
-        cls.scratch.cleanup()
-
     @unittest.skipIf(os.name == "nt", "POSIX independent tokenizer")
     def test_actual_formatter_round_trips_paths_without_shell_execution(self):
+        # Hostile path components hang off the per-test TemporaryDirectory
+        # (mode 0700) — never a hard-coded publicly writable dir.
+        base = str(self.directory)
         for path in [
             "/Applications/Ashlr MD.app/Contents/Resources/mdopener-mcp",
-            "/tmp/O'Brien/文档/mdopener-mcp",
-            "/tmp/$HOME/`whoami`/$(id)/mdopener-mcp",
-            '/tmp/"double quotes"/mdopener-mcp',
-            "/tmp/semi;colon & pipe|/mdopener-mcp",
-            "/tmp/back\\slash/line\nbreak/mdopener-mcp",
+            f"{base}/O'Brien/文档/mdopener-mcp",
+            f"{base}/$HOME/`whoami`/$(id)/mdopener-mcp",
+            f'{base}/"double quotes"/mdopener-mcp',
+            f"{base}/semi;colon & pipe|/mdopener-mcp",
+            f"{base}/back\\slash/line\nbreak/mdopener-mcp",
         ]:
             with self.subTest(path=path):
                 command = subprocess.check_output([str(self.binary), path], text=True).removesuffix("\n")
@@ -59,9 +66,10 @@ class CommandTests(unittest.TestCase):
 
     @unittest.skipIf(os.name == "nt", "POSIX independent tokenizer")
     def test_actual_hook_command_round_trips_paths_without_shell_execution(self):
+        base = str(self.directory)
         for path in [
             "/Applications/Ashlr MD.app/Contents/Resources/mdopen",
-            "/tmp/O'Brien/$HOME/`whoami`/$(id)/mdopen",
+            f"{base}/O'Brien/$HOME/`whoami`/$(id)/mdopen",
             "C:\\Users\\me\\AppData\\Local\\Ashlr MD\\mdopen.exe",
         ]:
             with self.subTest(path=path):
@@ -87,14 +95,15 @@ class AgentCliPathTests(unittest.TestCase):
         module = ROOT / "src-tauri/src/path_search.rs"
         with tempfile.TemporaryDirectory(prefix="md-path-search-") as directory:
             unit = Path(directory) / "path-search-tests"
-            subprocess.run(["rustc", "--edition", "2021", "-A", "dead_code", "--test", str(module), "-o", str(unit)], check=True)
-            subprocess.run([str(unit)], check=True)
+            run_rust_tests(module, unit)
 
     def test_detection_and_connect_no_longer_shell_out_to_which(self):
         agent = (ROOT / "src-tauri/src/agent_setup.rs").read_text()
         self.assertNotIn('Command::new("which")', agent)
-        self.assertIn('Command::new(agent_cli_program("claude"))', agent)
-        self.assertIn('Command::new(agent_cli_program("codex"))', agent)
+        self.assertIn('Command::new(agent_cli_program(program))', agent)
+        for name in ("CLAUDE", "CODEX"):
+            self.assertIn(f'run_agent_cli({name}_CLI.program, args)', agent)
+            self.assertRegex(agent, rf'const {name}_CLI: AgentCli = AgentCli \{{[^}}]*program: "{name.lower()}"')
 
     def test_cli_install_uses_the_suffix_aware_lookup(self):
         source = (ROOT / "src-tauri/src/cli_install.rs").read_text()
@@ -112,12 +121,11 @@ class SidecarPathTests(unittest.TestCase):
         module = ROOT / "src-tauri/src/sidecar_path.rs"
         with tempfile.TemporaryDirectory(prefix="md-sidecar-path-") as directory:
             unit = Path(directory) / "sidecar-path-tests"
-            subprocess.run(["rustc", "--edition", "2021", "-A", "dead_code", "--test", str(module), "-o", str(unit)], check=True)
-            subprocess.run([str(unit)], check=True)
+            run_rust_tests(module, unit)
 
     def test_agent_setup_resolves_through_suffix_aware_module(self):
         agent = (ROOT / "src-tauri/src/agent_setup.rs").read_text()
-        self.assertIn("sidecar_path::resolve(bin, exe_dir, resource_dir.as_deref())", agent)
+        self.assertRegex(agent, r"sidecar_path::resolve\(\s*bin,\s*exe_dir,\s*resource_dir.as_deref\(\),?\s*\)")
         self.assertIn("sidecar_path::unresolved_mcp_placeholder()", agent)
         self.assertNotIn('exe_dir.join(bin)', agent)
         self.assertNotIn('resource_dir.join(bin)', agent)

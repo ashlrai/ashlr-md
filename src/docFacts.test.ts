@@ -5,6 +5,7 @@
 // the Rust-side check in mdopener-mcp/tests/integration.rs does not gate PRs.
 
 import { describe, expect, it } from "vitest";
+import ciWorkflow from "../.github/workflows/ci.yml?raw";
 import releaseWorkflow from "../.github/workflows/release.yml?raw";
 import agentsDoc from "../docs/AGENTS.md?raw";
 import installDoc from "../docs/INSTALL.md?raw";
@@ -695,6 +696,128 @@ describe("doc facts: release asset names", () => {
   ];
   const RELEASING = "docs/RELEASING.md";
 
+  // Read only active, direct fields of this matrix entry, never comments or
+  // following entries. This deliberately handles our plain-scalar YAML subset.
+  function matrixFields(workflow: string, platform: string): Record<string, string> {
+    const lines = workflow.split("\n");
+    const start = lines.findIndex((line) => line.trim() === `- platform: ${platform}`);
+    return directFields(lines, start);
+  }
+
+  function jobFields(workflow: string, job: string): Record<string, string> {
+    const lines = workflow.split("\n");
+    const jobs = lines.indexOf("jobs:");
+    if (jobs < 0) return {};
+    for (let i = jobs + 1; i < lines.length; i++) {
+      const line = lines[i];
+      if (!line.trim() || line.trimStart().startsWith("#")) continue;
+      if (!line.startsWith(" ")) break;
+      if (line === `  ${job}:`) return directFields(lines, i);
+    }
+    return {};
+  }
+
+  function directFields(lines: string[], start: number): Record<string, string> {
+    if (start < 0) return {};
+    const indent = lines[start].length - lines[start].trimStart().length;
+    const fields: Record<string, string> = {};
+    for (const line of lines.slice(start + 1)) {
+      if (!line.trim() || line.trimStart().startsWith("#")) continue;
+      const depth = line.length - line.trimStart().length;
+      if (depth <= indent) break;
+      if (depth !== indent + 2) continue;
+      const field = line.trim().match(/^([\w-]+):\s*(.*)$/);
+      if (field) fields[field[1]] = field[2];
+    }
+    return fields;
+  }
+
+  it.each([
+    "macos-15",
+    "macos-15-intel",
+  ])("does not borrow %s matrix fields from comments or adjacent entries", (platform) => {
+    const fixture = `include:
+  - platform: ${platform}
+    rust-target: own-target
+    tauri-args: own-args
+    build-sidecars: own-build
+  - platform: other
+    rust-target: own-target
+    tauri-args: own-args
+    build-sidecars: own-build
+`;
+    expect(matrixFields(fixture, platform)).toEqual({
+      "rust-target": "own-target",
+      "tauri-args": "own-args",
+      "build-sidecars": "own-build",
+    });
+    for (const key of ["rust-target", "tauri-args", "build-sidecars"]) {
+      const line = fixture.split("\n").find((l) => l.startsWith(`    ${key}:`))!;
+      for (const replacement of ["", line.replace(key, `# ${key}`)]) {
+        expect(
+          matrixFields(fixture.replace(line, replacement), platform),
+        ).not.toHaveProperty(key);
+      }
+    }
+    expect(
+      matrixFields(
+        fixture.replace(`- platform: ${platform}`, `# - platform: ${platform}`),
+        platform,
+      ),
+    ).toEqual({});
+  });
+
+  it("requires the active macos-full job's own runner", () => {
+    const fixture = `jobs:
+  macos-full:
+    runs-on: macos-15
+    steps:
+      - run: |
+          runs-on: macos-15
+  later:
+    runs-on: macos-15
+`;
+    expect(jobFields(fixture, "macos-full")["runs-on"]).toBe("macos-15");
+    for (const replacement of ["", "    # runs-on: macos-15"]) {
+      expect(
+        jobFields(fixture.replace("    runs-on: macos-15", replacement), "macos-full"),
+      ).not.toHaveProperty("runs-on");
+    }
+    expect(
+      jobFields(fixture.replace("  macos-full:", "  # macos-full:"), "macos-full"),
+    ).toEqual({});
+    expect(jobFields(fixture.replace("jobs:", "other:"), "macos-full")).toEqual({});
+    expect(
+      jobFields("jobs:\nother:\n  macos-full:\n    runs-on: macos-15\n", "macos-full"),
+    ).toEqual({});
+  });
+
+  it("keeps ARM release builds and their full-suite prerequisite on native ARM runners", () => {
+    const arm = matrixFields(releaseWorkflow, "macos-15");
+    expect(arm["rust-target"]).toBe("aarch64-apple-darwin");
+    expect(arm["tauri-args"]).toBe('"--target aarch64-apple-darwin"');
+    expect(arm["build-sidecars"]).toBe('"bash scripts/build-sidecars.sh"');
+    expect(releaseWorkflow).not.toMatch(/platform: macos-14\b/);
+    const armDoc = releasingDoc
+      .split("\n")
+      .find((line) => line.startsWith("| macOS arm64 |"));
+    expect(armDoc).toContain("`macos-15`");
+    expect(jobFields(ciWorkflow, "macos-full")["runs-on"]).toBe("macos-15");
+    expect(ciWorkflow).not.toMatch(/runs-on: macos-14\b/);
+  });
+
+  it("builds Intel macOS bundles on the supported native Intel runner", () => {
+    const intel = matrixFields(releaseWorkflow, "macos-15-intel");
+    expect(intel["rust-target"]).toBe("x86_64-apple-darwin");
+    expect(intel["tauri-args"]).toBe('"--target x86_64-apple-darwin"');
+    expect(intel["build-sidecars"]).toBe('"bash scripts/build-sidecars.sh"');
+    expect(releaseWorkflow).not.toMatch(/platform: macos-13\b/);
+    const intelDoc = releasingDoc
+      .split("\n")
+      .find((line) => line.startsWith("| macOS x86_64 |"));
+    expect(intelDoc).toContain("`macos-15-intel`");
+  });
+
   it("release.yml uploads the bundles as built and publishes nothing", () => {
     const steps = releaseWorkflow
       .split("\n")
@@ -718,8 +841,22 @@ describe("doc facts: release asset names", () => {
 
   it("RELEASING.md says to rename the bundles before attaching them", () => {
     const publish = releasingDoc.split("\n## 4.")[1]?.split("\n## ")[0] ?? "";
-    expect(publish, `${RELEASING} §4`).toMatch(/Rename each bundle/);
-    expect(publish, `${RELEASING} §4`).toContain(`\`${pub}_${v}_x86_64.rpm\``);
+    const rename = publish.indexOf("4. Rename each bundle");
+    const manifest = publish.indexOf("5. Construct one `latest.json`");
+    const publication = publish.indexOf("6. Only with separate release authorization");
+    expect(rename, `${RELEASING} §4: missing rename step`).toBeGreaterThanOrEqual(0);
+    expect(manifest, `${RELEASING} §4: manifest must follow rename`).toBeGreaterThan(
+      rename,
+    );
+    expect(
+      publication,
+      `${RELEASING} §4: publication must follow manifest`,
+    ).toBeGreaterThan(manifest);
+    const renameStep = publish.slice(rename, manifest);
+    expect(renameStep).toContain(`\`${pub}_${v}_x86_64.rpm\``);
+    expect(renameStep).toMatch(/before attaching/);
+    expect(renameStep).toMatch(/without rebuilding or re-signing/);
+    expect(renameStep).toMatch(/Check hashes before and after/);
   });
 
   it("the install guide downloads only published names", () => {

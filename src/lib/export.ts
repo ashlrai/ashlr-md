@@ -1283,15 +1283,15 @@ interface FoundAttribute {
 /** The first `name` attribute in `attrs` (a start tag's attributes), its value decoded of `&quot;`. */
 function attributeValue(attrs: string, name: string): FoundAttribute | null {
   const re = new RegExp(String.raw`\s+(${TAG_ATTRIBUTE})`, "gy");
-  for (let m = re.exec(attrs); m; m = re.exec(attrs)) {
+  for (const m of attrs.matchAll(re)) {
     const eq = m[1].indexOf("=");
     const key = (eq === -1 ? m[1] : m[1].slice(0, eq)).trim().toLowerCase();
     if (key !== name) continue;
     let value = eq === -1 ? "" : m[1].slice(eq + 1).trim();
     if (/^(["']).*\1$/s.test(value)) value = value.slice(1, -1);
     return {
-      start: m.index,
-      end: re.lastIndex,
+      start: m.index ?? 0,
+      end: (m.index ?? 0) + m[0].length,
       value: value.replaceAll("&quot;", '"'),
     };
   }

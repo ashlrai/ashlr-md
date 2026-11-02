@@ -4,20 +4,26 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 let autoEmbedIndex = false;
+let recents = [{ path: "/r/recent.md" }];
+let files = [{ path: "/w/watched.md" }, { path: "/r/recent.md" }];
 vi.mock("../store/settingsStore", () => ({
   useSettingsStore: { getState: () => ({ autoEmbedIndex }) },
 }));
 vi.mock("../store/recentStore", () => ({
-  useRecentStore: { getState: () => ({ recents: [{ path: "/r/recent.md" }] }) },
+  useRecentStore: { getState: () => ({ recents }) },
 }));
 const loadFiles = vi.fn(async () => {});
 vi.mock("../store/activityStore", () => ({
   useActivityStore: {
     getState: () => ({
       loadFiles,
-      files: [{ path: "/w/watched.md" }, { path: "/r/recent.md" }],
+      files,
     }),
   },
+}));
+const invokeMock = vi.fn();
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: (...args: unknown[]) => invokeMock(...args),
 }));
 vi.mock("./embedSearch", () => ({
   embedAvailable: vi.fn(async (): Promise<string | null> => "nomic-embed-text"),
@@ -32,7 +38,10 @@ describe("startup re-index", () => {
     vi.mocked(embedAvailable).mockClear().mockResolvedValue("nomic-embed-text");
     vi.mocked(embedIndex).mockClear();
     loadFiles.mockClear();
+    invokeMock.mockReset();
     autoEmbedIndex = false;
+    recents = [{ path: "/r/recent.md" }];
+    files = [{ path: "/w/watched.md" }, { path: "/r/recent.md" }];
   });
 
   it("does nothing when autoEmbedIndex is off (the new-install default)", async () => {
@@ -57,5 +66,24 @@ describe("startup re-index", () => {
     vi.mocked(embedAvailable).mockResolvedValue(null);
     await runStartupEmbedIndex();
     expect(embedIndex).not.toHaveBeenCalled();
+  });
+
+  it("returns no matches when the startup library and index are empty", async () => {
+    autoEmbedIndex = true;
+    recents = [];
+    files = [];
+    await runStartupEmbedIndex();
+    expect(loadFiles).toHaveBeenCalledOnce();
+    expect(embedIndex).not.toHaveBeenCalled();
+
+    // Exercise the real lookup wrapper with the empty result from the backend.
+    invokeMock.mockResolvedValue([]);
+    const { embedSearch } =
+      await vi.importActual<typeof import("./embedSearch")>("./embedSearch");
+    await expect(embedSearch("anything")).resolves.toEqual([]);
+    expect(invokeMock).toHaveBeenCalledWith("embed_search", {
+      query: "anything",
+      k: 8,
+    });
   });
 });

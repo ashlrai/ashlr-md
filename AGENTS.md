@@ -18,3 +18,14 @@ This repository is part of the AshlrAI ecosystem. It is maintained by Phantom (`
 - Keep diffs small and reviewable, with one concern per PR.
 - Never commit secrets. Use Phantom Secrets placeholders.
 - Never force-push to the default branch.
+
+## Documentation freshness
+- The user-facing agent guide is [docs/AGENTS.md](docs/AGENTS.md).
+- MCP tool names and order come from `tool_registry()` in
+  `src-tauri/bins/mdopener-mcp/src/lib.rs`; CLI usage comes from `HELP` in `main.rs`
+  in the same directory. Frontend event handlers live in `src/mcp/handlers/`.
+- After changing those surfaces, update the guide and run
+  `python3 scripts/check-docs.py` to catch missing, removed or reordered entries.
+- After moving or renaming docs or headings, run `bun run check:doc-links`:
+  it fails on any relative link or `#anchor` in the repository's Markdown that
+  points nowhere (`--external` also probes remote URLs).

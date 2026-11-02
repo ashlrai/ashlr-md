@@ -1,0 +1,317 @@
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -1,13 +1,17 @@
+ name: CI
+ 
+-# One fast required check on pull_request and merge_group: Check (Linux)
+-# aggregates typecheck, Biome, the crypto policy check, the JS dependency
+-# audit and a pinned diff secret scan (well under 3 min). The full suite
+-# (unit tests with coverage, frontend build, Rust check/clippy/tests and
+-# cargo audit on Linux, Rust check/clippy on macOS) runs daily at 04:23 ET
+-# on main and on workflow_dispatch; a red scheduled run files a P0 FIX-MAIN
+-# issue (fix-main.yml). Main pushes run nothing: every commit on main already
+-# passed its merge_group run. Run scripts/ci-local.sh before pushing.
++# One required check on every event: Check (Linux) gates on the fast job, the
++# two security floors (diff secret scan, secret-shape scan), the select job
++# and the three Linux shards; the daily run also waits on macOS. The old
++# linux-full job is now three parallel shards fed by `select`: js (typecheck,
++# lint, unit tests with coverage, frontend build), rust-check (cargo
++# check/clippy, cargo audit) and rust-test (cargo test). pull_request runs
++# only the affected scope; merge_group, the daily 04:23 ET run and dispatch
++# always run the full suite with the same test count, and selection falls
++# back to full on workflow changes or any selection error. A red scheduled
++# run files a P0 FIX-MAIN issue (fix-main.yml). Main pushes run nothing:
++# every commit on main already passed its merge_group run. Run
++# scripts/ci-local.sh before pushing.
+ on:
+   pull_request:
+     types: [opened, synchronize, reopened]
+@@ -118,26 +122,77 @@
+           echo "scanning ${base}..${HEAD_SHA}"
+           "$RUNNER_TEMP/gitleaks-bin/gitleaks" git . --log-opts="${base}..${HEAD_SHA}" --redact --no-banner --max-target-megabytes 5 --timeout 120
+ 
+-  linux-full:
+-    name: Linux full suite
+-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
++  select:
++    # Affected scope for the Linux shards. pull_request diffs run only what
++    # they touch; merge_group, schedule and dispatch always select the full
++    # suite. scripts/ci/select.mjs fails open to full on workflow changes or
++    # any selection error, so a miss can never merge untested code.
++    name: Select affected scope
+     runs-on: ubuntu-22.04
++    timeout-minutes: 5
++    permissions:
++      contents: read
++    outputs:
++      mode: ${{ steps.sel.outputs.mode }}
++      js: ${{ steps.sel.outputs.js }}
++      js_base: ${{ steps.sel.outputs.js_base }}
++      rust: ${{ steps.sel.outputs.rust }}
++      rust_args: ${{ steps.sel.outputs.rust_args }}
++    steps:
++      - name: Checkout
++        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
++        with:
++          fetch-depth: 0
++          ref: ${{ github.event.pull_request.head.sha || github.sha }}
++          persist-credentials: false
++      - name: Compute affected scope
++        id: sel
++        env:
++          CI_EVENT: ${{ github.event_name }}
++          CI_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
++          CI_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
++        run: |
++          set -euo pipefail
++          if node scripts/ci/select.mjs > "$RUNNER_TEMP/select.out"; then
++            cat "$RUNNER_TEMP/select.out" >> "$GITHUB_OUTPUT"
++          else
++            echo "::warning::affected-scope selection failed; running the full suite"
++            printf 'mode=full\njs=true\njs_base=\nrust=true\nrust_args=--workspace\n' >> "$GITHUB_OUTPUT"
++          fi
++
++  linux-shard:
++    # The old linux-full suite in three parallel shards. Each shard always
++    # runs — a scope the selector left out is a no-op success, never a
++    # "skipped" result — so the gate only has to distinguish real failures.
++    name: Linux shard (${{ matrix.shard }})
++    needs: select
++    runs-on: ubuntu-22.04
+     timeout-minutes: 20
++    strategy:
++      fail-fast: false
++      matrix:
++        shard: [js, rust-check, rust-test]
+     # Runs bun install and tests (third-party code), so no id-token here.
+-    # The Codecov OIDC uploads live in the merge_group-only codecov job.
++    # The Codecov OIDC uploads live in the schedule-only codecov job.
+     permissions:
+       contents: read
+     steps:
+-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
++      - name: Checkout
++        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+         with:
++          fetch-depth: 0
++          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+           persist-credentials: false
+ 
++      # --- js shard -----------------------------------------------------------
+       - name: Install Bun
++        if: matrix.shard == 'js' && needs.select.outputs.js == 'true'
+         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+         with:
+           bun-version: latest
+ 
+       - name: Cache Bun install
++        if: matrix.shard == 'js' && needs.select.outputs.js == 'true'
+         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+         with:
+           path: ~/.bun/install/cache
+@@ -145,28 +200,38 @@
+           restore-keys: ${{ runner.os }}-bun-
+ 
+       - name: Install JS dependencies
++        if: matrix.shard == 'js' && needs.select.outputs.js == 'true'
+         run: bun install --frozen-lockfile
+ 
+       - name: Typecheck
++        if: matrix.shard == 'js' && needs.select.outputs.js == 'true'
+         run: bun run typecheck
+ 
+       - name: Lint (Biome)
++        if: matrix.shard == 'js' && needs.select.outputs.js == 'true'
+         run: bunx biome check src
+ 
+-      # Same tests as before. merge_group calls vitest directly (no `--`
+-      # forwarding) to add lcov and JUnit, so the suite still runs once, and
+-      # fails if either report is missing. Other events stay on bun run test.
++      # Full scope keeps the exact old command and fails if either report is
++      # missing; affected scope adds vitest --changed against the merge base.
+       - name: Unit tests
+         id: unit
++        if: matrix.shard == 'js' && needs.select.outputs.js == 'true'
++        env:
++          MODE: ${{ needs.select.outputs.mode }}
++          JS_BASE: ${{ needs.select.outputs.js_base }}
+         run: |
+           set -euo pipefail
+-          ./node_modules/.bin/vitest run --coverage --coverage.reporter=lcov --reporter=default --reporter=junit --outputFile=junit.xml
+-          for f in coverage/lcov.info junit.xml; do
+-            if [ ! -s "$f" ]; then echo "::error::missing $f after coverage run"; exit 1; fi
+-          done
++          args=(run --coverage --coverage.reporter=lcov --reporter=default --reporter=junit --outputFile=junit.xml)
++          if [ "$MODE" = affected ] && [ -n "$JS_BASE" ]; then args+=(--changed "$JS_BASE" --passWithNoTests); fi
++          ./node_modules/.bin/vitest "${args[@]}"
++          if [ "$MODE" != affected ]; then
++            for f in coverage/lcov.info junit.xml; do
++              if [ ! -s "$f" ]; then echo "::error::missing $f after coverage run"; exit 1; fi
++            done
++          fi
+ 
+       - name: Keep coverage reports for the Codecov job
+-        if: ${{ !cancelled() && (steps.unit.outcome == 'success' || steps.unit.outcome == 'failure') }}
++        if: matrix.shard == 'js' && needs.select.outputs.js == 'true' && !cancelled() && (steps.unit.outcome == 'success' || steps.unit.outcome == 'failure')
+         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+         with:
+           name: coverage-reports
+@@ -177,16 +242,20 @@
+           retention-days: 1
+ 
+       - name: Frontend build
++        if: matrix.shard == 'js' && needs.select.outputs.js == 'true'
+         run: bunx vite build
+ 
++      # --- rust shards ----------------------------------------------------------
+       - name: Install Rust
++        if: matrix.shard != 'js' && needs.select.outputs.rust == 'true'
+         uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+         with:
+           components: clippy
+ 
+       # Caches ~/.cargo AND src-tauri/target (previously only the registry was
+       # cached, so every run recompiled the whole Tauri tree).
+-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
++      - if: matrix.shard != 'js' && needs.select.outputs.rust == 'true'
++        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+         with:
+           workspaces: src-tauri
+ 
+@@ -194,6 +263,7 @@
+       # One daily run spent 1466s here on a stalled mirror: bound each fetch and
+       # the step.
+       - name: Install Linux system dependencies
++        if: matrix.shard != 'js' && needs.select.outputs.rust == 'true'
+         timeout-minutes: 8
+         run: |
+           apt_opts=(-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30)
+@@ -211,45 +281,64 @@
+             patchelf
+ 
+       - name: Stub sidecar binaries (resource existence check)
++        if: matrix.shard != 'js' && needs.select.outputs.rust == 'true'
+         run: |
+           mkdir -p src-tauri/target/release
+           touch src-tauri/target/release/mdopen \
+                 src-tauri/target/release/mdopener-mcp
+-          # tauri's context codegen needs frontendDist; the vite build only runs
+-          # when frontend inputs changed, so keep a placeholder like macOS does.
++          # tauri's context codegen needs frontendDist; the vite build lives in
++          # the js shard, so keep a placeholder like macOS does.
+           mkdir -p dist && [ -f dist/index.html ] || echo '<!doctype html>' > dist/index.html
+ 
+-      - name: Rust check (workspace)
+-        run: cargo check --workspace --manifest-path src-tauri/Cargo.toml
++      - name: Rust check (affected crates)
++        if: matrix.shard == 'rust-check' && needs.select.outputs.rust == 'true'
++        env:
++          RUST_ARGS: ${{ needs.select.outputs.rust_args }}
++        run: |
++          set -euo pipefail
++          read -ra pkgs <<< "$RUST_ARGS"
++          cargo check "${pkgs[@]}" --manifest-path src-tauri/Cargo.toml
+ 
+       # Linux-target clippy catches non-macOS cfg rot (dead code off macOS)
+-      # that the macOS clippy cannot see. Only when Rust inputs changed (the
+-      # classifier's `macos` output), or when the classifier did not succeed.
+-      - name: Rust clippy (workspace, Linux)
+-        run: cargo clippy --workspace --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+-
+-      # Full workspace tests (Linux): md-opener lib incl. local_inference gate
+-      # tests, mdopener-mcp local_inference_probe, handshake_conformance (#178
+-      # kit) and doctor_fix. Queue and pre-flip PRs when Rust inputs changed;
+-      # nightly/manual always.
+-      - name: Rust tests (workspace)
+-        run: cargo test --workspace --manifest-path src-tauri/Cargo.toml -- --test-threads=2
++      # that the macOS clippy cannot see.
++      - name: Rust clippy (affected crates)
++        if: matrix.shard == 'rust-check' && needs.select.outputs.rust == 'true'
++        env:
++          RUST_ARGS: ${{ needs.select.outputs.rust_args }}
++        run: |
++          set -euo pipefail
++          read -ra pkgs <<< "$RUST_ARGS"
++          cargo clippy "${pkgs[@]}" --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+ 
+       # Cargo.lock is platform-independent, so the CVE audit runs once here
+       # (prebuilt binary, seconds) instead of `cargo install` on macOS.
+       - name: Install cargo-audit
++        if: matrix.shard == 'rust-check' && needs.select.outputs.rust == 'true'
+         uses: taiki-e/install-action@5488ac5a951645ce95062214902ac4b6bc1a1037 # v2
+         with:
+           tool: cargo-audit
+         continue-on-error: true
+ 
+       - name: Audit Rust dependencies
++        if: matrix.shard == 'rust-check' && needs.select.outputs.rust == 'true'
+         run: cargo audit --file src-tauri/Cargo.lock
+         continue-on-error: true
+ 
++      # Full workspace tests (Linux): md-opener lib incl. local_inference gate
++      # tests, mdopener-mcp local_inference_probe, handshake_conformance (#178
++      # kit) and doctor_fix. Affected PRs run only the touched crates.
++      - name: Rust tests (affected crates)
++        if: matrix.shard == 'rust-test' && needs.select.outputs.rust == 'true'
++        env:
++          RUST_ARGS: ${{ needs.select.outputs.rust_args }}
++        run: |
++          set -euo pipefail
++          read -ra pkgs <<< "$RUST_ARGS"
++          cargo test "${pkgs[@]}" --manifest-path src-tauri/Cargo.toml -- --test-threads=2
++
+   codecov:
+     name: Codecov upload
+-    needs: linux-full
++    needs: linux-shard
+     if: ${{ !cancelled() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
+     runs-on: ubuntu-22.04
+     timeout-minutes: 10
+@@ -346,13 +435,14 @@
+           git diff --no-color --no-ext-diff "${base}" "${HEAD_SHA}" > "${RUNNER_TEMP}/candidate.diff"
+           perl .github/tests/secret-shape/scrub.pl --check --allow-fixtures < "${RUNNER_TEMP}/candidate.diff"
+ 
+-  # The one required check. Every event needs the fast job and the secret
+-  # scan; scheduled and dispatch runs also need both full-suite jobs. Any
+-  # needed job that is not success (failure, cancelled or skipped) fails it.
++  # The one required check. Every event needs the fast job, both security
++  # floors, the selector and the Linux shards; scheduled and dispatch runs
++  # also need the macOS job. Any needed job that is not success (failure,
++  # cancelled or a skip the event did not allow) fails it.
+   gate:
+     name: Check (Linux)
+     if: always()
+-    needs: [fast, secret-scan, linux-full, macos-full, secret-shape]
++    needs: [fast, secret-scan, select, linux-shard, macos-full, secret-shape]
+     runs-on: ubuntu-latest
+     timeout-minutes: 2
+     permissions: {}
+@@ -364,10 +454,13 @@
+         run: |
+           set -euo pipefail
+           # Exact dependency keys: a missing or extra job fails closed.
+-          printf '%s' "$NEEDS" | jq -e --argjson exp "[\"fast\", \"linux-full\", \"macos-full\", \"secret-scan\", \"secret-shape\"]" '(keys | sort) == $exp' > /dev/null || { echo "::error::gate dependency inventory changed"; exit 1; }
++          printf '%s' "$NEEDS" | jq -e --argjson exp "[\"fast\", \"linux-shard\", \"macos-full\", \"secret-scan\", \"secret-shape\", \"select\"]" '(keys | sort) == $exp' > /dev/null || { echo "::error::gate dependency inventory changed"; exit 1; }
+           full=false
+           if [ "$EVENT" = "schedule" ] || [ "$EVENT" = "workflow_dispatch" ]; then full=true; fi
+-          bad="$(printf '%s' "$NEEDS" | jq -r --argjson full "$full" 'to_entries[] | select(.value.result != "success") | select(($full | not) and (.key == "linux-full" or .key == "macos-full") and .value.result == "skipped" | not) | "\(.key)=\(.value.result)"')"
++          # macos-full only runs on full-suite events, so a skip there is
++          # allowed elsewhere; select and linux-shard run on every event and
++          # must succeed outright (a shard lost to a failed select fails here).
++          bad="$(printf '%s' "$NEEDS" | jq -r --argjson full "$full" 'to_entries[] | select(.value.result != "success") | select(($full | not) and .key == "macos-full" and .value.result == "skipped" | not) | "\(.key)=\(.value.result)"')"
+           if [ -n "$bad" ]; then echo "::error::Check (Linux): $bad"; exit 1; fi
+           echo "Check (Linux) passed ($EVENT)"
+ 
+@@ -376,8 +469,10 @@
+     # ci-efficiency). One line per failed job from the needs context only: no
+     # logs or env, read-only token, passed through the pinned scrub.pl.
+     name: Daily fixup queue
+-    needs: [fast, secret-scan, linux-full, codecov, macos-full, secret-shape, gate]
+-    if: ${{ always() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
++    needs: [fast, secret-scan, select, linux-shard, codecov, macos-full, secret-shape, gate]
++    # A green run has no fixups to queue; skipping the ~40s tail keeps the
++    # daily wall time inside the shard budget.
++    if: ${{ always() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')) }}
+     runs-on: ubuntu-latest
+     timeout-minutes: 5
+     permissions:

@@ -1,6 +1,6 @@
 # Incremental Markdown rendering
 
-Run from the repository root with installed dependencies:
+Run from a POSIX shell at the repository root with frozen-lockfile dependencies installed:
 
 ```sh
 HOME=$(mktemp -d) bun run bench:render
@@ -42,13 +42,16 @@ The renderer caches the latest document plus at most 16 small recent chunks
 for undo (at most 4096 source characters each), using Lezer's incremental tree
 fragments to find CommonMark/GFM block boundaries. Unchanged chunks reuse
 sanitized trees and React elements. Plain word edits map existing boundaries
-without rescanning the grammar, preserve React keys, and reuse document-kind
-analysis when its structural inputs cannot change. Task handlers check the
+without rescanning the grammar and preserve React keys. Document-kind and review
+analysis deliberately retain the current renderer's registry-aware behavior on
+each content or registry change; they are not cached by this reconciliation. Task handlers check the
 committed source at click time instead of subscribing every checkbox to prose
 edits. Structural edits retain the full incremental grammar path. Heading slugs are assigned in document
 order, including duplicate-heading collisions, and source/task line attributes
 are shifted after line insertions. Sanitization still runs after raw HTML
 parsing and before KaTeX; the default react-markdown URL policy is retained.
 
-Measured results and validation commands are recorded in `BRIDGE_NOTES.md` at
-the repository root for inclusion in the eventual PR description.
+Record benchmark results with the exact commit, dependency lock, runtime, host
+conditions and command. This current-main reconciliation has semantic tests, not
+a new latency qualification: earlier PR measurements do not establish its
+performance, and the 200,000-line cold-render limitation remains unresolved.

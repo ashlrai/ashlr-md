@@ -1,0 +1,30 @@
+{
+  "checks": [
+    {
+      "id": "local-inference",
+      "native_status": "not-configured",
+      "probe": {
+        "httpStatus": null,
+        "loopback": false,
+        "modelCount": 0,
+        "provider": null,
+        "reachable": false,
+        "reason": null,
+        "status": "not-configured"
+      },
+      "status": "ok",
+      "summary": "not configured (no localInference in ~/.ashlr/config.json)"
+    },
+    {
+      "id": "offline",
+      "native_status": "not-enabled",
+      "status": "info",
+      "summary": "not enabled: cloud AI stays available; set \"offline\": true on localInference in ~/.ashlr/config.json to allow loopback only"
+    }
+  ],
+  "kind": "ashlr.doctor",
+  "native_status": "not-configured",
+  "schema_version": 1,
+  "status": "ok",
+  "tool": "ashlr-md"
+}

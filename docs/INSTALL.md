@@ -42,10 +42,15 @@ There are no Homebrew, winget or AUR packages yet.
    (This warning appears for unsigned installers. It will disappear once the
    app is code-signed with an EV/OV certificate.)
 
-> **Silent install** (for IT/automation):
-> ```bat
-> Ashlr_MD_X.Y.Z_x64-setup.exe /S
-> ```
+**Silent install** (for IT/automation):
+
+<!-- fresh:begin install-snippet -->
+Download the desired release from [Releases](https://github.com/ashlrai/ashlr-md/releases/latest), replace `X.Y.Z` with that download's version, then run the Windows silent installer:
+
+```bat
+Ashlr_MD_X.Y.Z_x64-setup.exe /S
+```
+<!-- fresh:end -->
 
 The installer puts the `mdopen` CLI (`mdopen.exe`) and the `mdopener-mcp` MCP
 server (`mdopener-mcp.exe`) next to the app in `%LOCALAPPDATA%\Ashlr MD\`.

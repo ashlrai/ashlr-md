@@ -11,11 +11,12 @@ vi.mock("../store/recentStore", () => ({
   useRecentStore: { getState: () => ({ add: recentAdd, remove: vi.fn() }) },
 }));
 
-import { useDocumentStore } from "../store/documentStore";
+import { tabHoldsPath, useDocumentStore } from "../store/documentStore";
 import { useSessionStore } from "../store/sessionStore";
 import {
   capRestoredTabs,
   MAX_RESTORED_TABS,
+  openAtLaunch,
   restoreSession,
   sessionRestoreMessage,
 } from "./session";
@@ -148,11 +149,155 @@ describe("restoreSession", () => {
     );
   });
 
+  it("re-activates the saved active path when it opened as another spelling of an open file", async () => {
+    // A filesystem that ignores case: /v/A.md is /v/a.md, so it opens into
+    // a.md's tab, and no tab has the path /v/A.md. The last tab opened
+    // (b.md) used to stay active.
+    invokeMock.mockImplementation(
+      (cmd: string, args?: { path?: string; paths?: string[] }) => {
+        if (cmd === "filter_existing") return Promise.resolve(args?.paths ?? []);
+        if (cmd === "read_markdown_file") {
+          const p = args?.path ?? "";
+          return Promise.resolve({
+            path: p,
+            file_name: p.split("/").pop(),
+            content: p.toLowerCase(),
+            size: 1,
+            version: "v",
+            canonical_path: p.toLowerCase(),
+            case_insensitive: true,
+          });
+        }
+        return Promise.resolve();
+      },
+    );
+    useSessionStore.getState().save(
+      [
+        { path: "/v/a.md", viewMode: "read" },
+        { path: "/v/A.md", viewMode: "read" },
+        { path: "/v/b.md", viewMode: "read" },
+      ],
+      "/v/A.md",
+    );
+    await restoreSession();
+    const s = useDocumentStore.getState();
+    expect(s.tabs.map((t) => t.path)).toEqual(["/v/a.md", "/v/b.md"]);
+    expect(s.path).toBe("/v/a.md");
+  });
+
+  it("remembers the on-disk spelling of a file whose key is lowercased", async () => {
+    // Opened as /v/README.md; the disk (and the Activity list) say Readme.md.
+    invokeMock.mockImplementation((cmd: string, args?: { path?: string }) => {
+      if (cmd === "read_markdown_file") {
+        const p = args?.path ?? "";
+        return Promise.resolve({
+          path: p,
+          file_name: p.split("/").pop(),
+          content: "x",
+          size: 1,
+          version: "v",
+          canonical_path: "/v/Readme.md",
+          case_insensitive: true,
+        });
+      }
+      return Promise.resolve();
+    });
+    useDocumentStore.setState({ tabs: [], activeId: null, path: null });
+    await useDocumentStore.getState().openPath("/v/README.md");
+    const tab = useDocumentStore.getState().tabs[0];
+    expect(tab.key).toBe("/v/readme.md");
+    expect(tabHoldsPath(tab, "/v/Readme.md")).toBe(true);
+    // A second spelling joins the same tab.
+    await useDocumentStore.getState().openPath("/v/readme.MD");
+    const again = useDocumentStore.getState().tabs;
+    expect(again).toHaveLength(1);
+    expect(tabHoldsPath(again[0], "/v/readme.MD")).toBe(true);
+  });
+
   it("keeps the session when the existence check fails", async () => {
     invokeMock.mockRejectedValue(new Error("ipc down"));
     useSessionStore.getState().save([{ path: "/v/a.md", viewMode: "read" }], "/v/a.md");
     expect(await restoreSession()).toEqual({ opened: 0, gone: [], capped: 0 });
     expect(useSessionStore.getState().savedTabs).toHaveLength(1);
+  });
+});
+
+describe("openAtLaunch", () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+    useDocumentStore.setState({ tabs: [], activeId: null, path: null, error: null });
+    useSessionStore.getState().clear();
+  });
+
+  const openAll = async (paths: string[]) => {
+    for (const p of paths) await useDocumentStore.getState().openPath(p);
+  };
+
+  it("reopens the saved tabs when the app is opened with a file, which stays active", async () => {
+    // A launch with a file skipped the restore, and the first save then
+    // replaced the saved tabs with that file alone.
+    disk({ "/v/a.md": "A", "/v/b.md": "B", "/v/c.md": "C" });
+    useSessionStore.getState().save(
+      [
+        { path: "/v/a.md", viewMode: "read" },
+        { path: "/v/b.md", viewMode: "edit" },
+      ],
+      "/v/a.md",
+    );
+    const r = await openAtLaunch(["/v/c.md"], openAll);
+    expect(r.opened).toBe(2);
+    const s = useDocumentStore.getState();
+    expect(s.tabs.map((t) => t.path)).toEqual(["/v/a.md", "/v/b.md", "/v/c.md"]);
+    expect(s.path).toBe("/v/c.md");
+    expect(s.tabs[1].viewMode).toBe("edit");
+  });
+
+  it("does not open a launch file twice when it was in the session", async () => {
+    disk({ "/v/a.md": "A", "/v/b.md": "B" });
+    useSessionStore.getState().save(
+      [
+        { path: "/v/a.md", viewMode: "read" },
+        { path: "/v/b.md", viewMode: "read" },
+      ],
+      "/v/b.md",
+    );
+    await openAtLaunch(["/v/a.md"], openAll);
+    const s = useDocumentStore.getState();
+    expect(s.tabs.map((t) => t.path)).toEqual(["/v/a.md", "/v/b.md"]);
+    expect(s.path).toBe("/v/a.md");
+  });
+
+  it("runs afterRestore between the saved tabs and the launch files", async () => {
+    disk({ "/v/a.md": "A", "/v/c.md": "C" });
+    useSessionStore.getState().save([{ path: "/v/a.md", viewMode: "read" }], "/v/a.md");
+    const order: string[] = [];
+    await openAtLaunch(
+      ["/v/c.md"],
+      async (paths) => {
+        order.push(`open ${paths.join(",")}`);
+        await openAll(paths);
+      },
+      async () => {
+        order.push(`after restore: ${useDocumentStore.getState().path}`);
+      },
+    );
+    expect(order).toEqual(["after restore: /v/a.md", "open /v/c.md"]);
+    expect(useDocumentStore.getState().path).toBe("/v/c.md");
+  });
+
+  it("restores the session as before when the app is opened without a file", async () => {
+    disk({ "/v/a.md": "A", "/v/b.md": "B" });
+    useSessionStore.getState().save(
+      [
+        { path: "/v/a.md", viewMode: "read" },
+        { path: "/v/b.md", viewMode: "read" },
+      ],
+      "/v/a.md",
+    );
+    const openFiles = vi.fn(openAll);
+    await openAtLaunch([], openFiles);
+    expect(openFiles).not.toHaveBeenCalled();
+    expect(useDocumentStore.getState().path).toBe("/v/a.md");
   });
 });
 

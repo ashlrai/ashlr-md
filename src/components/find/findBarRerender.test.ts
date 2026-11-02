@@ -75,6 +75,50 @@ describe("find while the document changes", () => {
   const paragraphs = () =>
     [...host.querySelectorAll(".markdown-body p")].map((p) => p.textContent);
   const count = () => host.querySelector(".find-count")?.textContent;
+  const status = () => host.querySelector('[role="status"]');
+
+  it("announces no results for a query with zero matches", async () => {
+    expect(status()?.textContent).toBe("");
+    await find("missing");
+    expect(count()).toBe("0/0");
+    expect(status()?.textContent).toBe("No results");
+    expect(status()?.getAttribute("aria-live")).toBe("polite");
+    expect(status()?.getAttribute("aria-atomic")).toBe("true");
+    expect(host.querySelector(".find-count")?.getAttribute("aria-hidden")).toBe("true");
+  });
+
+  it("announces a singular match", async () => {
+    await find("alpha");
+    expect(count()).toBe("1/1");
+    expect(status()?.textContent).toBe("1 match. Match 1 of 1.");
+  });
+
+  it("announces plural matches and the active result when navigating", async () => {
+    await find("one");
+    expect(status()?.textContent).toBe("2 matches. Match 1 of 2.");
+    await act(async () => {
+      host.querySelector<HTMLButtonElement>('[aria-label="Next match"]')?.click();
+    });
+    expect(count()).toBe("2/2");
+    expect(status()?.textContent).toBe("2 matches. Match 2 of 2.");
+  });
+
+  it.each([
+    "missing",
+    "alpha",
+    "one",
+  ])("clears the status when resetting query %s", async (query) => {
+    await find(query);
+    const liveRegion = status();
+    await find("");
+    expect(status()).toBe(liveRegion);
+    expect(status()?.textContent).toBe("");
+    expect(count()).toBe("");
+    expect(host.querySelector("mark")).toBeNull();
+    expect(
+      host.querySelector<HTMLButtonElement>('[aria-label="Next match"]')?.disabled,
+    ).toBe(true);
+  });
 
   it("shows the new text of a changed line", async () => {
     await find("one");

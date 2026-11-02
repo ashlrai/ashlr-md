@@ -4,9 +4,9 @@ name: CodeQL
 # Same nightly window as the CI workflow (06:17 UTC), plus merge_group
 # and manual runs.
 on:
-  merge_group:
+  # Daily only (Mason, Oct 28 2026): CodeQL is not a required check.
   schedule:
-    - cron: "17 6 * * *"
+    - cron: "0 10 * * *"
   workflow_dispatch:
 
 permissions:

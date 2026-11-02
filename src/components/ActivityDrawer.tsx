@@ -14,9 +14,10 @@ import {
   watchDirectory,
 } from "../lib/activity";
 import { formatShortcut } from "../lib/keymap";
+import { listArrowFocus } from "../lib/listArrowFocus";
 import { useFocusOnOpen, useReturnFocus } from "../lib/useReturnFocus";
 import { MAX_FILES, useActivityStore } from "../store/activityStore";
-import { useDocumentStore } from "../store/documentStore";
+import { pathNamesFile, tabHoldsPath, useDocumentStore } from "../store/documentStore";
 import { isMissingFileError } from "../store/recentStore";
 import { toast } from "../store/toastStore";
 import { useUiStore } from "../store/uiStore";
@@ -129,7 +130,43 @@ export function ActivityDrawer() {
   // Opened, focus the open file's entry (else the newest, else the call to
   // action, else close).
   useFocusOnOpen(open, panelRef, ACTIVITY_FOCUS);
-  const activePath = useDocumentStore((s) => s.path);
+  // The open document's tab: an entry is marked by file identity, so one
+  // listed under another spelling than the tab's (a link, other case where
+  // case is ignored) is still marked.
+  const activeTab = useDocumentStore((s) => s.tabs.find((t) => t.id === s.activeId));
+  // Entries the tab never opened that may still be its file: listed through a
+  // folder link, they are under another path than any the tab knows. Only
+  // those of the same name are read, once each, to learn which file they are.
+  const activeKey = activeTab?.key;
+  const activeName = activeTab?.fileName.toLowerCase();
+  const unknown = JSON.stringify(
+    open && activeTab
+      ? files
+          .filter(
+            (f) =>
+              f.name.toLowerCase() === activeName && !tabHoldsPath(activeTab, f.path),
+          )
+          .map((f) => f.path)
+      : [],
+  );
+  const [linked, setLinked] = useState<{ key: string; paths: string[] } | null>(null);
+  useEffect(() => {
+    const paths: string[] = JSON.parse(unknown);
+    if (!activeKey || paths.length === 0) return;
+    let cancelled = false;
+    void Promise.all(
+      paths.map(async (p) => ((await pathNamesFile(activeKey, p)) ? p : null)),
+    ).then((found) => {
+      if (cancelled) return;
+      setLinked({
+        key: activeKey,
+        paths: found.filter((p): p is string => p !== null),
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeKey, unknown]);
 
   // A ticking clock so relative timestamps stay fresh while the drawer is open.
   const [now, setNow] = useState(() => Date.now());
@@ -143,20 +180,15 @@ export function ActivityDrawer() {
   // (also fires on startup if a folder was persisted).
   useEffect(() => {
     if (!watchedDir) return;
-    let cancelled = false;
-    watchDirectory(watchedDir).catch(() => {});
-    loadFiles();
-    return () => {
-      cancelled = true;
-      void cancelled;
-    };
+    void watchDirectory(watchedDir).catch(() => {});
+    void loadFiles();
   }, [watchedDir, loadFiles]);
 
   // Subscribe to live file activity for the lifetime of the component.
   useEffect(() => {
     let unlisten: (() => void) | undefined;
     let active = true;
-    onActivityFile((ev) => applyEvent(ev)).then((fn) => {
+    void onActivityFile((ev) => applyEvent(ev)).then((fn) => {
       if (active) unlisten = fn;
       else fn();
     });
@@ -183,14 +215,28 @@ export function ActivityDrawer() {
 
   const handleOpen = useCallback(
     (file: MdFileInfo) => {
-      // A file deleted or moved since it was listed (the watcher reports no
-      // deletions) is said in a toast and leaves the list; the open document
+      // A file deleted or moved since it was listed (a removal the watcher
+      // missed) is said in a toast and leaves the list; the open document
       // stays in view. Its error used to replace the document, and the entry
       // stayed.
       void openPath(file.path, { keepViewOnError: true }).then((error) => {
         if (error === null) return;
-        toast.error(`Could not open ${file.name}: ${error}`);
-        if (isMissingFileError(error)) removeFile(file.path);
+        if (isMissingFileError(error)) {
+          toast.error(
+            `${file.name} was moved or deleted. Check its location or choose another folder.`,
+          );
+          // Removing the focused button would otherwise leave focus on the page body.
+          const focused =
+            panelRef.current?.querySelector<HTMLButtonElement>(".activity-item:focus");
+          if (focused?.title === file.path) {
+            panelRef.current
+              ?.querySelector<HTMLButtonElement>(".activity-drawer__folder")
+              ?.focus();
+          }
+          removeFile(file.path);
+        } else {
+          toast.error(`Could not open ${file.name}: ${error}`);
+        }
       });
       markAllSeen();
     },
@@ -264,8 +310,12 @@ export function ActivityDrawer() {
           <p className="activity-empty__body">
             No Markdown yet in{" "}
             <span className="activity-empty__dir">{basename(watchedDir)}</span>. New
-            files your agent writes will appear here the moment they land.
+            files your agent writes will appear here the moment they land. Check the
+            folder or choose another if you expected recent changes.
           </p>
+          <button type="button" className="activity-empty__cta" onClick={pickFolder}>
+            Choose another folder…
+          </button>
         </div>
       ) : (
         <>
@@ -278,9 +328,16 @@ export function ActivityDrawer() {
                   : `Showing the ${MAX_FILES} most recently changed files. This folder has more, and agents searching it see only these.`}
             </p>
           ) : null}
-          <ul className="activity-list">
+          <ul
+            className="activity-list"
+            aria-label="Recent file activity"
+            onKeyDown={listArrowFocus}
+          >
             {files.map((file) => {
-              const isActive = activePath === file.path;
+              const isActive = activeTab
+                ? tabHoldsPath(activeTab, file.path) ||
+                  (linked?.key === activeTab.key && linked.paths.includes(file.path))
+                : false;
               const isNew = unseen.includes(file.path);
               return (
                 <li key={file.path}>
@@ -289,6 +346,7 @@ export function ActivityDrawer() {
                     className={`activity-item${isActive ? " activity-item--active" : ""}`}
                     onClick={() => handleOpen(file)}
                     title={file.path}
+                    aria-current={isActive ? "page" : undefined}
                   >
                     <span className="activity-item__icon">
                       {isNew ? (

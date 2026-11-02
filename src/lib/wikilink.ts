@@ -60,7 +60,7 @@ const CHANGE_SETTLE_MS = 250;
  * Drop the cache when a file changes, appears or is renamed on disk: the
  * open file's watcher (`file-changed`, also sent when it is deleted, and
  * `file-renamed`) and the watched folder's (`activity://file`, a note
- * created or renamed into it). A burst of events drops it once. Returns a
+ * created, deleted or renamed in it). A burst of events drops it once. Returns a
  * function that stops listening.
  */
 export async function watchWikilinkChanges(): Promise<() => void> {

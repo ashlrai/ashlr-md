@@ -35,8 +35,7 @@ export function remarkComments() {
       }
 
       // Build a replacement array by keeping only the non-comment spans.
-      // biome-ignore lint/suspicious/noExplicitAny: mdast parent children
-      const replacement: any[] = [];
+      const replacement: Text[] = [];
       let last = 0;
       COMMENT_RE.lastIndex = 0;
       let m: RegExpExecArray | null = COMMENT_RE.exec(node.value);
@@ -52,7 +51,7 @@ export function remarkComments() {
       }
 
       if (replacement.length === 0 && last === 0) {
-        // No comments found — leave node untouched.
+        // No comments found - leave node untouched.
         return;
       }
 

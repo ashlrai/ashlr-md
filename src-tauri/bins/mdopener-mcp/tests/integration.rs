@@ -1620,7 +1620,11 @@ fn search_vault_keyword_search_forwarded() {
     let resp = tool_search_vault(id(1), &json!({ "query": "hello world" }), &ipc);
     assert!(resp.error.is_none());
     let calls = ipc.calls();
-    let path = &calls[0].1;
+    let path = &calls
+        .iter()
+        .find(|(_, path, _)| path.starts_with("/search?"))
+        .expect("search IPC call")
+        .1;
     assert!(
         path.contains("hello%20world") || path.contains("hello+world"),
         "query should be URL-encoded, got: {path}"
@@ -1632,10 +1636,14 @@ fn search_vault_default_limit_is_50() {
     let ipc = MockIpc::new().on_get("/search", Ok(json!({ "results": [] })));
     tool_search_vault(id(1), &json!({ "query": "x" }), &ipc);
     let calls = ipc.calls();
+    let path = &calls
+        .iter()
+        .find(|(_, path, _)| path.starts_with("/search?"))
+        .expect("search IPC call")
+        .1;
     assert!(
-        calls[0].1.contains("limit=50"),
-        "default limit should be 50, got: {}",
-        calls[0].1
+        path.contains("limit=50"),
+        "default limit should be 50, got: {path}"
     );
 }
 
@@ -1644,7 +1652,12 @@ fn search_vault_custom_limit() {
     let ipc = MockIpc::new().on_get("/search", Ok(json!({ "results": [] })));
     tool_search_vault(id(1), &json!({ "query": "x", "limit": 5 }), &ipc);
     let calls = ipc.calls();
-    assert!(calls[0].1.contains("limit=5"));
+    let path = &calls
+        .iter()
+        .find(|(_, path, _)| path.starts_with("/search?"))
+        .expect("search IPC call")
+        .1;
+    assert!(path.contains("limit=5"));
 }
 
 #[test]
@@ -2936,7 +2949,12 @@ fn list_recent_is_described_as_needing_the_app() {
         .find(|t| t.name == "list_recent")
         .unwrap();
     assert!(
-        def.description.contains("Needs Ashlr MD running"),
+        def.description.contains("Requires Ashlr MD running"),
+        "{}",
+        def.description
+    );
+    assert!(
+        def.description.contains("otherwise returns an error"),
         "{}",
         def.description
     );
@@ -6312,14 +6330,8 @@ use mdopener_mcp::{count_words, strip_markdown, tool_export_metadata, tool_expor
 
 /// Helper: write a temp file, run the tool, return the parsed result JSON.
 fn run_export_text_on(markdown: &str) -> Value {
-    let dir = std::env::temp_dir();
-    let path = dir.join(format!(
-        "test_export_text_{}.md",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .subsec_nanos()
-    ));
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("test_export_text.md");
     std::fs::write(&path, markdown).unwrap();
     let ipc = MockIpc::new();
     let args = json!({ "path": path.to_string_lossy() });
@@ -6387,6 +6399,56 @@ fn export_text_preserves_code_block_content() {
         text.contains("After code"),
         "text after code block preserved"
     );
+}
+
+#[test]
+fn export_text_preserves_brackets_in_fenced_code() {
+    for fence in ["```", "~~~"] {
+        let md = format!(
+            "[Opening prose] Before [link](https://example.com)\n\n{fence}text\n[bracketed] [link](url) [[wiki]] [^note]\n{fence}\n\nAfter [link](url) [Closing prose]\n"
+        );
+        let result = run_export_text_on(&md);
+        assert_eq!(
+            result["text"].as_str().unwrap(),
+            "[Opening prose] Before link\n\n[bracketed] [link](url) [[wiki]] [^note]\n\nAfter link [Closing prose]",
+            "fence: {fence}"
+        );
+    }
+}
+
+#[test]
+fn export_text_preserves_adjacent_bracketed_words_in_prose() {
+    let md = "Read [first] [second], then [third][fourth]. See [link](https://example.com).\n";
+    let result = run_export_text_on(md);
+    assert_eq!(
+        result["text"].as_str().unwrap(),
+        "Read [first] [second], then [third][fourth]. See link."
+    );
+}
+
+#[test]
+fn export_text_keeps_prose_brackets_beside_formatted_links() {
+    for (markdown, expected) in [
+        (
+            "[café][**the guide**](/guide)[要確認]\n",
+            "[café]the guide[要確認]",
+        ),
+        (
+            "Compare [*draft*] with [**final**](/final) and [*approved*].\n",
+            "Compare [draft] with final and [approved].",
+        ),
+    ] {
+        let result = run_export_text_on(markdown);
+        assert_eq!(result["text"].as_str().unwrap(), expected, "{markdown:?}");
+        assert_eq!(
+            result["char_count"].as_u64().unwrap() as usize,
+            expected.chars().count()
+        );
+        assert_eq!(
+            result["word_count"].as_u64().unwrap() as usize,
+            count_words(expected)
+        );
+    }
 }
 
 /// `char_count` said only "character counts", leaving an agent to guess
@@ -6582,6 +6644,32 @@ fn export_metadata_parses_frontmatter_and_headings() {
     assert_eq!(headings[0]["text"].as_str(), Some("Introduction"));
     assert_eq!(headings[1]["level"].as_u64(), Some(2));
     assert_eq!(headings[1]["text"].as_str(), Some("Details"));
+}
+
+#[test]
+fn heading_with_bracketed_phrase_preserves_literal_brackets() {
+    let md = "# Plan [Phase One]\n\n## Read [the guide](guide.md)\n";
+    let text = run_export_text_on(md);
+    assert_eq!(
+        text["text"].as_str().unwrap().trim(),
+        "Plan [Phase One]\n\nRead the guide"
+    );
+
+    let metadata = run_export_metadata_on(md);
+    assert_eq!(
+        metadata["headings"],
+        json!([
+            { "level": 1, "text": "Plan [Phase One]" },
+            { "level": 2, "text": "Read [the guide](guide.md)" }
+        ])
+    );
+}
+
+#[test]
+fn export_metadata_returns_no_links_for_an_empty_document() {
+    let result = run_export_metadata_on("");
+    assert_eq!(result["wikilinks"], json!([]));
+    assert_eq!(result["wikilink_headings"], json!([]));
 }
 
 #[test]
@@ -8888,11 +8976,677 @@ fn export_text_keeps_brackets_unless_a_reference_is_defined() {
         ("[a]\n\n```\n[a]: /u\n```", "[a]\n\n[a]: /u"),
         ("[n]\n\n[^n]: note", "[n]\n\n[n] note"),
     ];
+    let docs = include_str!("../../../../docs/mdopener-bracket-input-output.md");
+    let documented: Vec<(String, String)> = serde_json::from_str(
+        docs.split_once("````json\n")
+            .expect("documented pairs start with a JSON fence")
+            .1
+            .split_once("\n````")
+            .expect("documented pairs have a closing fence")
+            .0,
+    )
+    .expect("documented pairs are JSON strings");
+    assert_eq!(documented.len(), cases.len());
+    for ((input, output), (doc, want)) in documented.iter().zip(cases) {
+        assert_eq!((input.as_str(), output.as_str()), (doc, want));
+    }
     for (doc, want) in cases {
         assert_eq!(strip_markdown(doc), want, "{doc:?}");
     }
     let docs = include_str!("../../../../docs/AGENTS.md");
     assert!(docs.contains("keeps its brackets unless the document defines its label"));
+}
+
+#[test]
+fn export_text_keeps_bracketed_todo_in_surrounding_prose() {
+    let markdown = "Please review [TODO] before the next release.\n";
+    let result = run_export_text_on(markdown);
+    assert_eq!(
+        result["text"].as_str().unwrap(),
+        "Please review [TODO] before the next release."
+    );
+}
+
+#[test]
+fn export_text_keeps_bracketed_prose_beside_inline_links() {
+    let cases = [
+        (
+            "Review [TODO] and read [the guide](https://example.com/guide).\n",
+            "Review [TODO] and read the guide.",
+        ),
+        (
+            "Read [the guide](https://example.com/guide), then check [TODO].\n",
+            "Read the guide, then check [TODO].",
+        ),
+        ("[sic][source](https://example.com)\n", "[sic]source"),
+        ("[source](https://example.com)[sic]\n", "source[sic]"),
+        (
+            "[draft][release notes](/guide \"Read more\")[reviewed]\n",
+            "[draft]release notes[reviewed]",
+        ),
+        (
+            "See [section (revised)] and [the spec](https://example.com/a_(b)) [for review].\n",
+            "See [section (revised)] and the spec [for review].",
+        ),
+    ];
+    for (markdown, expected) in cases {
+        let result = run_export_text_on(markdown);
+        assert_eq!(result["text"].as_str().unwrap(), expected, "{markdown:?}");
+    }
+}
+
+#[test]
+fn export_text_matches_prose_brackets_documentation() {
+    let docs = include_str!("../../../../docs/mdopener-prose-brackets.md");
+    let expected = [
+        ("Please review [TODO] before the next release.\n", "Please review [TODO] before the next release."),
+        ("The report says the result was 'definately [sic] confirmed' by [the authors](https://example.com).\n", "The report says the result was 'definately [sic] confirmed' by the authors."),
+    ];
+    let examples: Vec<_> = docs
+        .split("Input:\n```markdown\n")
+        .skip(1)
+        .map(|section| {
+            let (input, rest) = section
+                .split_once("\n```\nOutput:\n```text\n")
+                .expect("each input has an output");
+            let (output, _) = rest.split_once("\n```").expect("output fence closes");
+            (format!("{input}\n"), output)
+        })
+        .collect();
+    assert_eq!(examples.len(), expected.len());
+    for ((input, output), (fixture_input, fixture_output)) in examples.iter().zip(expected) {
+        assert_eq!(input, fixture_input);
+        assert_eq!(*output, fixture_output);
+        let result = run_export_text_on(input);
+        assert_eq!(result["text"].as_str().unwrap(), *output, "{input:?}");
+    }
+}
+
+#[test]
+fn export_text_matches_bracket_change_context_examples() {
+    let docs = include_str!("../../../../docs/mdopener-bracket-change-context.md");
+    let expected = [
+        ("Please review [TODO] before the next release.\n", "Please review [TODO] before the next release."),
+        ("Studies [1] and [23] support the finding; see [42] for details.\n\n[42]: https://example.com\n", "Studies [1] and [23] support the finding; see 42 for details."),
+    ];
+    let examples: Vec<_> = docs
+        .split("Input:\n```markdown\n")
+        .skip(1)
+        .map(|section| {
+            let (input, rest) = section
+                .split_once("\n```\nOutput:\n```text\n")
+                .expect("each input has an output");
+            let (output, _) = rest.split_once("\n```").expect("output fence closes");
+            (format!("{input}\n"), output)
+        })
+        .collect();
+    assert_eq!(examples.len(), expected.len());
+    for ((input, output), (fixture_input, fixture_output)) in examples.iter().zip(expected) {
+        assert_eq!(input, fixture_input);
+        assert_eq!(*output, fixture_output);
+        let result = run_export_text_on(input);
+        assert_eq!(result["text"].as_str().unwrap(), *output, "{input:?}");
+    }
+}
+
+#[test]
+fn export_text_matches_plain_bracket_examples() {
+    let docs = include_str!("../../../../docs/mdopener-plain-bracket-examples.md");
+    let expected = [
+        ("Please review [TODO] before the next release.\n", "Please review [TODO] before the next release."),
+        ("The report says the result was 'definately [sic] confirmed' by [the authors](https://example.com).\n", "The report says the result was 'definately [sic] confirmed' by the authors."),
+        ("Studies [1] and [23] support the finding; see [42] for details.\n\n[42]: https://example.com\n", "Studies [1] and [23] support the finding; see 42 for details."),
+        ("- [x] Check the quote [sic].\n- [ ] Follow up [TODO].\n", "Check the quote [sic].\nFollow up [TODO]."),
+    ];
+    let examples: Vec<_> = docs
+        .split("Input:\n```markdown\n")
+        .skip(1)
+        .map(|section| {
+            let (input, rest) = section
+                .split_once("\n```\nOutput:\n```text\n")
+                .expect("each input has an output");
+            let (output, _) = rest.split_once("\n```").expect("output fence closes");
+            (format!("{input}\n"), output)
+        })
+        .collect();
+    assert_eq!(examples.len(), expected.len());
+    for ((input, output), (fixture_input, fixture_output)) in examples.iter().zip(expected) {
+        assert_eq!(input, fixture_input);
+        assert_eq!(*output, fixture_output);
+        let result = run_export_text_on(input);
+        assert_eq!(result["text"].as_str().unwrap(), *output, "{input:?}");
+    }
+}
+
+#[test]
+fn export_text_matches_documented_bracket_preservation_examples() {
+    let docs = include_str!("../../../../docs/integration-bracket-preservation.md");
+    let mut examples = 0;
+    for section in docs.split("Input:\n```markdown\n").skip(1) {
+        let (input, rest) = section
+            .split_once("\n```\nOutput:\n```text\n")
+            .expect("each input has an output");
+        let (expected, _) = rest.split_once("\n```").expect("output fence closes");
+        let result = run_export_text_on(&format!("{input}\n"));
+        assert_eq!(result["text"].as_str().unwrap(), expected, "{input:?}");
+        examples += 1;
+    }
+    assert_eq!(examples, 12, "all documented examples must be checked");
+}
+
+#[test]
+fn export_text_matches_bracket_history_examples() {
+    let docs = include_str!("../../../../docs/mdopener-bracket-history.md");
+    let mut examples = 0;
+    for section in docs.split("Input:\n```markdown\n").skip(1) {
+        let (input, rest) = section
+            .split_once("\n```\nOutput:\n```text\n")
+            .expect("each input has an output");
+        let (expected, _) = rest.split_once("\n```").expect("output fence closes");
+        let result = run_export_text_on(&format!("{input}\n"));
+        assert_eq!(result["text"].as_str().unwrap(), expected, "{input:?}");
+        examples += 1;
+    }
+    assert_eq!(examples, 4, "all history examples must be checked");
+}
+
+#[test]
+fn export_text_matches_bracket_regression_history() {
+    let docs = include_str!("../../../../docs/mdopener-bracket-regression-history.md");
+    let (input, rest) = docs
+        .split_once("Input:\n```markdown\n")
+        .expect("history has an input example");
+    assert!(input.contains("CHANGELOG.md"));
+    let (markdown, rest) = rest
+        .split_once("\n```\nOutput:\n```text\n")
+        .expect("history input has an output");
+    let (expected, _) = rest.split_once("\n```").expect("output fence closes");
+    assert_eq!(
+        markdown,
+        "Review [TODO] and note [1]; see [guide].\n\n[guide]: /guide"
+    );
+    assert_eq!(expected, "Review [TODO] and note [1]; see guide.");
+    let result = run_export_text_on(&format!("{markdown}\n"));
+    assert_eq!(result["text"].as_str().unwrap(), expected);
+}
+
+#[test]
+fn bracketed_prose_example_table_matches_outputs() {
+    let docs = include_str!("../../../../docs/bracketed-prose-example-table.md");
+    let mut count = 0;
+    for line in docs
+        .lines()
+        .filter(|line| line.starts_with("| `export_") || line.starts_with("| `heading_"))
+    {
+        let cells: Vec<_> = line.split(" | ").collect();
+        assert_eq!(cells.len(), 4, "invalid table row: {line}");
+        let operation = cells[1].trim_matches('`');
+        let parse = |cell: &str| -> String {
+            let json = cell.trim().trim_matches('`').trim();
+            serde_json::from_str(json).expect("table cell is a JSON string")
+        };
+        let input = parse(cells[2]);
+        let expected = parse(cells[3].trim_end_matches(" |"));
+        let actual = match operation {
+            "strip_inline_markdown" => mdopener_mcp::strip_inline_markdown(&input),
+            "strip_markdown" => strip_markdown(&input),
+            "export_text" => run_export_text_on(&input)["text"]
+                .as_str()
+                .unwrap()
+                .to_owned(),
+            "export_text (trimmed)" => run_export_text_on(&input)["text"]
+                .as_str()
+                .unwrap()
+                .trim()
+                .to_owned(),
+            _ => panic!("unknown table operation: {operation}"),
+        };
+        assert_eq!(actual, expected, "{}: {input:?}", cells[0]);
+        count += 1;
+    }
+    assert_eq!(count, 65, "all table examples must be checked");
+}
+
+#[test]
+fn export_text_keeps_literal_brackets_in_blockquote_prose() {
+    let markdown = "> See note [1] and the [guide](/guide).\n";
+    let result = run_export_text_on(markdown);
+    assert_eq!(
+        result["text"].as_str().unwrap(),
+        "See note [1] and the guide."
+    );
+}
+
+#[test]
+fn export_text_keeps_repeated_prose_brackets_in_order() {
+    for (markdown, expected) in [
+        (
+            "First [TODO], then [sic], and again [TODO].\n",
+            "First [TODO], then [sic], and again [TODO].",
+        ),
+        (
+            "[one] [two] [one]; see [the guide](/guide), then [**two**] and [one].\n",
+            "[one] [two] [one]; see the guide, then [two] and [one].",
+        ),
+    ] {
+        let result = run_export_text_on(markdown);
+        assert_eq!(result["text"].as_str().unwrap(), expected, "{markdown:?}");
+    }
+}
+
+#[test]
+fn export_text_preserves_bracketed_prose_across_multiple_paragraphs() {
+    let markdown = "[Draft] The first finding needs [review].\n\n\
+        The second paragraph repeats [review] and cites [the guide](/guide).\n\
+        Its next line adds [context].\n\n\
+        [Third] The quotation was accurate [sic].\n\n\
+        Finally, [review] follows [the reference][source] and [last].\n\n\
+        [source]: /source\n";
+    let expected = "[Draft] The first finding needs [review].\n\n\
+        The second paragraph repeats [review] and cites the guide.\n\
+        Its next line adds [context].\n\n\
+        [Third] The quotation was accurate [sic].\n\n\
+        Finally, [review] follows the reference and [last].";
+
+    let file_result = run_export_text_on(markdown);
+    assert_eq!(file_result["text"].as_str().unwrap(), expected);
+
+    let ipc = MockIpc::new().on_get(
+        "/content",
+        Ok(json!({ "path": "/docs/test.md", "content": markdown })),
+    );
+    let response = tool_export_text(id(2), &json!({}), &ipc);
+    assert!(response.error.is_none());
+    assert_eq!(content_text(&response)["text"].as_str().unwrap(), expected);
+}
+
+#[test]
+fn export_text_keeps_escaped_opening_and_closing_brackets() {
+    for (markdown, expected) in [
+        (
+            "Keep \\[literal\\] beside [a link](/guide).\n",
+            "Keep [literal] beside a link.",
+        ),
+        (
+            "Keep \\[label\\] and read [label].\n\n[label]: /guide\n",
+            "Keep [label] and read label.",
+        ),
+        (
+            "An opening \\[ and a closing \\] bracket.\n",
+            "An opening [ and a closing ] bracket.",
+        ),
+        (
+            "Literal \\[label\\](/guide); real [label](/guide).\n",
+            "Literal [label](/guide); real label.",
+        ),
+    ] {
+        let result = run_export_text_on(markdown);
+        assert_eq!(result["text"].as_str().unwrap(), expected, "{markdown:?}");
+    }
+}
+
+#[test]
+fn export_text_keeps_bracketed_abbreviation_in_surrounding_prose() {
+    let markdown = "Use a common format [e.g.] Markdown for the document.\n";
+    let result = run_export_text_on(markdown);
+    assert_eq!(
+        result["text"].as_str().unwrap(),
+        "Use a common format [e.g.] Markdown for the document."
+    );
+}
+
+#[test]
+fn export_text_keeps_numeric_citations_in_surrounding_prose() {
+    let markdown = "Studies [1] and [23] support the finding; see [42] for details.\n\n[42]: https://example.com\n";
+    let result = run_export_text_on(markdown);
+    assert_eq!(
+        result["text"].as_str().unwrap(),
+        "Studies [1] and [23] support the finding; see 42 for details."
+    );
+}
+
+#[test]
+fn export_text_keeps_digits_in_bracketed_prose() {
+    for (markdown, expected) in [
+        (
+            "Use [version 2] after [v1.2], and retain [007].\n",
+            "Use [version 2] after [v1.2], and retain [007].",
+        ),
+        (
+            "Compare [item 10] with [item 2]; see [release 3](/releases/3).\n",
+            "Compare [item 10] with [item 2]; see release 3.",
+        ),
+        (
+            "Keep [step 1] and follow [step 2].\n\n[step 2]: /guide\n",
+            "Keep [step 1] and follow step 2.",
+        ),
+    ] {
+        let result = run_export_text_on(markdown);
+        assert_eq!(result["text"].as_str().unwrap(), expected, "{markdown:?}");
+    }
+}
+
+#[test]
+fn export_text_keeps_multiple_undefined_numbered_references() {
+    let markdown = "Evidence [1], [23][24], and [1] supports the claim; see [42].\n";
+    let result = run_export_text_on(markdown);
+    assert_eq!(
+        result["text"].as_str().unwrap(),
+        "Evidence [1], [23][24], and [1] supports the claim; see [42]."
+    );
+}
+
+#[test]
+fn export_text_keeps_bracketed_prose_at_the_end_of_a_paragraph() {
+    for (markdown, expected) in [
+        (
+            "The quotation was accurate [sic]\n",
+            "The quotation was accurate [sic]",
+        ),
+        (
+            "The finding was confirmed [1].\n",
+            "The finding was confirmed [1].",
+        ),
+        (
+            "The quotation was\naccurate [sic]\n\nAnother paragraph.\n",
+            "The quotation was\naccurate [sic]\n\nAnother paragraph.",
+        ),
+    ] {
+        let result = run_export_text_on(markdown);
+        assert_eq!(result["text"].as_str().unwrap(), expected, "{markdown:?}");
+    }
+}
+
+/// A `[...]` that opens a paragraph could be misread as a reference
+/// definition's label or a shortcut link, and one that closes a paragraph
+/// sits where a definition might start; with no matching definition both
+/// keep their brackets, as the page shows them.
+#[test]
+fn export_text_keeps_bracketed_prose_at_the_start_and_end_of_a_paragraph() {
+    for (markdown, expected) in [
+        // One bracketed phrase opens the paragraph, another closes it.
+        (
+            "[Draft] the finding was confirmed [1].\n",
+            "[Draft] the finding was confirmed [1].",
+        ),
+        // A bracket at the start only, and a paragraph that is nothing but
+        // a bracketed phrase (its start and end are the same brackets).
+        (
+            "[sic] is the annotation added to the quotation.\n",
+            "[sic] is the annotation added to the quotation.",
+        ),
+        ("[needs review]\n", "[needs review]"),
+        // A bracket ends one paragraph; the next paragraph opens with one.
+        (
+            "The quotation was accurate [sic]\n\n[TODO] recheck the source.\n",
+            "The quotation was accurate [sic]\n\n[TODO] recheck the source.",
+        ),
+        // The brackets sit at the first line's start and the last line's
+        // end of a paragraph spanning lines.
+        (
+            "[one] wraps a paragraph\nspanning two lines [two]\n\n[three] opens the next.\n",
+            "[one] wraps a paragraph\nspanning two lines [two]\n\n[three] opens the next.",
+        ),
+        // The prose brackets stay while an inline link between them reads
+        // its text, and a defined reference still resolves.
+        (
+            "[sic] see [the guide](/guide) for details [TODO].\n",
+            "[sic] see the guide for details [TODO].",
+        ),
+        (
+            "[sic] recheck [the guide] now.\n\n[the guide]: /guide\n",
+            "[sic] recheck the guide now.",
+        ),
+    ] {
+        let result = run_export_text_on(markdown);
+        assert_eq!(result["text"].as_str().unwrap(), expected, "{markdown:?}");
+    }
+}
+
+#[test]
+fn export_text_preserves_sic_at_the_start_of_a_paragraph_from_both_sources() {
+    let markdown = "An introductory paragraph.\n\n\
+        [sic] The quotation retains its original spelling.\n\n\
+        [sic] Another note cites [the source][source].\n\n\
+        [source]: /source\n";
+    let expected = "An introductory paragraph.\n\n\
+        [sic] The quotation retains its original spelling.\n\n\
+        [sic] Another note cites the source.";
+
+    let file_result = run_export_text_on(markdown);
+    assert_eq!(file_result["text"].as_str().unwrap(), expected);
+
+    let ipc = MockIpc::new().on_get(
+        "/content",
+        Ok(json!({ "path": "/docs/test.md", "content": markdown })),
+    );
+    let response = tool_export_text(id(2), &json!({}), &ipc);
+    assert!(response.error.is_none());
+    assert_eq!(content_text(&response)["text"].as_str().unwrap(), expected);
+}
+
+#[test]
+fn export_text_keeps_bracketed_sic_in_surrounding_prose() {
+    let markdown = "The report says the result was 'definately [sic] confirmed' by [the authors](https://example.com).\n";
+    let result = run_export_text_on(markdown);
+    assert_eq!(
+        result["text"].as_str().unwrap(),
+        "The report says the result was 'definately [sic] confirmed' by the authors."
+    );
+}
+
+#[test]
+fn export_text_keeps_sic_followed_by_punctuation_in_prose() {
+    let markdown = "The witness wrote 'definately [sic].' Was it 'acommodated [sic]'? Yes [sic]!\n\
+        The [report](/report) says [sic], then [sic]; finally [sic]: done.\n";
+    let expected = "The witness wrote 'definately [sic].' Was it 'acommodated [sic]'? Yes [sic]!\n\
+        The report says [sic], then [sic]; finally [sic]: done.";
+
+    let file_result = run_export_text_on(markdown);
+    assert_eq!(file_result["text"].as_str().unwrap(), expected);
+
+    let ipc = MockIpc::new().on_get(
+        "/content",
+        Ok(json!({ "path": "/docs/test.md", "content": markdown })),
+    );
+    let response = tool_export_text(id(2), &json!({}), &ipc);
+    assert!(response.error.is_none());
+    assert_eq!(content_text(&response)["text"].as_str().unwrap(), expected);
+}
+
+#[test]
+fn export_text_keeps_bracketed_prose_in_list_items() {
+    for (markdown, expected) in [
+        (
+            "- The quote says 'definately [sic]' in [the report](/report).\n",
+            "The quote says 'definately [sic]' in the report.",
+        ),
+        (
+            "1. [sic] begins the note.\n2. End with [TODO].\n",
+            "[sic] begins the note.\nEnd with [TODO].",
+        ),
+        (
+            "- [x] Check the quote [sic].\n- [ ] Follow up [TODO].\n",
+            "Check the quote [sic].\nFollow up [TODO].",
+        ),
+    ] {
+        let result = run_export_text_on(markdown);
+        assert_eq!(result["text"].as_str().unwrap(), expected, "{markdown:?}");
+    }
+}
+
+#[test]
+fn export_text_keeps_bracketed_phrases_adjacent_to_punctuation() {
+    for (markdown, expected) in [
+        (
+            "The note ([needs review]), then continues.\n",
+            "The note ([needs review]), then continues.",
+        ),
+        (
+            "She wrote: '[exact wording]'; he agreed!\n",
+            "She wrote: '[exact wording]'; he agreed!",
+        ),
+        (
+            "Status:[**needs review**]?! See [the guide](/guide), then [sic]; done.\n",
+            "Status:[needs review]?! See the guide, then [sic]; done.",
+        ),
+    ] {
+        let result = run_export_text_on(markdown);
+        assert_eq!(result["text"].as_str().unwrap(), expected, "{markdown:?}");
+    }
+}
+
+#[test]
+fn export_text_keeps_punctuation_inside_bracketed_prose_from_both_sources() {
+    let markdown = "The editor added [yes, really!] and [why: now?]; see [the guide](/guide).\n\
+        [Draft: check the dates, names &amp; numbers.] Then [*maybe*; or not?]\n";
+    let expected = "The editor added [yes, really!] and [why: now?]; see the guide.\n\
+        [Draft: check the dates, names & numbers.] Then [maybe; or not?]";
+
+    let file_result = run_export_text_on(markdown);
+    assert_eq!(file_result["text"].as_str().unwrap(), expected);
+
+    let ipc = MockIpc::new().on_get(
+        "/content",
+        Ok(json!({ "path": "/docs/test.md", "content": markdown })),
+    );
+    let response = tool_export_text(id(2), &json!({}), &ipc);
+    assert!(response.error.is_none());
+    assert_eq!(content_text(&response)["text"].as_str().unwrap(), expected);
+}
+
+#[test]
+fn export_text_preserves_bracketed_words_and_trailing_punctuation_in_prose() {
+    let markdown = "The editor marked this sentence [draft], and the next one [final].\n\
+        Is the note [ready]? Yes [indeed]!\n";
+    let expected = "The editor marked this sentence [draft], and the next one [final].\n\
+        Is the note [ready]? Yes [indeed]!";
+
+    let file_result = run_export_text_on(markdown);
+    assert_eq!(file_result["text"].as_str().unwrap(), expected);
+
+    let ipc = MockIpc::new().on_get(
+        "/content",
+        Ok(json!({ "path": "/docs/test.md", "content": markdown })),
+    );
+    let response = tool_export_text(id(2), &json!({}), &ipc);
+    assert!(response.error.is_none());
+    assert_eq!(content_text(&response)["text"].as_str().unwrap(), expected);
+}
+
+#[test]
+fn export_text_keeps_punctuation_immediately_after_prose_brackets() {
+    let markdown = "Compare [sic],next; [TODO]:now; [1]!really; [x]?yes; [note].End.\n";
+    let result = run_export_text_on(markdown);
+    assert_eq!(
+        result["text"].as_str().unwrap(),
+        "Compare [sic],next; [TODO]:now; [1]!really; [x]?yes; [note].End."
+    );
+}
+
+#[test]
+fn export_text_keeps_adjacent_bracketed_phrases_in_order() {
+    for (markdown, expected) in [
+        (
+            "Citations [1][2] support this claim.\n",
+            "Citations [1][2] support this claim.",
+        ),
+        (
+            "[sic][TODO] starts the note; it ends [draft][final].\n",
+            "[sic][TODO] starts the note; it ends [draft][final].",
+        ),
+        ("Résumé:[été][冬],next.\n", "Résumé:[été][冬],next."),
+        (
+            "The notes say [first phrase][second phrase] here.\n",
+            "The notes say [first phrase][second phrase] here.",
+        ),
+        (
+            "Review [TODO][sic] before [the release](/release).\n",
+            "Review [TODO][sic] before the release.",
+        ),
+        (
+            "Keep these [one][two][three] words together in prose.\n",
+            "Keep these [one][two][three] words together in prose.",
+        ),
+        (
+            "Keep [first][second] together.\n\n[first]: /guide\n",
+            "Keep [first][second] together.",
+        ),
+        (
+            "Read [**first**][second *phrase*] together.\n",
+            "Read [first][second phrase] together.",
+        ),
+        (
+            "Keep [first][second] and follow [the guide][ref].\n\n[ref]: /guide\n",
+            "Keep [first][second] and follow the guide.",
+        ),
+    ] {
+        let result = run_export_text_on(markdown);
+        assert_eq!(result["text"].as_str().unwrap(), expected, "{markdown:?}");
+    }
+}
+
+#[test]
+fn export_text_keeps_adjacent_sic_and_todo_from_both_sources() {
+    for (markdown, expected) in [
+        (
+            "The quotation needs review [sic][TODO] before publication.\n",
+            "The quotation needs review [sic][TODO] before publication.",
+        ),
+        (
+            "[TODO][sic] marks the note; see [the guide][guide].\n\n[guide]: /guide\n",
+            "[TODO][sic] marks the note; see the guide.",
+        ),
+        (
+            "Keep [sic][TODO] as written.\n\n[sic]: /source\n",
+            "Keep [sic][TODO] as written.",
+        ),
+    ] {
+        let file_result = run_export_text_on(markdown);
+        assert_eq!(
+            file_result["text"].as_str().unwrap(),
+            expected,
+            "{markdown:?}"
+        );
+
+        let ipc = MockIpc::new().on_get(
+            "/content",
+            Ok(json!({ "path": "/docs/test.md", "content": markdown })),
+        );
+        let response = tool_export_text(id(2), &json!({}), &ipc);
+        assert!(
+            response.error.is_none(),
+            "{markdown:?}: {:?}",
+            response.error
+        );
+        assert_eq!(
+            content_text(&response)["text"].as_str().unwrap(),
+            expected,
+            "{markdown:?}"
+        );
+    }
+}
+
+#[test]
+fn export_text_keeps_bracketed_prose_on_separate_lines() {
+    for (markdown, expected) in [
+        ("[first]\n[second]\n[third]\n", "[first]\n[second]\n[third]"),
+        (
+            "Before [sic],\n[TODO] after.\n\n[final] line.\n",
+            "Before [sic],\n[TODO] after.\n\n[final] line.",
+        ),
+        (
+            "[**first**]\n[second *phrase*]\n[guide](/guide)\n",
+            "[first]\n[second phrase]\nguide",
+        ),
+        (
+            "[first]\n[second]\n\n[ref]: /guide\n\n[the guide][ref]\n",
+            "[first]\n[second]\n\nthe guide",
+        ),
+    ] {
+        let result = run_export_text_on(markdown);
+        assert_eq!(result["text"].as_str().unwrap(), expected, "{markdown:?}");
+    }
 }
 
 /// export_text printed a link reference definition as `label: url`,

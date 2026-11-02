@@ -1,0 +1,22 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.ashlrai/ashlr-md",
+  "title": "Ashlr MD",
+  "description": "Open, read, edit, search, export, and request human review of Markdown documents in Ashlr MD.",
+  "version": "0.4.0",
+  "websiteUrl": "https://github.com/ashlrai/ashlr-md/blob/main/docs/AGENTS.md",
+  "repository": {
+    "url": "https://github.com/ashlrai/ashlr-md",
+    "source": "github",
+    "subfolder": "src-tauri/bins/mdopener-mcp"
+  },
+  "_meta": {
+    "io.modelcontextprotocol.registry/publisher-provided": {
+      "distribution": "bundled-native-binary",
+      "binary": "mdopener-mcp",
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  }
+}

@@ -53,6 +53,17 @@ describe("remarkComments", () => {
     expect(inlineCodes[0].value).toBe("%%literal%%");
   });
 
+  it("removes a comment from a text node that is not the first child", () => {
+    // A **strong** sibling puts the text node at index > 0 in its parent, so
+    // the splice must land at the right offset rather than at the start.
+    const result = collectText("**bold** then %%gone%% after");
+    expect(result).not.toContain("gone");
+    expect(result).not.toContain("%%");
+    expect(result).toContain("bold");
+    expect(result).toContain("then ");
+    expect(result).toContain(" after");
+  });
+
   it("removes a comment that is the entire text node", () => {
     // A paragraph containing only a comment should produce no visible text.
     const result = collectText("%%entirely hidden%%");

@@ -27,6 +27,11 @@ interface Entry {
   key: number;
 }
 
+// Keep Unicode whitespace accepted by remarkBlockIds, but never consume line
+// terminators here: multiline \s* rescans blank-line suffixes quadratically.
+const STANDALONE_BLOCK_ID =
+  /^[^\S\r\n\u2028\u2029]*\^[A-Za-z0-9-]+[^\S\r\n\u2028\u2029]*$/m;
+
 /** Syntax with effects beyond a Lezer top-level block needs whole-document remark.
  * Be deliberately conservative, including escaped markers and markers in code.
  * This also covers math/frontmatter, which Lezer's CommonMark grammar lacks.
@@ -36,7 +41,7 @@ function needsWholeDocument(source: string): boolean {
     /[<$\r]|%%/.test(source) ||
     /^---[ \t]*(?:\n|$)/m.test(source) ||
     /\]\s*:/.test(source) ||
-    /^\s*\^[A-Za-z0-9-]+\s*$/m.test(source)
+    STANDALONE_BLOCK_ID.test(source)
   );
 }
 

@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { toJsxRuntime } from "hast-util-to-jsx-runtime";
 import { createElement } from "react";
 import { Fragment, jsx, jsxs } from "react/jsx-runtime";
@@ -147,4 +148,44 @@ describe("incremental Markdown rendering", () => {
       expect(html(renderer, source)).toBe(full(source));
     }
   });
+});
+
+it("keeps the standalone-ID guard line-bounded without narrowing Unicode padding", () => {
+  // Structural complexity guard, not a wall-clock assertion: unrestricted \s*
+  // can cross LF/CR/U+2028/U+2029 and revisit each blank-line suffix.
+  const implementation = readFileSync("src/render/incremental.ts", "utf8");
+  expect(implementation).toContain(
+    String.raw`/^[^\S\r\n\u2028\u2029]*\^[A-Za-z0-9-]+[^\S\r\n\u2028\u2029]*$/m`,
+  );
+  expect(implementation).toContain("STANDALONE_BLOCK_ID.test(source)");
+  const renderer = new IncrementalMarkdown();
+  for (const count of [2000, 10000]) {
+    const source = "\n".repeat(count);
+    expect(html(renderer, source)).toBe(full(source));
+    expect(renderer.stats.wholeDocument).toBe(false);
+  }
+});
+
+it.each([
+  "",
+  " \t",
+  "\u00a0",
+  "\u2003",
+  "\v\f",
+])("preserves standalone Unicode-padded block IDs across chunks: %j", (padding) => {
+  const renderer = new IncrementalMarkdown();
+  html(renderer, document);
+  const source = `${document}\n> Prior block\n\n${padding}^target${padding}\n`;
+  expect(html(renderer, source)).toBe(full(source));
+  expect(renderer.stats.wholeDocument).toBe(true);
+  // A space followed by a tab is indented code, not a block-ID paragraph.
+  if (padding === " \t") {
+    expect(html(renderer, source)).not.toContain('id="user-content-^target"');
+  } else {
+    expect(html(renderer, source)).toContain('id="user-content-^target"');
+  }
+  const crlf = source.replaceAll("\n", "\r\n");
+  expect(html(renderer, crlf)).toBe(full(crlf));
+  expect(renderer.stats.wholeDocument).toBe(true);
+  expect(html(renderer, document)).toBe(full(document));
 });
