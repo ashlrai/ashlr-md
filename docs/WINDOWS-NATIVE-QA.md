@@ -109,3 +109,41 @@ are printed. Raw arguments, process environment and unrelated processes are neve
 logged. A missing or ambiguous observation is reported as unavailable, not proof
 that the app received its file. The exact startup content oracle remains unchanged;
 no second launch, UI bypass or application IPC injection substitutes for it.
+
+## Distinct real Open-file UI scenario
+
+Run 41404877693 passed installation, original PE identity, native window launch,
+uninstall and staging cleanup, but the startup fixture was not opened. The optional
+CIM query timed out, so delivery of the CLI argument remains unproven. This failure
+must not be relabeled as a successful CLI startup test.
+
+The bounded additional scenario uses the original app's visible **Open a file**
+button (`src/components/Welcome.tsx` at original 721b) through standard WebDriver
+Element Click. Its original `src/lib/openFile.ts` handler opens the real Tauri native
+Markdown picker. No script invokes an app API or changes the document store.
+Built-in .NET UI Automation then selects only the verified owned app PID's unique
+modal `#32770` dialog among immediate desktop children, not desktop descendants.
+Within that dialog it requires the unique enabled filename Edit control identified
+by automation ID 1148 (or its ComboBox parent), writable ValuePattern and exact path
+readback, followed by the unique enabled Button ID 1 and InvokePattern. These
+native control IDs/patterns are expectations to qualify, not already observed proof;
+missing or ambiguous controls fail closed without another input technique.
+
+Assembly availability is checked token-free before artifact preparation. No tool,
+service, UIAccess permission, Developer Mode, input-injection fallback or execution
+policy change is added. The helper receives only the owned PID/app and canonical
+synthetic fixture/ready paths. Its complete subprocess lifetime is bounded at 60
+seconds, including startup, with a 30-second readiness ceiling and 25-second dialog
+polling window. The unchanged 300-second worker ceiling still applies to the whole
+scenario; timeouts kill the helper, and existing owned-Job cleanup/uninstall remains.
+No private desktop text, full tree, raw argv or provider error is logged.
+
+After real UI selection, the unchanged exact heading/Unicode DOM oracle and fixture
+integrity assertion must pass. Logs and the temporary `scenario-results.json`
+separately distinguish failed CLI startup from a passed real-Open UI scenario. A job
+that passes this added scenario does not establish CLI correctness or release readiness.
+
+References: [WebDriver Element Click](https://www.w3.org/TR/webdriver/#element-click),
+[Microsoft UIA file dialogs](https://learn.microsoft.com/en-us/windows/apps/dev-tools/winapp-cli/ui-automation#file-dialog-interaction),
+[ValuePattern](https://learn.microsoft.com/en-us/dotnet/api/system.windows.automation.valuepattern.setvalue),
+[InvokePattern](https://learn.microsoft.com/en-us/dotnet/framework/ui-automation/invoke-a-control-using-ui-automation).

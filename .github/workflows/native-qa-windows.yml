@@ -33,6 +33,9 @@ jobs:
         id: process_query
         timeout-minutes: 1
         run: python scripts/native-qa-windows.py --check-process-query
+      - name: Check built-in Windows UI Automation availability
+        timeout-minutes: 1
+        run: python scripts/native-qa-windows.py --check-uia
       - name: Install pinned driver and build locked signature verifier
         run: |
           cargo install tauri-driver --version 2.1.0 --locked
