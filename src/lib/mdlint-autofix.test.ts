@@ -7329,3 +7329,24 @@ describe("autofix: undescribed image with a nested relative path", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+// ─── Invalid link at the very end of a document ──────────────────────────────
+
+describe("autofix: invalid link as the last thing in a document", () => {
+  it.each([
+    ["with a trailing newline", "\n"],
+    ["without a trailing newline", ""],
+  ])("gives the final empty-href link a TODO destination and keeps the preceding text (%s)", (_label, tail) => {
+    const before = "---\ntitle: Guide\n---\n\n# Guide\n\nIntro café with [docs](./guide.md).\n\nSee also ";
+    const doc = `${before}[final label]( )${tail}`;
+    const expected = `${before}[final label](TODO)${tail}`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.startsWith(before)).toBe(true);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
