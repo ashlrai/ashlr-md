@@ -588,6 +588,27 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    ["", "."],
+    ["   ", ","],
+    ["#", ";"],
+    ["?", "!"],
+  ])("fixes an invalid href %j while preserving following punctuation %j", (href, punctuation) => {
+    const doc = `Read [draft](${href})${punctuation} then continue.\n`;
+    const expected = `Read [draft](TODO)${punctuation} then continue.\n`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "invalid-link-target",
+    ]);
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
     ["café / cafe\u0301 — 日本語 👩🏽‍💻", ""],
     ["café / cafe\u0301 — 日本語 👩🏽‍💻", " \t "],
     ["café / cafe\u0301 — 日本語 👩🏽‍💻", "#"],
