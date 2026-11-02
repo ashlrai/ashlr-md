@@ -833,6 +833,36 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    "\u2003",
+    "\u3000",
+    " \u2003 ",
+    " \n ",
+    " \t\n\t ",
+  ])("replaces the whitespace-only destination %j with TODO, preserving the link text and surrounding prose", (destination) => {
+    const doc = `Drafts: see [release notes](${destination}) before [the guide](./guide.md), then publish.\n`;
+    const expected =
+      "Drafts: see [release notes](TODO) before [the guide](./guide.md), then publish.\n";
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0]).toMatchObject({
+      ruleId: "invalid-link-target",
+      severity: "warning",
+      message: `Invalid link target: [release notes](${destination})`,
+    });
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(`[release notes](${destination})`);
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    const remaining = lintDocument(fixed, { rules });
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(fixed, remaining)).toBe(expected);
+  });
+
+  it.each([
     "",
     "  \t ",
     "#",
