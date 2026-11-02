@@ -177,8 +177,9 @@ def driver_path():
     require(driver.is_file(), 'runner Edge driver missing')
     result=subprocess.run([str(driver),'--version'],capture_output=True,text=True,check=True,timeout=10)
     found=re.search(r'\b([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)\b', result.stdout)
-    require(found and found[1].split('.')[:3] == runtime.split('.')[:3], 'Edge driver does not match WebView2 runtime; no unpinned download')
-    print(f'WebView2 {runtime}; Edge driver {found[1]}')
+    require(found is not None, 'Edge driver version missing or malformed')
+    print(f'WebView2 {runtime}; Edge driver {found[1]}', flush=True)
+    require(found[1].split('.')[:3] == runtime.split('.')[:3], 'Edge driver does not match WebView2 runtime; no unpinned download')
     return driver
 
 
@@ -275,7 +276,8 @@ def main():
     require(os.name=='nt','Windows runner required')
     require(len(sys.argv)==2,'expected one fixed phase')
     mode=sys.argv[1]
-    if mode=='--prepare': prepare()
+    if mode=='--check-driver': driver_path()
+    elif mode=='--prepare': prepare()
     elif mode=='--probe': run_worker('--worker',300)
     elif mode=='--worker': worker()
     elif mode=='--uninstall-worker': enter_owned_job(); uninstall(prepared())
