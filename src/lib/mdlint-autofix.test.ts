@@ -2620,6 +2620,38 @@ describe("rule:missing-alt-text", () => {
     expect(applyAllFixes(fixed, remaining)).toBe(expected);
   });
 
+  it.each([
+    "",
+    " ",
+    " ",
+  ])("keeps invisible and format characters touching an empty-alt image %j unchanged", (alt) => {
+    // ZWJ/ZWNJ, bidi marks, NBSP, U+2028/U+2029, a BOM and a lone-surrogate-free
+    // astral char sit directly against the image on both sides.
+    const before = "﻿مرحبا‏‍  𝔘𝔫𝔦";
+    const after = " ‌‎日本語 🏳️‍🌈";
+    const image = `![${alt}](img/ü.png)`;
+    const neighbor = "![Ünïcödé 風景](keep.png)";
+    const doc = `${before}${image}${after}\n${neighbor}\n`;
+    const expected = `${before}![TODO: describe image](img/ü.png)${after}\n${neighbor}\n`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "missing-alt-text",
+    ]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(image);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // Only the alt text may change; both surrounding strings survive verbatim.
+    expect(fixed.startsWith(before)).toBe(true);
+    expect(fixed.includes(`${after}\n${neighbor}\n`)).toBe(true);
+    expect(fixed.length - doc.length).toBe("TODO: describe image".length - alt.length);
+    const remaining = lintDocument(fixed, { rules });
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(fixed, remaining)).toBe(expected);
+  });
+
   it("fixes the first image without changing a following described image", () => {
     const doc = "![](first.png)\n![A mountain at sunrise](second.png)\n";
     const expected =
