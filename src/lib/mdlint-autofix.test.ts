@@ -1649,6 +1649,49 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(expected, { rules })).toEqual([]);
   });
 
+  it.each([
+    ["", "#"],
+    ["?", "   "],
+  ])("fixes both invalid links %j and %j on one line and preserves the intervening text", (first, second) => {
+    const prefix = "Read ";
+    // A code span between the links holds a link-shaped example that is
+    // never linted, and the prose keeps its Unicode and double spaces.
+    const middle = ", then compare `[x](#)` — café 😀 and  spaces before ";
+    const suffix = " to finish.\n";
+    const doc = `${prefix}[draft](${first})${middle}[next](${second})${suffix}`;
+    const expected = `${prefix}[draft](TODO)${middle}[next](TODO)${suffix}`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "invalid-link-target",
+      "invalid-link-target",
+    ]);
+    expect(violations.every((violation) => violation.fix !== null)).toBe(true);
+    expect(
+      violations.map((violation) =>
+        doc.slice(violation.range!.from.offset, violation.range!.to.offset),
+      ),
+    ).toEqual([`[draft](${first})`, `[next](${second})`]);
+    // Each fix alone repairs only its own destination.
+    expect(applyFix(doc, violations[0])).toBe(
+      `${prefix}[draft](TODO)${middle}[next](${second})${suffix}`,
+    );
+    expect(applyFix(doc, violations[1])).toBe(
+      `${prefix}[draft](${first})${middle}[next](TODO)${suffix}`,
+    );
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // The text between the two links is byte-for-byte identical afterward.
+    const between = fixed.indexOf("[next](TODO)");
+    const firstEnd = fixed.indexOf("[draft](TODO)") + "[draft](TODO)".length;
+    expect(fixed.slice(firstEnd, between)).toBe(middle);
+    expect(applyAllFixes(doc, [...violations].reverse())).toBe(expected);
+    const remaining = lintDocument(fixed, { rules });
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(fixed, remaining)).toBe(expected);
+  });
+
   it("autofixes invalid links on separate lines while preserving labels and line breaks", () => {
     const doc = "See [first guide]() for details.\n\nThen visit [second guide](#).\n";
     const rules = [ruleInvalidLinkTarget];
