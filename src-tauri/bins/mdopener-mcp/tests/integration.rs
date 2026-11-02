@@ -9233,6 +9233,33 @@ fn export_text_matches_bracket_regression_history() {
 }
 
 #[test]
+fn bracket_regression_doc_cites_existing_tests() {
+    let docs = include_str!("../../../../docs/mdopener-bracket-regression.md");
+    let source = include_str!("integration.rs");
+    let mut cited = 0;
+    for name in docs
+        .split('`')
+        .filter(|t| t.starts_with("export_text_keeps_"))
+    {
+        assert!(
+            source.contains(&format!("fn {name}()")),
+            "doc cites missing test {name}"
+        );
+        cited += 1;
+    }
+    assert!(cited >= 3, "doc must cite the regression tests");
+    for (doc, want) in [
+        ("He said [sic] and [TODO]", "He said [sic] and [TODO]"),
+        ("See [Docs] now\n\n[docs]: https://e.x", "See Docs now"),
+        ("[ ] not a task", "[ ] not a task"),
+        ("- [ ] task", "task"),
+    ] {
+        let result = run_export_text_on(&format!("{doc}\n"));
+        assert_eq!(result["text"].as_str().unwrap(), want, "{doc:?}");
+    }
+}
+
+#[test]
 fn bracketed_prose_example_table_matches_outputs() {
     let docs = include_str!("../../../../docs/bracketed-prose-example-table.md");
     let mut count = 0;
