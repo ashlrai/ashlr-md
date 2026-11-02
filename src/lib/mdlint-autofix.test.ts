@@ -194,6 +194,39 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(expected, { rules })).toEqual([]);
   });
 
+  it.each([
+    ["\n", "\r\n"],
+    ["\r\n", "\n"],
+  ])("fixes two links on separate lines while preserving mixed line endings %j and %j", (firstBreak, secondBreak) => {
+    const doc =
+      `Before [first]() — café.${firstBreak}` +
+      "Keep  [guide](./guide.md) and `[example](#)`." +
+      secondBreak +
+      "After [second](?)\tend.";
+    const expected =
+      `Before [first](TODO) — café.${firstBreak}` +
+      "Keep  [guide](./guide.md) and `[example](#)`." +
+      secondBreak +
+      "After [second](TODO)\tend.";
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "invalid-link-target",
+      "invalid-link-target",
+    ]);
+    expect(violations.every((violation) => violation.fix !== null)).toBe(true);
+    expect(applyFix(doc, violations[0])).toBe(
+      doc.replace("[first]()", "[first](TODO)"),
+    );
+    expect(applyFix(doc, violations[1])).toBe(
+      doc.replace("[second](?)", "[second](TODO)"),
+    );
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(applyAllFixes(doc, [...violations].reverse())).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+
   it("fixes an invalid link followed by a valid link", () => {
     const doc =
       "---\ntitle: Guide\n---\n\nRead [draft]() then [guide](https://example.com/guide).\n";
