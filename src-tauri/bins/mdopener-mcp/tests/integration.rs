@@ -9218,6 +9218,43 @@ fn export_text_keeps_literal_brackets_in_blockquote_prose() {
 }
 
 #[test]
+fn export_text_keeps_bracketed_prose_before_markdown_links() {
+    for (markdown, expected) in [
+        (
+            "The quote was [sic]; see [the source](https://example.com/source).\n",
+            "The quote was [sic]; see the source.",
+        ),
+        (
+            "Review [TODO][the guide](/guide \"Guide\") after [1].\n",
+            "Review [TODO]the guide after [1].",
+        ),
+        (
+            "Résumé [à vérifier] then [**the report**][report].\n\n[report]: /report\n",
+            "Résumé [à vérifier] then the report.",
+        ),
+    ] {
+        let file_result = run_export_text_on(markdown);
+        assert_eq!(
+            file_result["text"].as_str().unwrap(),
+            expected,
+            "{markdown:?}"
+        );
+
+        let ipc = MockIpc::new().on_get(
+            "/content",
+            Ok(json!({ "path": "/docs/test.md", "content": markdown })),
+        );
+        let response = tool_export_text(id(2), &json!({}), &ipc);
+        assert!(response.error.is_none(), "{markdown:?}");
+        assert_eq!(
+            content_text(&response)["text"].as_str().unwrap(),
+            expected,
+            "{markdown:?}"
+        );
+    }
+}
+
+#[test]
 fn export_text_keeps_repeated_prose_brackets_in_order() {
     for (markdown, expected) in [
         (
