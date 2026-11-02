@@ -76,12 +76,14 @@ Microsoft documents as application arguments when launching WebView2. Original
 721b source buffers CLI paths at setup and drains them after frontend mount.
 These contracts do not prove the cause of the observed empty heading/paragraph.
 Cleanup errors report only the failed owned relative path and file-type,
-read-only/reparse flags. The observed exact synthetic Start Menu Programs directory
-may have only its DOS read-only bit cleared after a WinError 5 from directory
-removal, then that removal is retried once. Other attributes are preserved,
+read-only/reparse flags. Any failed owned file or directory that carried the DOS
+read-only bit may have that single bit cleared after a WinError 5 from removal,
+then that same removal is retried once. Other attributes are preserved,
 reparse paths and linked ancestors are rejected, and any subsequent failure is
-propagated. No ACL or security-policy change is performed. This narrowly scoped
-retry tests whether the observed read-only metadata caused the removal failure.
+propagated. No ACL or security-policy change is performed. The bounded retry
+covers the read-only bit the shell stamps on the special folders it creates
+under the synthetic profile (Start Menu, Programs and siblings) and on metadata
+files such as desktop.ini.
 
 Before creating a WebDriver session, the probe verifies that the original installer
 left no running instance of the exact installed executable. Afterwards, a bounded
