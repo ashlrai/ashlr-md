@@ -93,6 +93,21 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(doc, { rules: [ruleInvalidLinkTarget] })).toHaveLength(0);
   });
 
+  it("reports no invalid-link-target diagnostic for titled, angle-bracket and reference links", () => {
+    const doc = [
+      '[titled](./guide.md "Guide")',
+      "[angle](<./my guide.md>)",
+      "[ref][guide]",
+      "",
+      "[guide]: https://example.com/guide",
+      "",
+    ].join("\n");
+    // Full default rule set: no diagnostic of this rule may appear.
+    const ids = lintDocument(doc).map((v) => v.ruleId);
+    expect(ids).not.toContain("invalid-link-target");
+    expect(lintDocument(doc, { rules: [ruleInvalidLinkTarget] })).toEqual([]);
+  });
+
   it.each([
     "https://example.com/guide?topic=lint#links",
     "./guide.md",
