@@ -5051,6 +5051,22 @@ describe("rule:missing-alt-text", () => {
     expect(lintDocument(fixed, { rules: [ruleMissingAltText] })).toHaveLength(0);
   });
 
+  it.each([
+    ["list item", "- "],
+    ["blockquote", "> "],
+  ])("fills three undescribed images on one %s line, skipping the described one between them", (_name, marker) => {
+    const doc = `${marker}A ![](a.png) B ![Kept](k.png "K") C ![ ](b.png?x=1#y) D ![](c.png) E.\n`;
+    const expected = `${marker}A ![TODO: describe image](a.png) B ![Kept](k.png "K") C ![TODO: describe image](b.png?x=1#y) D ![TODO: describe image](c.png) E.\n`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(3);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.match(/!\[TODO: describe image\]/g)).toHaveLength(3);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
   it("gives each of several invalid images the placeholder while retaining its own source", () => {
     const images = [
       { alt: "", src: "images/first.png" },
