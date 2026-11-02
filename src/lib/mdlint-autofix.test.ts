@@ -3007,6 +3007,44 @@ describe("rule:missing-alt-text", () => {
     expect(fixed).toBe(doc);
   });
 
+  it.each([
+    "\n",
+    "\r\n",
+  ])("keeps a described image byte-for-byte unchanged while autofix rewrites the rest of its line (%j line endings)", (newline) => {
+    const described =
+      '![A café *chart* — v2](images/chart%20one.png?size=2&view=full#preview "Chart")';
+    const doc = [
+      `See ${described} and [draft](), then ![](diagram.svg)   `,
+      "",
+      "Tail keeps `[draft]()` code.",
+      "",
+    ].join(newline);
+    const expected = [
+      `See ${described} and [draft](TODO), then ![TODO: describe image](diagram.svg)`,
+      "",
+      "Tail keeps `[draft]()` code.",
+      "",
+    ].join(newline);
+    const rules = BUILTIN_RULES.filter((rule) =>
+      LINTER_DEFAULT_ENABLED_RULES.includes(rule.id),
+    );
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "invalid-link-target",
+      "missing-alt-text",
+      "no-trailing-spaces",
+    ]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // The described image survives verbatim while everything around it changed.
+    expect(fixed.indexOf(described)).toBe(fixed.lastIndexOf(described));
+    expect(fixed).toContain(described);
+    const remaining = lintDocument(fixed, { rules });
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(fixed, remaining)).toBe(expected);
+  });
+
   it("preserves descriptive alt text and the image source when fixing trailing spaces", () => {
     const doc =
       "See ![A sleeping cat on a windowsill](images/cat.jpg?size=2#preview).   \n";
