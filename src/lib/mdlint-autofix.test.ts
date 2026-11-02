@@ -142,6 +142,18 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(expected)).toEqual([]);
   });
 
+  it("gives two invalid links in one document a TODO href each and keeps both labels", () => {
+    const fm = "---\ntitle: Guide\n---\n\n";
+    const doc = `${fm}See [first label]() and [second label](  ) for details.\n`;
+    const expected = `${fm}See [first label](TODO) and [second label](TODO) for details.\n`;
+    const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
+
+    expect(violations).toHaveLength(2);
+    expect(violations.every((v) => v.ruleId === "invalid-link-target")).toBe(true);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected)).toEqual([]);
+  });
+
   it.each([
     "\t",
     "\t\t",
