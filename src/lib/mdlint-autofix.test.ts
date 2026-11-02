@@ -1280,6 +1280,55 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    "",
+    " ",
+    "#",
+    "?",
+  ])("fixes an invalid link opening a mid-document line (destination %j) without moving the text that follows it", (destination) => {
+    const link = `[draft](${destination})`;
+    const repaired = "[draft](TODO)";
+    // Trailing text opens with a parenthesis group and holds a code-span
+    // lookalike and a valid link: none of it may move under the fix.
+    const following =
+      " (paren) keeps `[sample]()` and [guide](./guide.md) — café  end.";
+    const tail = ["Next line stays.", "", "Last line keeps  spacing.  "];
+    const delta = repaired.length - link.length;
+
+    for (const newline of ["\n", "\r\n"]) {
+      const head = ["Intro line with [ok](./ok.md).", "Second line stays.", ""];
+      const doc = [...head, link + following, ...tail].join(newline);
+      const expected = [...head, repaired + following, ...tail].join(newline);
+      const rules = [ruleInvalidLinkTarget];
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map((violation) => violation.ruleId)).toEqual([
+        "invalid-link-target",
+      ]);
+      const { from, to } = violations[0].range!;
+      expect(from).toMatchObject({ line: head.length + 1, col: 0 });
+      expect(doc.slice(0, from.offset).endsWith("\n")).toBe(true);
+      expect(doc.slice(from.offset, to.offset)).toBe(link);
+      expect(violations[0].fix).not.toBeNull();
+
+      for (const fixed of [
+        applyFix(doc, violations[0]),
+        applyAllFixes(doc, violations),
+      ]) {
+        expect(fixed).toBe(expected);
+        // Byte-for-byte: the text before the link is unchanged, the link
+        // became `[draft](TODO)`, and every character after it kept its
+        // text at its shifted offset.
+        expect(fixed.slice(0, from.offset)).toBe(doc.slice(0, from.offset));
+        expect(fixed.slice(from.offset, to.offset + delta)).toBe(repaired);
+        expect(fixed.slice(to.offset + delta)).toBe(doc.slice(to.offset));
+      }
+      const remaining = lintDocument(expected, { rules });
+      expect(remaining).toEqual([]);
+      expect(applyAllFixes(expected, remaining)).toBe(expected);
+    }
+  });
+
+  it.each([
     [
       "See [docs](https://example.com/guide?topic=lint#links) and [draft]().\n",
       "See [docs](https://example.com/guide?topic=lint#links) and [draft](TODO).\n",
