@@ -3396,6 +3396,37 @@ describe("rule:missing-alt-text", () => {
   });
 
   it.each([
+    "\n",
+    "\r\n",
+  ])("fixes only the undescribed image in a list and keeps a padded-alt described image byte-identical (line endings %j)", (newline) => {
+    // The described alt has edge spaces and a literal TODO: only an empty or
+    // whitespace-only alt counts as undescribed.
+    const described = '![ TODO: chart of café sales ](sales.png?v=2#top "Sales")';
+    const undescribed = '![ \t](trend.png "Trend")';
+    const repaired = '![TODO: describe image](trend.png "Trend")';
+    const layout = (middle: string) =>
+      ["- Intro `![](decoy.png)`", `- ${described}`, `- ${middle}`, ""].join(newline);
+    const doc = layout(undescribed);
+    const expected = layout(repaired);
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "missing-alt-text",
+    ]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(undescribed);
+    expect(violations[0].fix).not.toBeNull();
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain(described);
+    expect(fixed).toContain("`![](decoy.png)`");
+    const remaining = lintDocument(fixed, { rules });
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(fixed, remaining)).toBe(expected);
+  });
+
+  it.each([
     [true, "\n"],
     [true, "\r\n"],
     [false, "\n"],
