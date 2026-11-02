@@ -354,6 +354,87 @@ class Tests(unittest.TestCase):
                 self.assertEqual(lstat.call_count,0 if info is None else 1)
                 self.assertIn('diagnostic unavailable',output.getvalue())
 
+    def test_argv_report_only_emits_fixture_booleans(self):
+        fixture=Path('/synthetic/native-smoke.md')
+        for argument,key in [(str(fixture),'fixture_exact_arg'),('--'+str(fixture),'fixture_switch_arg'),('"'+str(fixture)+'"','fixture_quoted_arg')]:
+            result=w.argv_summary(['app',argument,'private-token'],fixture)
+            self.assertTrue(result[key]); self.assertEqual(result['argument_count'],2)
+            self.assertNotIn('private-token',json.dumps(result))
+        output=io.StringIO()
+        with patch.object(w,'owned_app_processes',return_value=[{'CommandLine':'private-command'}]), patch.object(w,'windows_argv',return_value=['app',str(fixture),'private-token']), patch('sys.stdout',output): w.report_app_argv(Path('/app'),fixture)
+        self.assertNotIn('private',output.getvalue())
+        with patch.object(w,'owned_app_processes',side_effect=ValueError('private-command')), patch('sys.stdout',output): w.report_app_argv(Path('/app'),fixture)
+        self.assertNotIn('private',output.getvalue())
+
+    def test_app_query_requires_exact_path_and_owned_job(self):
+        with canonical_tempdir() as t:
+            app=Path(t)/'md-opener.exe'; app.touch()
+            row={'ProcessId':123,'ExecutablePath':str(app),'CommandLine':'private-command'}
+            with patch.dict(os.environ,{'SYSTEMROOT':t,'GH_TOKEN':'not-inherited'}), patch.object(w,'hash_file',return_value=w.EXE_HASH), patch.object(w.subprocess,'run',return_value=MagicMock(stdout=json.dumps(row))) as run, patch.object(w,'process_in_owned_job',return_value=False):
+                with self.assertRaises(ValueError): w.owned_app_processes(app)
+                self.assertNotIn('GH_TOKEN',run.call_args.kwargs['env'])
+                self.assertEqual(run.call_args.kwargs['timeout'],20)
+            with patch.dict(os.environ,{'SYSTEMROOT':t}), patch.object(w,'hash_file',return_value=w.EXE_HASH), patch.object(w.subprocess,'run',return_value=MagicMock(stdout=json.dumps(dict(row,ExecutablePath='other')))), patch.object(w,'process_in_owned_job') as member:
+                with self.assertRaises(ValueError): w.owned_app_processes(app)
+                member.assert_not_called()
+
+    def test_process_query_failure_traceback_does_not_disclose_captured_data(self):
+        import traceback
+        with canonical_tempdir() as t:
+            error=subprocess.CalledProcessError(1,'private-command',output='private-argv',stderr='private-stderr')
+            with patch.dict(os.environ,{'SYSTEMROOT':t}), patch.object(w,'hash_file',return_value=w.EXE_HASH), patch.object(w.subprocess,'run',side_effect=error):
+                try: w.owned_app_processes(Path(t)/'md-opener.exe')
+                except ValueError as caught:
+                    rendered=''.join(traceback.format_exception(caught))
+                    self.assertIn('owned app process query failed',rendered)
+                    for secret in ['private-command','private-argv','private-stderr']: self.assertNotIn(secret,rendered)
+                else: self.fail('query failure accepted')
+
+    def test_only_exact_owned_readonly_directory_gets_one_delete_retry(self):
+        with canonical_tempdir() as t:
+            root=Path(t); target=root/'home/AppData/Roaming/Microsoft/Windows/Start Menu/Programs'
+            error=PermissionError('synthetic'); error.winerror=5
+            info=MagicMock(st_mode=0o040700,st_file_attributes=17)
+            def fake_rmtree(path,onexc): onexc(w.os.rmdir,str(target),error)
+            with patch.object(w.os,'name','nt'), patch.object(w,'Path',type(root)), patch.object(type(root),'lstat',return_value=info), patch.object(w,'stage',return_value=root), patch.object(w.shutil,'rmtree',side_effect=fake_rmtree), patch.object(w.os,'rmdir') as retry, patch.object(w,'clear_readonly_attribute') as clear:
+                w.remove_owned_tree(root)
+                clear.assert_called_once_with(target,17); retry.assert_called_once_with(str(target))
+                clear.reset_mock(); retry.reset_mock(); info.st_file_attributes=16
+                with self.assertRaises(PermissionError): w.remove_owned_tree(root)
+                clear.assert_not_called(); retry.assert_not_called()
+                info.st_file_attributes=17; retry.side_effect=PermissionError('still denied')
+                with self.assertRaises(PermissionError): w.remove_owned_tree(root)
+                self.assertEqual(retry.call_count,1)
+
+    def test_readonly_cleanup_rejects_all_other_targets_and_errors(self):
+        with canonical_tempdir() as t:
+            root=Path(t); target=root/'home/AppData/Roaming/Microsoft/Windows/Start Menu/Programs'
+            for attrs,path,expected_root,winerror,wrong_function in [
+                (0x411,target,root,5,False),(17,root/'other',root,5,False),
+                (17,target,root/'other',5,False),(17,target,root,32,False),
+                (17,target,root,5,True),
+            ]:
+                error=PermissionError('synthetic'); error.winerror=winerror
+                info=MagicMock(st_mode=0o040700,st_file_attributes=attrs)
+                def fail(current,onexc): onexc((lambda p: None) if wrong_function else w.os.rmdir,str(path),error)
+                with patch.object(w.os,'name','nt'), patch.object(w,'Path',type(root)), patch.object(type(root),'lstat',return_value=info), patch.object(w,'stage',return_value=expected_root), patch.object(w.shutil,'rmtree',side_effect=fail), patch.object(w,'clear_readonly_attribute') as clear:
+                    with self.assertRaises(PermissionError): w.remove_owned_tree(root)
+                    clear.assert_not_called()
+
+    def test_dos_attribute_setter_preserves_every_other_bit(self):
+        kernel=MagicMock(); kernel.SetFileAttributesW.return_value=1
+        target=Path('/synthetic')
+        with patch.object(w.ctypes,'WinDLL',return_value=kernel,create=True):
+            w.clear_readonly_attribute(target,0x213)
+            kernel.SetFileAttributesW.assert_called_once_with(str(target),0x212)
+            kernel.SetFileAttributesW.return_value=0
+            with self.assertRaises(ValueError): w.clear_readonly_attribute(target,0x213)
+
+    @unittest.skipUnless(os.name=='nt','requires actual Windows command-line parser')
+    def test_windows_command_line_parser_preserves_synthetic_file_argument(self):
+        args=[r'D:\synthetic\md-opener.exe',r'D:\synthetic\file name.md','--flag']
+        self.assertEqual(w.windows_argv(subprocess.list2cmdline(args)),args)
+
     def test_driver_cleanup_without_installer_stage(self):
         with canonical_tempdir() as t:
             root=Path(t)/w.DRIVER_STAGE; root.mkdir(); (root/'partial').touch()
@@ -394,7 +475,7 @@ class Tests(unittest.TestCase):
         with canonical_tempdir() as t:
             receipt=Path(t)/'pids.json'
             child='import subprocess,sys,time,json,os; p=subprocess.Popen([sys.executable,"-c","import time; time.sleep(60)"]); open('+repr(str(receipt)+'.tmp')+',"w").write(json.dumps([os.getpid(),p.pid])); os.replace('+repr(str(receipt)+'.tmp')+','+repr(str(receipt))+'); time.sleep(60)'
-            worker='import importlib.util,subprocess,sys,time; s=importlib.util.spec_from_file_location("qa",'+repr(str(SCRIPT))+'); m=importlib.util.module_from_spec(s); s.loader.exec_module(m); m.enter_owned_job(); subprocess.Popen([sys.executable,"-c",'+repr(child)+']); time.sleep(60)'
+            worker='import importlib.util,subprocess,sys,time,os; s=importlib.util.spec_from_file_location("qa",'+repr(str(SCRIPT))+'); m=importlib.util.module_from_spec(s); s.loader.exec_module(m); m.enter_owned_job(); assert m.process_in_owned_job(os.getpid()); subprocess.Popen([sys.executable,"-c",'+repr(child)+']); time.sleep(60)'
             proc=subprocess.Popen([sys.executable,'-c',worker])
             handles=[]
             try:
