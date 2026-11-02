@@ -2181,6 +2181,61 @@ describe("rule:invalid-link-target", () => {
       }
     }
   });
+
+  it.each([
+    "",
+    " ",
+    "#",
+    "?",
+  ])("fixing an invalid link %j in multiline prose leaves unrelated preceding and following lines unchanged", (href) => {
+    const rules = [ruleInvalidLinkTarget];
+    const link = `[draft](${href})`;
+    const repaired = `[draft](TODO)`;
+    const preceding = [
+      "# Café notes",
+      "",
+      "First paragraph stays as written — café,  double spacing.",
+      "It keeps [a valid link](./guide.md) and `[code](#)` intact.",
+      "",
+    ];
+    const linkLine = `Read ${link} before continuing.`;
+    const fixedLine = `Read ${repaired} before continuing.`;
+    const following = [
+      "",
+      "Second paragraph stays as written too — ☕.",
+      "It keeps [another link](https://example.com/guide?x=1#frag) intact.",
+      "Trailing spaces on this line stay.   ",
+    ];
+    const delta = repaired.length - link.length;
+
+    for (const newline of ["\n", "\r\n"]) {
+      const doc = [...preceding, linkLine, ...following].join(newline);
+      const expected = [...preceding, fixedLine, ...following].join(newline);
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations).toHaveLength(1);
+      expect(violations[0].ruleId).toBe("invalid-link-target");
+      expect(violations[0].range?.from.line).toBe(preceding.length + 1);
+      const { from, to } = violations[0].range!;
+      expect(doc.slice(from.offset, to.offset)).toBe(link);
+      expect(violations[0].fix).not.toBeNull();
+
+      for (const fixed of [
+        applyFix(doc, violations[0]),
+        applyAllFixes(doc, violations),
+      ]) {
+        expect(fixed).toBe(expected);
+        // Every line before the link line is byte-identical.
+        expect(fixed.slice(0, from.offset)).toBe(doc.slice(0, from.offset));
+        // Every line after the link line is byte-identical, at its shifted offset.
+        expect(fixed.slice(to.offset + delta)).toBe(doc.slice(to.offset));
+        expect(fixed.split(newline)).toEqual([...preceding, fixedLine, ...following]);
+      }
+      const remaining = lintDocument(expected, { rules });
+      expect(remaining).toEqual([]);
+      expect(applyAllFixes(expected, remaining)).toBe(expected);
+    }
+  });
 });
 
 // ─── 3. Rule: missing-alt-text ────────────────────────────────────────────────
