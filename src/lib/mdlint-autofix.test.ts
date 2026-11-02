@@ -2654,6 +2654,29 @@ describe("rule:missing-alt-text", () => {
   });
 
   it.each([
+    "\n",
+    "\r\n",
+  ])("inserts a placeholder in both undescribed images repeated on one line and keeps their sources (line endings %j)", (nl) => {
+    const first = '![](a.png?x=1#y "A")';
+    const second = "![](b.png)";
+    const doc = `# Gallery${nl}${nl}Pair café ${first} and ${second} end.${nl}`;
+    const expected = `# Gallery${nl}${nl}Pair café ![TODO: describe image](a.png?x=1#y "A") and ![TODO: describe image](b.png) end.${nl}`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+      "missing-alt-text",
+      "missing-alt-text",
+    ]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.match(/!\[TODO: describe image\]/g)).toHaveLength(2);
+    expect(fixed).toContain('(a.png?x=1#y "A")');
+    expect(fixed).toContain("(b.png)");
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
     "",
     "Intro.\r\n",
   ])("fixes an image on a final line without a trailing newline (prefix %j)", (prefix) => {
