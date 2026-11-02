@@ -2689,6 +2689,18 @@ describe("rule:missing-alt-text", () => {
     expect(lintDocument(doc, { rules: [ruleMissingAltText] })).toHaveLength(0);
   });
 
+  it("applies applyAllFixes with default rules and leaves a valid described image unchanged", () => {
+    const doc =
+      "See ![A flowing river at sunset](photos/river-sunset.jpg) for the view.\n";
+    const rules = BUILTIN_RULES.filter((rule) =>
+      LINTER_DEFAULT_ENABLED_RULES.includes(rule.id),
+    );
+    const violations = lintDocument(doc, { rules });
+    expect(violations).toEqual([]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(doc);
+  });
+
   it("preserves descriptive alt text and the image source when fixing trailing spaces", () => {
     const doc =
       "See ![A sleeping cat on a windowsill](images/cat.jpg?size=2#preview).   \n";
