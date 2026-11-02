@@ -122,7 +122,7 @@ button (`src/components/Welcome.tsx` at original 721b) through standard WebDrive
 Element Click. Its original `src/lib/openFile.ts` handler opens the real Tauri native
 Markdown picker. No script invokes an app API or changes the document store.
 Built-in .NET UI Automation then selects only the verified owned app PID's unique
-modal `#32770` dialog among immediate desktop children, not desktop descendants.
+enabled `#32770` dialog (modality is observed, not required) among immediate desktop children, not desktop descendants.
 Within that dialog it requires the unique enabled filename Edit control identified
 by automation ID 1148 (or its ComboBox parent), writable ValuePattern and exact path
 readback, followed by the unique enabled Button ID 1 and InvokePattern. These
@@ -170,7 +170,7 @@ so a non-dialog `TauriWindow` could be selected as a string and fail strict prop
 access. An actual standalone PowerShell 7.6.9 reproduction confirmed this behavior;
 renaming the candidate collection avoids it. The durable PowerShell regression
 executes the real helper's selection block with synthetic provider stand-ins,
-covering ordinary windows, one enabled modal dialog, disabled and ambiguous cases.
+covering ordinary windows, one enabled owned dialog (modality observed, not required), disabled and ambiguous cases.
 It runs under built-in Windows PowerShell before artifact preparation. This tests
 language semantics, not native UIA compatibility. The earlier pre-diagnostic picker
 failure remains unexplained; only one corrected bounded observation is justified.

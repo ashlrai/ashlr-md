@@ -51,10 +51,10 @@ try {
             } catch { $available = $false; $modal = $null }
             $observation.windows += @{class=$class; pattern=[bool]$available; modal=$modal; enabled=[bool]$window.Current.IsEnabled}
             $observation.stage = 'select'
-            if ($window.Current.ClassName -ceq '#32770') {
-                $pattern = $window.GetCurrentPattern([Windows.Automation.WindowPattern]::Pattern)
-                if ($pattern.Current.IsModal -and $window.Current.IsEnabled) { $candidates += $window }
-            }
+            # The Common Item Dialog is an owned, enabled #32770 but does not always report
+            # WindowPattern.IsModal, so modality is observed (above), not required. Ownership,
+            # class and enabled state plus the single-candidate rule keep selection exact.
+            if ($window.Current.ClassName -ceq '#32770' -and $window.Current.IsEnabled) { $candidates += $window }
         }
         if ($candidates.Count -gt 1) { $dialogReason='ambiguous'; throw 'ambiguous-dialog' }
         if ($candidates.Count -eq 1) { $dialog = $candidates[0]; break }

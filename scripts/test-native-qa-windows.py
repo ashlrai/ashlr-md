@@ -163,6 +163,9 @@ class Tests(unittest.TestCase):
         self.assertNotIn('RootElement.FindAll([Windows.Automation.TreeScope]::Descendants',script)
         for guard in ['$candidates.Count -ne 1','$buttons.Count -ne 1','$value.Current.IsReadOnly','$value.Current.Value -cne $fixture',"ClassName -ceq '#32770'",'$dialog.Current.ProcessId -ne $targetPid']:
             self.assertIn(guard,script)
+        self.assertNotIn('$window.GetCurrentPattern',script)
+        self.assertNotIn('$pattern.Current.IsModal',script)
+        self.assertIn("ClassName -ceq '#32770' -and $window.Current.IsEnabled",script)
         self.assertIn('$value.SetValue($fixture)',script); self.assertIn('$invoke.Invoke()',script)
         for forbidden in ['SendKeys','SendInput','ExecutionPolicy','__TAURI','Get-CimInstance']:
             self.assertNotIn(forbidden,script)
