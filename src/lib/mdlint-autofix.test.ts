@@ -3938,6 +3938,49 @@ describe("rule:missing-alt-text", () => {
     expect(applyAllFixes(fixed, remaining)).toBe(expected);
   });
 
+  it.each([
+    "\n",
+    "\r\n",
+  ])("fixes each undescribed image inside repeated prose while keeping its distinct source (%j line endings)", (newline) => {
+    const prose = "Café ☕ — the same caption words repeat here.";
+    const first = "![](images/chart%20one.png?size=2#preview)";
+    const second = '![](../assets/map.svg?view=full#north "Map")';
+    const firstFixed = "![TODO: describe image](images/chart%20one.png?size=2#preview)";
+    const secondFixed =
+      '![TODO: describe image](../assets/map.svg?view=full#north "Map")';
+    const caption = (image: string) => `${prose} ${image} ${prose}`;
+    const doc = [caption(first), prose, `${caption(second)}.`, ""].join(newline);
+    const expected = [caption(firstFixed), prose, `${caption(secondFixed)}.`, ""].join(
+      newline,
+    );
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+      "missing-alt-text",
+      "missing-alt-text",
+    ]);
+    expect(
+      violations.map(({ range }) => doc.slice(range!.from.offset, range!.to.offset)),
+    ).toEqual([first, second]);
+    expect(violations.every(({ fix }) => fix !== null)).toBe(true);
+    expect(applyFix(doc, violations[0])).toBe(
+      [caption(firstFixed), prose, `${caption(second)}.`, ""].join(newline),
+    );
+    expect(applyFix(doc, violations[1])).toBe(
+      [caption(first), prose, `${caption(secondFixed)}.`, ""].join(newline),
+    );
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(applyAllFixes(doc, [...violations].reverse())).toBe(expected);
+    expect(fixed.match(/TODO: describe image/g)).toHaveLength(2);
+    // The five prose repetitions survive the fixes verbatim.
+    expect(fixed.split(prose)).toHaveLength(6);
+    const remaining = lintDocument(fixed, { rules });
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(fixed, remaining)).toBe(expected);
+  });
+
   it("fixes distinct empty-alt images on separate lines while preserving their sources", () => {
     const first = "../assets/chart%20one.png?size=2#preview";
     const second = "images/写真.svg?theme=dark#detail";
