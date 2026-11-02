@@ -598,6 +598,23 @@ def check_uia():
     print('UIA built-in assemblies available; native dialog not yet qualified.')
 
 
+def dialog_observation(stderr):
+    # Only the fixed diagnostic schema; malformed provider data is never printed.
+    lines=[line[len('qa-uia-windows:'):] for line in stderr.splitlines() if line.startswith('qa-uia-windows:')]
+    require(len(lines)==1 and len(lines[0])<=4096,'UIA observation unavailable')
+    value=json.loads(lines[0])
+    require(isinstance(value,dict) and set(value)=={'stage','reason','count','overflow','windows'},'invalid observation fields')
+    require(value['reason'] in ('provider-error','count-overflow','ownership','ambiguous','not-found'),'invalid observation reason')
+    require(value['stage'] in ('not-started','query','inspect','select','wait'),'invalid observation stage')
+    require(type(value['count']) is int and 0<=value['count']<=8 and type(value['overflow']) is bool,'invalid observation count')
+    require(isinstance(value['windows'],list) and len(value['windows'])<=value['count'],'invalid observation windows')
+    for window in value['windows']:
+        require(isinstance(window,dict) and set(window)=={'class','pattern','modal','enabled'},'invalid window fields')
+        require(isinstance(window['class'],str) and re.fullmatch(r'[A-Za-z0-9_#.: -]{1,64}',window['class']) is not None,'invalid window class')
+        require(type(window['pattern']) is bool and type(window['enabled']) is bool and (window['modal'] is None or type(window['modal']) is bool),'invalid window flags')
+    return value
+
+
 def real_open_file(session, app, fixture, work):
     require(fixture==work/'native-smoke.md' and fixture.is_file(),'unexpected UI fixture')
     safe_path(fixture)
@@ -621,6 +638,9 @@ def real_open_file(session, app, fixture, work):
         if proc.returncode!=0:
             phases=re.findall(r'(?m)^qa-uia-failed:(assemblies|inputs|dialog|filename|confirm)$',err)
             print('UIA dialog unavailable phase:',phases[-1] if phases else 'unknown')
+            if phases and phases[-1]=='dialog':
+                try: print('Owned UIA window observation:',json.dumps(dialog_observation(err)))
+                except (ValueError,TypeError): print('Owned UIA window observation unavailable')
         require(proc.returncode==0 and out.strip()=='qa-uia-open-invoked','native Open dialog failed')
     except subprocess.TimeoutExpired:
         raise ValueError('native Open dialog timeout') from None
