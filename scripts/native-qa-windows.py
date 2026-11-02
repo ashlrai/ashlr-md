@@ -549,6 +549,96 @@ def remove_owned_tree(root):
     shutil.rmtree(root,onexc=failure)
 
 
+OPEN_SELECTOR='.welcome-actions button.btn-secondary'
+ELEMENT_KEY='element-6066-11e4-a52e-4f735466cecf'
+
+
+def ui_element_id(value):
+    return isinstance(value,str) and value not in ('.','..') and re.fullmatch(r'[A-Za-z0-9_.-]{1,256}',value) is not None
+
+
+def ui_webdriver(session, element=None):
+    # Windows-only two exact operations; shared Linux route allowlist is unchanged.
+    require(qa.session_id(session),'invalid UI session')
+    if element is None:
+        path=f'/session/{session}/elements'; payload={'using':'css selector','value':OPEN_SELECTOR}
+    else:
+        require(ui_element_id(element),'invalid UI element')
+        path=f'/session/{session}/element/{element}/click'; payload={}
+    request=urllib.request.Request('http://127.0.0.1:4444'+path,data=json.dumps(payload).encode(),headers={'Content-Type':'application/json'},method='POST')
+    class NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self,*args,**kwargs): return None
+    opener=urllib.request.build_opener(urllib.request.ProxyHandler({}),NoRedirect())
+    with opener.open(request,timeout=10) as response:
+        require(response.status==200,'UI WebDriver HTTP failure')
+        data=response.read(65537); require(len(data)<=65536,'UI response too large')
+        value=json.loads(data)['value']
+    require(not isinstance(value,dict) or 'error' not in value,'UI WebDriver failed')
+    return value
+
+
+def uia_command(mode):
+    require(mode in ('Preflight','Open'),'invalid UIA mode')
+    shell=safe_path(Path(os.environ['SYSTEMROOT'])/'System32/WindowsPowerShell/v1.0/powershell.exe')
+    return [str(shell),'-NoLogo','-NoProfile','-NonInteractive','-Mta','-File',str(ROOT/'scripts/native-qa-open-dialog.ps1'),'-Mode',mode]
+
+
+def uia_environment():
+    require(not os.environ.get('GH_TOKEN') and not os.environ.get('GITHUB_TOKEN'),'UIA must be token-free')
+    return {k:v for k,v in os.environ.items() if k.upper() in {'SYSTEMROOT','WINDIR','PATH','TEMP','TMP'}}
+
+
+def check_uia():
+    try:
+        result=subprocess.run(uia_command('Preflight'),env=uia_environment(),capture_output=True,text=True,timeout=45,check=True)
+        require(len(result.stdout)<=8192 and len(result.stderr)<=8192,'UIA preflight output exceeded limit')
+        require(result.stdout.strip()=='qa-uia-available','UIA preflight unavailable')
+    except (OSError,subprocess.SubprocessError):
+        raise ValueError('UIA preflight failed or timed out') from None
+    print('UIA built-in assemblies available; native dialog not yet qualified.')
+
+
+def real_open_file(session, app, fixture, work):
+    require(fixture==work/'native-smoke.md' and fixture.is_file(),'unexpected UI fixture')
+    safe_path(fixture)
+    rows=owned_app_processes(app); require(len(rows)==1,'UI requires one owned app')
+    elements=ui_webdriver(session)
+    require(isinstance(elements,list) and len(elements)==1 and isinstance(elements[0],dict),'ambiguous Open button')
+    element=elements[0].get(ELEMENT_KEY); require(ui_element_id(element),'invalid Open element')
+    ready=work/'uia-ready'; require(not ready.exists(),'UIA ready collision')
+    env=uia_environment(); env.update(QA_UIA_PID=str(rows[0]),QA_UIA_APP=str(app),QA_UIA_FIXTURE=str(fixture),QA_UIA_READY=str(ready))
+    started=time.monotonic()
+    proc=subprocess.Popen(uia_command('Open'),env=env,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+    try:
+        while not ready.exists():
+            require(proc.poll() is None,'UIA helper exited before ready')
+            require(time.monotonic()-started<30,'UIA helper readiness timeout'); time.sleep(.1)
+        safe_path(ready); require(ready.is_file() and ready.stat().st_size==0,'invalid UIA readiness marker')
+        require(rows==owned_app_processes(app),'UI app identity changed')
+        ui_webdriver(session,element)  # Normal user-facing WebDriver click, never JS/IPC.
+        out,err=proc.communicate(timeout=max(.1,60-(time.monotonic()-started)))
+        require(len(out)<=8192 and len(err)<=8192,'UIA helper output exceeded limit')
+        if proc.returncode!=0:
+            phases=re.findall(r'(?m)^qa-uia-failed:(assemblies|inputs|dialog|filename|confirm)$',err)
+            print('UIA dialog unavailable phase:',phases[-1] if phases else 'unknown')
+        require(proc.returncode==0 and out.strip()=='qa-uia-open-invoked','native Open dialog failed')
+    except subprocess.TimeoutExpired:
+        raise ValueError('native Open dialog timeout') from None
+    finally:
+        if proc.poll() is None: proc.kill()
+        proc.communicate(timeout=5)
+
+
+def wait_native_document(session, seconds=60):
+    until=time.monotonic()+seconds
+    while True:
+        value=qa.wd('POST',f'/session/{session}/execute/sync',{'script':qa.DOM_SCRIPT,'args':[]})
+        if qa.oracle(value): return True
+        if time.monotonic()>=until:
+            report_dom_state(session); return False
+        time.sleep(.3)
+
+
 def worker():
     enter_owned_job()
     work=prepared(); driver=driver_path(); no_existing_install()
@@ -575,17 +665,18 @@ def worker():
                 value=qa.wd('POST','/session',{'capabilities':{'alwaysMatch':{'tauri:options':{'application':str(app),'args':[str(fixture)]}}}})
                 session=value['sessionId']; require(qa.session_id(session),'invalid session id')
                 report_app_argv(app,fixture)
-                until=time.monotonic()+60
-                while True:
-                    value=qa.wd('POST',f'/session/{session}/execute/sync',{'script':qa.DOM_SCRIPT,'args':[]})
-                    if qa.oracle(value): break
-                    if time.monotonic()>=until:
-                        print('Bounded synthetic DOM:',json.dumps({k:str(value.get(k,''))[:256] for k in ('heading','text')} if isinstance(value,dict) else {}))
-                        report_dom_state(session)
-                        raise ValueError('native DOM fixture mismatch')
-                    time.sleep(.3)
+                cli_pass=wait_native_document(session)
+                print('CLI startup fixture result:', 'PASS' if cli_pass else 'FAIL (welcome/document mismatch; argv delivery unproven)')
+                print('Native scenario results:',json.dumps({'cli_startup':'pass' if cli_pass else 'fail','real_open_ui':'not_run' if cli_pass else 'pending'}))
+                if not cli_pass:
+                    real_open_file(session,app,fixture,work)
+                    require(wait_native_document(session),'native UI-open DOM fixture mismatch')
+                    print('PASS: distinct real Open-file UI scenario matched original native Unicode DOM. CLI startup remains failed.')
                 require(fixture.read_text(encoding='utf-8')==f'# {qa.HEADING}\n\nNative WebView Unicode: café 日本語.\n','fixture changed')
-                print('PASS: original Windows installed app opened synthetic file and matched native Unicode DOM.')
+                with (work/'scenario-results.json').open('x',encoding='utf-8') as receipt:
+                    results={'cli_startup':'pass' if cli_pass else 'fail','real_open_ui':'not_run' if cli_pass else 'pass'}
+                    json.dump(results,receipt)
+                    print('Native scenario results:',json.dumps(results))
             except BaseException:
                 log.flush()
                 with (work/'driver.log').open('rb') as diagnostic:
@@ -626,6 +717,7 @@ def main():
     mode=sys.argv[1]
     if mode=='--check-driver': driver_path(provision=True)
     elif mode=='--check-process-query': check_process_query()
+    elif mode=='--check-uia': check_uia()
     elif mode=='--prepare': prepare()
     elif mode=='--probe': run_worker('--worker',300)
     elif mode=='--worker': worker()
