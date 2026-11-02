@@ -23,7 +23,9 @@ function full(source: string) {
 }
 const section = (n: number) =>
   `## Repeated heading\n\nParagraph ${n} with **strong**, ==highlight==, [[Note]] and [a link](https://example.com).\n\n- [ ] task ${n}\n- nested\n  - item\n\n> [!NOTE]\n> A callout.\n\n| A | B |\n| - | - |\n| x | y |\n\n`;
-const document = Array.from({ length: 100 }, (_, n) => section(n)).join("");
+// 55 sections: "Paragraph 50" must exist below, and each parse must yield
+// enough ~1 KB chunks that a local edit reuses more than five of them.
+const document = Array.from({ length: 55 }, (_, n) => section(n)).join("");
 
 describe("incremental Markdown rendering", () => {
   it("matches whole-document output for GFM, Obsidian syntax and duplicate headings", () => {
@@ -60,8 +62,8 @@ describe("incremental Markdown rendering", () => {
 
   it("never splits nested lists, quotes, tables, indented or fenced code", () => {
     const renderer = new IncrementalMarkdown();
-    const long = "line\n\n".repeat(800);
-    const source = `${document}\n\n\`\`\`md\n${long}\`\`\`\n\n${document}\n\n${"    indented\n".repeat(300)}`;
+    const long = "line\n\n".repeat(300);
+    const source = `${document}\n\n\`\`\`md\n${long}\`\`\`\n\n${document}\n\n${"    indented\n".repeat(150)}`;
     expect(html(renderer, source)).toBe(full(source));
     expect(html(renderer, source.replace("line", "changed"))).toBe(
       full(source.replace("line", "changed")),
@@ -132,7 +134,7 @@ describe("incremental Markdown rendering", () => {
     expect(output).not.toContain("onerror");
     expect(output).not.toContain("javascript:");
     expect(output).not.toMatch(/<img[^>]*data-source-line="999"/);
-    expect(output).toMatch(/<img[^>]*data-source-line="1503"/);
+    expect(output).toMatch(/<img[^>]*data-source-line="828"/);
   });
 
   it("handles empty content, repeated chunks, and switching documents without stale output", () => {
@@ -141,7 +143,7 @@ describe("incremental Markdown rendering", () => {
       "",
       document,
       "",
-      section(1).repeat(100),
+      section(1).repeat(55),
       "# Other",
       document,
     ]) {
