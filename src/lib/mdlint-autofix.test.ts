@@ -6920,4 +6920,20 @@ describe("rule:invalid-link-target CRLF document", () => {
     expect(applyFix(doc, violations[0])).toBe(fixed);
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
+
+  it.each([
+    ["CJK and emoji", "日本語のテキスト 🎉 ", " 続きのテキスト 🚀"],
+    ["accents and RTL", "Café naïve مرحبا ", " שלום Ünïcödé"],
+    ["combining marks and ZWJ", "e\u0301 👨\u200d👩\u200d👧 ", " \u200b終わり"],
+  ])("replaces an invalid href surrounded by Unicode text (%s) and preserves the text exactly", (_name, before, after) => {
+    const doc = `# Title\n\n${before}[リンク 🔗](   )${after}\n`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(`# Title\n\n${before}[リンク 🔗](TODO)${after}\n`);
+    expect(applyFix(doc, violations[0])).toBe(fixed);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
 });
