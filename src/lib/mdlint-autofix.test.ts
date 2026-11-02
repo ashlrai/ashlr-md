@@ -2880,6 +2880,38 @@ describe("rule:missing-alt-text", () => {
   });
 
   it.each([
+    ["", "\n"],
+    ["  ", "\r\n"],
+  ])("fills a titled undescribed image at document start (alt %j) and keeps the rest, including a later image, byte-identical (line endings %j)", (alt, newline) => {
+    const image = `![${alt}](hero.png?w=2#top "Hero café")`;
+    const rest = [
+      " intro text.",
+      "",
+      "Later ![](later.png) and `![](decoy.png)` stay as written.",
+      "",
+    ].join(newline);
+    const doc = image + rest;
+    const expected = rest
+      .replace("![](later.png)", "![TODO: describe image](later.png)")
+      .replace(/^/, '![TODO: describe image](hero.png?w=2#top "Hero café")');
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+      "missing-alt-text",
+      "missing-alt-text",
+    ]);
+    expect(violations[0].range?.from.offset).toBe(0);
+    expect(applyFix(doc, violations[0])).toBe(
+      `![TODO: describe image](hero.png?w=2#top "Hero café")${rest}`,
+    );
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain("`![](decoy.png)`");
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
     ["", "\n", "\n"],
     ["", "\r\n", "\r\n"],
     [" \t ", "\n", "\n\n"],
