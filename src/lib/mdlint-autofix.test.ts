@@ -6073,6 +6073,35 @@ describe("invalid-link-target autofix: preserves surrounding content", () => {
     // Re-lint is clean
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("preserves prose on both sides of an invalid link exactly with %j line endings", (nl) => {
+    const doc = `🧭 Navigate to [resources]() for the full guide; then [appendix](#) for details.${nl}`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+    expect(violations).toHaveLength(2);
+
+    const fixed = applyAllFixes(doc, violations);
+
+    // Verify the entire document is exactly as expected — byte-for-byte
+    expect(fixed).toBe(
+      `🧭 Navigate to [resources](TODO) for the full guide; then [appendix](TODO) for details.${nl}`,
+    );
+
+    // Verify prose before the first link is preserved exactly
+    expect(fixed.startsWith("🧭 Navigate to ")).toBe(true);
+
+    // Verify prose between the two links is preserved exactly
+    expect(fixed).toContain(" for the full guide; then ");
+
+    // Verify prose after the last link is preserved exactly
+    expect(fixed.endsWith(` for details.${nl}`)).toBe(true);
+
+    // Re-lint is clean
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
 });
 
 describe("link and image autofix: mixed-fix idempotence", () => {
