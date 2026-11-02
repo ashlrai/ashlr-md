@@ -2347,6 +2347,48 @@ describe("rule:invalid-link-target", () => {
       }
     }
   });
+
+  it.each([
+    "",
+    "#",
+    "?",
+    " \t ",
+  ])("fixes an invalid link %j that ends a document with no trailing newline", (href) => {
+    const rules = [ruleInvalidLinkTarget];
+    const link = `[draft](${href})`;
+
+    for (const newline of ["\n", "\r\n"]) {
+      const lines = [
+        "# Guide",
+        "",
+        "Keep [docs](./guide.md) and `[code]()` intact.",
+        `Read ${link}`,
+      ];
+      const doc = lines.join(newline);
+      const expected = [...lines.slice(0, -1), "Read [draft](TODO)"].join(newline);
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map((violation) => violation.ruleId)).toEqual([
+        "invalid-link-target",
+      ]);
+      const { from, to } = violations[0].range!;
+      expect(doc.slice(from.offset, to.offset)).toBe(link);
+      // The link is the end of the document: no bytes, not even a newline,
+      // follow it.
+      expect(to.offset).toBe(doc.length);
+      expect(violations[0].fix).not.toBeNull();
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      // Only the destination changed; the document still has no trailing
+      // newline and every byte before the link is identical.
+      expect(fixed.endsWith("\n")).toBe(false);
+      expect(fixed.slice(0, from.offset)).toBe(doc.slice(0, from.offset));
+      const remaining = lintDocument(fixed, { rules });
+      expect(remaining).toEqual([]);
+      expect(applyAllFixes(fixed, remaining)).toBe(expected);
+    }
+  });
 });
 
 // ─── 3. Rule: missing-alt-text ────────────────────────────────────────────────
