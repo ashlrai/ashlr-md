@@ -6263,6 +6263,32 @@ describe("invalid-link-target autofix: idempotence", () => {
   });
 });
 
+describe("invalid-link-target autofix: repeated application", () => {
+  it.each([
+    "\n",
+    "\r\n",
+  ])("applying one fix a second time leaves the text unchanged, link by link (%j)", (nl) => {
+    const rules = [ruleInvalidLinkTarget];
+    const doc = `Read [a]() and [b](   ) here.${nl}Then [c](#) and [ok](./guide.md).${nl}`;
+    for (const violation of lintDocument(doc, { rules })) {
+      const once = applyFix(doc, violation);
+      expect(once).not.toBe(doc);
+      // Re-lint after the first fix: the remaining violations still apply cleanly, and
+      // the fixed link is no longer reported.
+      const remaining = lintDocument(once, { rules });
+      expect(remaining.length).toBe(lintDocument(doc, { rules }).length - 1);
+      expect(applyAllFixes(once, remaining)).toBe(
+        applyAllFixes(doc, lintDocument(doc, { rules })),
+      );
+    }
+    const all = applyAllFixes(doc, lintDocument(doc, { rules }));
+    expect(applyAllFixes(all, lintDocument(all, { rules }))).toBe(all);
+    expect(all).toBe(
+      `Read [a](TODO) and [b](TODO) here.${nl}Then [c](TODO) and [ok](./guide.md).${nl}`,
+    );
+  });
+});
+
 describe("rule:missing-alt-text two undescribed images", () => {
   it.each([
     ["\n", "\n\n"],
