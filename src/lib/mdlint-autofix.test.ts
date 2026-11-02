@@ -3943,6 +3943,59 @@ describe("rule:missing-alt-text", () => {
     expect(applyAllFixes(fixed, remaining)).toBe(expected);
   });
 
+  it.each([
+    "\n",
+    "\r\n",
+  ])("fixes two images missing descriptions on separate lines, each keeping its source (%j line endings)", (newline) => {
+    const firstSrc = './images/chart%20one.png?size=2#preview "Chart"';
+    const secondSrc = "../assets/map.svg?view=full#north";
+    const first = `![](${firstSrc})`;
+    const second = `![ \t ](${secondSrc})`;
+    const fixedFirst = `![TODO: describe image](${firstSrc})`;
+    const fixedSecond = `![TODO: describe image](${secondSrc})`;
+    const lines = [
+      "Gallery opener.",
+      `See ${first} for the chart.`,
+      "Between the images.",
+      `Then ${second} for the map.`,
+      "Gallery closer.",
+      "",
+    ];
+    const doc = lines.join(newline);
+    const expected = [
+      "Gallery opener.",
+      `See ${fixedFirst} for the chart.`,
+      "Between the images.",
+      `Then ${fixedSecond} for the map.`,
+      "Gallery closer.",
+      "",
+    ].join(newline);
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+      "missing-alt-text",
+      "missing-alt-text",
+    ]);
+    expect(violations.map(({ range }) => range?.from.line)).toEqual([2, 4]);
+    expect(
+      violations.map(({ range }) => doc.slice(range!.from.offset, range!.to.offset)),
+    ).toEqual([first, second]);
+    expect(violations.every(({ fix }) => fix !== null)).toBe(true);
+    expect(applyFix(doc, violations[0])).toBe(doc.replace(first, fixedFirst));
+    expect(applyFix(doc, violations[1])).toBe(doc.replace(second, fixedSecond));
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(applyAllFixes(doc, [...violations].reverse())).toBe(expected);
+    // Both sources survive verbatim and each placeholder appears exactly once.
+    expect(fixed.match(/TODO: describe image/g)).toHaveLength(2);
+    expect(fixed).toContain(`](${firstSrc})`);
+    expect(fixed).toContain(`](${secondSrc})`);
+    const remaining = lintDocument(fixed, { rules });
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(fixed, remaining)).toBe(expected);
+  });
+
   it("autofixes adjacent images with empty alt text and preserves both sources", () => {
     const doc = "Café: ![](images/first.png)![](images/second.jpg?size=2#preview).\n";
     const rules = [ruleMissingAltText];
