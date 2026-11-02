@@ -4784,6 +4784,33 @@ describe("rule:missing-alt-text", () => {
     expect(remaining).toEqual([]);
     expect(applyAllFixes(fixed, remaining)).toBe(expected);
   });
+
+  it.each([
+    [
+      "![](a.png),![](b.png).",
+      "![TODO: describe image](a.png),![TODO: describe image](b.png).",
+    ],
+    [
+      "(![](a.png)); ![ ](b.png)!?",
+      "(![TODO: describe image](a.png)); ![TODO: describe image](b.png)!?",
+    ],
+    [
+      "**![](a.png)**, _![](b.png)_.",
+      "**![TODO: describe image](a.png)**, _![TODO: describe image](b.png)_.",
+    ],
+  ])("fixes several undescribed images separated only by punctuation in %j", (body, repairedBody) => {
+    const doc = `Look: ${body} Done.\r\n`;
+    const expected = `Look: ${repairedBody} Done.\r\n`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+      "missing-alt-text",
+      "missing-alt-text",
+    ]);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
 });
 
 // ─── 4. Chained violations + multi-fix application ───────────────────────────
