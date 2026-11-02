@@ -2185,6 +2185,55 @@ describe("rule:missing-alt-text", () => {
   });
 
   it.each([
+    ["", "", "\n"],
+    ["", " \t ", "\r\n"],
+    [" \t ", "", "\n"],
+    [" ", " ", "\r\n"],
+  ])("fixes two images missing descriptions %j and %j on the same line while preserving intervening text with %j line endings", (firstAlt, secondAlt, newline) => {
+    const first = `![${firstAlt}](./images/chart%20one.png?size=2#preview)`;
+    const second = `![${secondAlt}](../assets/map.svg?view=full#north "Map")`;
+    const fixedFirst =
+      "![TODO: describe image](./images/chart%20one.png?size=2#preview)";
+    const fixedSecond =
+      '![TODO: describe image](../assets/map.svg?view=full#north "Map")';
+    const between =
+      " beside café — `![](decoy.png)` stays code and [the guide](./guide.md) stays a link — then ";
+    const doc = `Intro ☕${newline}See ${first}${between}${second}.${newline}End.${newline}`;
+    const expected = `Intro ☕${newline}See ${fixedFirst}${between}${fixedSecond}.${newline}End.${newline}`;
+    const rules = [ruleMissingAltText, ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+      "missing-alt-text",
+      "missing-alt-text",
+    ]);
+    expect(
+      violations.map(({ range }) => doc.slice(range!.from.offset, range!.to.offset)),
+    ).toEqual([first, second]);
+    const [firstRange, secondRange] = violations.map(({ range }) => range!);
+    expect(doc.slice(firstRange.to.offset, secondRange.from.offset)).toBe(between);
+    expect(violations.every(({ fix }) => fix !== null)).toBe(true);
+    expect(applyFix(doc, violations[0])).toBe(
+      `Intro ☕${newline}See ${fixedFirst}${between}${second}.${newline}End.${newline}`,
+    );
+    expect(applyFix(doc, violations[1])).toBe(
+      `Intro ☕${newline}See ${first}${between}${fixedSecond}.${newline}End.${newline}`,
+    );
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(applyAllFixes(doc, [...violations].reverse())).toBe(expected);
+    expect(
+      fixed.slice(
+        fixed.indexOf(fixedFirst) + fixedFirst.length,
+        fixed.indexOf(fixedSecond),
+      ),
+    ).toBe(between);
+    const remaining = lintDocument(fixed, { rules });
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(fixed, remaining)).toBe(expected);
+  });
+
+  it.each([
     "\n",
     "\r\n",
   ])("preserves Unicode prose around an image when fixing alt text with %j line endings", (newline) => {
