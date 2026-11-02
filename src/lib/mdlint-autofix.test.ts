@@ -4649,6 +4649,59 @@ describe("rule:missing-alt-text", () => {
     expect(fixed).toContain("images/hero.png");
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("fixes an undescribed image while leaving an unrelated heading and paragraph unchanged (%j line endings)", (newline) => {
+    const frontmatter = ["---", "title: Gallery", "---"].join(newline);
+    const heading = "# Gallery";
+    const paragraph =
+      "Intro café ☕ with [the guide](./guide.md) and `![](decoy.png)` in code.";
+    const image = '![](images/chart.png?size=2#preview "Chart")';
+    const repaired = '![TODO: describe image](images/chart.png?size=2#preview "Chart")';
+    const doc = [
+      frontmatter,
+      "",
+      heading,
+      "",
+      paragraph,
+      "",
+      `See ${image} for the numbers.`,
+      "",
+    ].join(newline);
+    const expected = [
+      frontmatter,
+      "",
+      heading,
+      "",
+      paragraph,
+      "",
+      `See ${repaired} for the numbers.`,
+      "",
+    ].join(newline);
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(image);
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // Heading and paragraph are byte-identical: everything outside the image
+    // range is unchanged.
+    expect(fixed.slice(0, from.offset)).toBe(doc.slice(0, from.offset));
+    expect(fixed.slice(from.offset + repaired.length)).toBe(doc.slice(to.offset));
+    expect(fixed).toContain(`${heading}${newline}${newline}${paragraph}`);
+    expect(fixed.length - doc.length).toBe("TODO: describe image".length);
+    // The full default rule set makes the same single fix.
+    expect(applyAllFixes(doc, lintDocument(doc))).toBe(expected);
+    const remaining = lintDocument(fixed, { rules });
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(fixed, remaining)).toBe(expected);
+  });
 });
 
 // ─── 4. Chained violations + multi-fix application ───────────────────────────
