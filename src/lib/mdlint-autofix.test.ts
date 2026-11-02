@@ -174,6 +174,24 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    " ",
+    "　 ",
+    "  \t ",
+    "\n  ",
+  ])("replaces a Unicode or line-breaking whitespace-only href %j with TODO and keeps the prose", (href) => {
+    const doc = `---\ntitle: Guide\n---\n\nIntro café.\n\nRead [café guide](${href}) and [reference](./guide.md).\n`;
+    const expected =
+      "---\ntitle: Guide\n---\n\nIntro café.\n\nRead [café guide](TODO) and [reference](./guide.md).\n";
+    const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
+
+    expect(violations).toHaveLength(1);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(`[café guide](${href})`);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected)).toEqual([]);
+  });
+
+  it.each([
     "\n",
     "\r\n",
   ])("is idempotent: applying the invalid-link autofix twice equals applying it once (%j)", (nl) => {
