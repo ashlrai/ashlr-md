@@ -2547,6 +2547,23 @@ describe("rule:invalid-link-target", () => {
       expect(applyAllFixes(fixed, remaining)).toBe(expected);
     }
   });
+
+  it("fixes multiple invalid links in one document while labels and surrounding text stay intact", () => {
+    const doc =
+      "# Links\n\nSee [empty]() for *details*, then [hash](#) for `code`.\n\n- [valid](./ok.md)\n";
+    const expected =
+      "# Links\n\nSee [empty](TODO) for *details*, then [hash](TODO) for `code`.\n\n- [valid](./ok.md)\n";
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(2);
+    expect(violations.every((v) => v.ruleId === "invalid-link-target")).toBe(true);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain("[empty]");
+    expect(fixed).toContain("[hash]");
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
 });
 
 // ─── 3. Rule: missing-alt-text ────────────────────────────────────────────────
