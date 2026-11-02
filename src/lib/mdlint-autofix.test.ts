@@ -2336,6 +2336,33 @@ describe("rule:missing-alt-text", () => {
     expect(applyAllFixes(once, remaining)).toBe(once);
   });
 
+  it.each([
+    "\n",
+    "\r\n",
+  ])("keeps an image fix stable with all built-in rules and %j line endings", (newline) => {
+    const doc = [
+      "---",
+      "title: Image guide",
+      "---",
+      "",
+      "# Image guide",
+      "",
+      "See ![](images/chart.png?size=2#preview) beside ![A map](images/map.svg).",
+      "",
+    ].join(newline);
+    const violations = lintDocument(doc);
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "missing-alt-text",
+    ]);
+    expect(violations[0].fix).not.toBeNull();
+
+    const once = applyAllFixes(doc, violations);
+    expect(once).toBe(doc.replace("![]", "![TODO: describe image]"));
+    const remaining = lintDocument(once);
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(once, remaining)).toBe(once);
+  });
+
   it("keeps a missing-alt fix stable across default-rule passes with a remaining warning", () => {
     const doc = "# First\n\n## Second\n\nSee ![](chart.png).   \n";
     const rules = BUILTIN_RULES.filter((rule) =>
