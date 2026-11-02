@@ -6211,3 +6211,44 @@ describe("rule:missing-alt-text two undescribed images", () => {
     expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
   });
 });
+
+describe("rule:missing-alt-text: idempotence in list, table and heading containers", () => {
+  it.each([
+    ["\n"],
+    ["\r\n"],
+  ])("applying autofix twice equals once for undescribed images in a list item, table cell and heading (%j)", (newline) => {
+    const doc = [
+      "# Gallery ![](images/logo.png)",
+      "",
+      "- item ![](images/one.png?v=1#top)",
+      "1. ordered ![ \t ](images/two.png)",
+      "",
+      "| Col | Img |",
+      "| --- | --- |",
+      "| a | ![](images/cell.png) |",
+      "",
+    ].join(newline);
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+    expect(violations).toHaveLength(4);
+
+    const once = applyAllFixes(doc, violations);
+    expect(once.match(/!\[TODO: describe image\]/g)).toHaveLength(4);
+    expect(once).toContain("(images/one.png?v=1#top)");
+    expect(once.includes("\r\n")).toBe(newline === "\r\n");
+
+    const remaining = lintDocument(once, { rules });
+    expect(remaining).toEqual([]);
+    const twice = applyAllFixes(once, remaining);
+    expect(twice).toBe(once);
+
+    // Same result with the default-enabled rule set.
+    const defaults = BUILTIN_RULES.filter((r) =>
+      LINTER_DEFAULT_ENABLED_RULES.includes(r.id),
+    );
+    const viaDefaults = applyAllFixes(doc, lintDocument(doc, { rules: defaults }));
+    expect(
+      applyAllFixes(viaDefaults, lintDocument(viaDefaults, { rules: defaults })),
+    ).toBe(viaDefaults);
+  });
+});
