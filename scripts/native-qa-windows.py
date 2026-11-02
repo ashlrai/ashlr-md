@@ -190,12 +190,47 @@ def signature_diagnostic(stderr, started):
     print(f'Driver trust phase: {phase}; elapsed {time.monotonic()-started:.1f}s',flush=True)
 
 
-def verify_driver_signature(driver):
-    # Fixed script and literal environment input, never shell-interpolated paths.
-    script = "[Console]::Error.WriteLine('qa-signature-start'); $s=Get-AuthenticodeSignature -LiteralPath $env:QA_DRIVER_FILE; [Console]::Error.WriteLine('qa-signature-returned'); @{status=$s.Status.ToString(); subject=$s.SignerCertificate.Subject; eku=@($s.SignerCertificate.EnhancedKeyUsageList | ForEach-Object {$_.ObjectId})} | ConvertTo-Json -Compress"
+def powershell_environment(marker, value):
+    # Fixed shell and literal environment input, never shell-interpolated paths.
     env = {k:v for k,v in os.environ.items() if k.upper() in {'SYSTEMROOT','WINDIR','PATH','TEMP','TMP'}}
-    env['QA_DRIVER_FILE'] = str(driver)
-    shell = safe_path(Path(os.environ['SYSTEMROOT'])/'System32/WindowsPowerShell/v1.0/powershell.exe')
+    env[marker] = value
+    return safe_path(Path(os.environ['SYSTEMROOT'])/'System32/WindowsPowerShell/v1.0/powershell.exe'), env
+
+
+def bundled_driver():
+    try:
+        raw = os.environ.get('EDGEWEBDRIVER','')
+        driver = safe_path(Path(raw)/'msedgedriver.exe') if raw else None
+        return driver if driver is not None and driver.is_file() else None
+    except (OSError,ValueError):
+        return None
+
+
+def prime_signature_verification(warm_file):
+    # Concurrent best-effort priming of cold machine CTL/chain caches while the
+    # pinned archive downloads; its result is never consulted. The pinned
+    # driver's own verification below stays a full Authenticode check.
+    shell, env = powershell_environment('QA_WARM_FILE', str(warm_file))
+    return subprocess.Popen([str(shell),'-NoLogo','-NoProfile','-NonInteractive','-Command',
+        'Get-AuthenticodeSignature -LiteralPath $env:QA_WARM_FILE | Out-Null'],
+        env=env,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+
+
+def end_signature_warmup(proc):
+    # Best-effort bound; a lingering priming process never holds provisioning.
+    if proc is None or proc.poll() is not None: return
+    try:
+        proc.terminate(); proc.wait(timeout=5)
+    except (OSError,subprocess.TimeoutExpired):
+        try: proc.kill()
+        except OSError: pass
+        try: proc.wait(timeout=5)
+        except (OSError,subprocess.TimeoutExpired): pass
+
+
+def verify_driver_signature(driver):
+    script = "[Console]::Error.WriteLine('qa-signature-start'); $s=Get-AuthenticodeSignature -LiteralPath $env:QA_DRIVER_FILE; [Console]::Error.WriteLine('qa-signature-returned'); @{status=$s.Status.ToString(); subject=$s.SignerCertificate.Subject; eku=@($s.SignerCertificate.EnhancedKeyUsageList | ForEach-Object {$_.ObjectId})} | ConvertTo-Json -Compress"
+    shell, env = powershell_environment('QA_DRIVER_FILE', str(driver))
     started=time.monotonic()
     print('Checking pinned driver Microsoft Authenticode (90s limit)',flush=True)
     try:
@@ -235,6 +270,7 @@ def pinned_driver(runtime, provision=False):
     require(runtime.split('.')[:3]==DRIVER_VERSION.split('.')[:3], 'runtime not covered by pinned driver; no dynamic download')
     require(not os.environ.get('GH_TOKEN') and not os.environ.get('GITHUB_TOKEN'), 'driver provisioning must be token-free')
     root=driver_stage(); driver=root/'msedgedriver.exe'
+    warm=None
     if provision:
         root.mkdir()  # Exclusive ownership; never reuse or overwrite another stage.
         try:
@@ -242,15 +278,23 @@ def pinned_driver(runtime, provision=False):
         except Exception:
             root.rmdir()
             raise
-        class NoRedirect(urllib.request.HTTPRedirectHandler):
-            def redirect_request(self,*args,**kwargs): return None
-        opener=urllib.request.build_opener(urllib.request.ProxyHandler({}),NoRedirect())
-        with opener.open(DRIVER_URL,timeout=30) as response:
-            require(response.status==200 and response.geturl()==DRIVER_URL, 'unexpected driver download response')
-            data=response.read(16*1024*1024+1)
-        extract_driver(data,driver)
-    require(hash_file(driver,20*1024*1024)==DRIVER_EXE_HASH, 'pinned driver changed')
-    verify_driver_signature(driver)  # Before even executing --version.
+        source=bundled_driver()
+        if source is not None:
+            try: warm=prime_signature_verification(source)
+            except (OSError,ValueError,KeyError): pass
+    try:
+        if provision:
+            class NoRedirect(urllib.request.HTTPRedirectHandler):
+                def redirect_request(self,*args,**kwargs): return None
+            opener=urllib.request.build_opener(urllib.request.ProxyHandler({}),NoRedirect())
+            with opener.open(DRIVER_URL,timeout=30) as response:
+                require(response.status==200 and response.geturl()==DRIVER_URL, 'unexpected driver download response')
+                data=response.read(16*1024*1024+1)
+            extract_driver(data,driver)
+        require(hash_file(driver,20*1024*1024)==DRIVER_EXE_HASH, 'pinned driver changed')
+        verify_driver_signature(driver)  # Before even executing --version.
+    finally:
+        end_signature_warmup(warm)
     return driver
 
 
@@ -405,9 +449,7 @@ def query_command_line(pid):
     require(type(pid) is int and 0<pid<=0xffffffff,'invalid process query id')
     # Only a previously verified owned PID (or our preflight self), never arbitrary WQL.
     script="Get-CimInstance Win32_Process -Filter ('ProcessId=' + $env:QA_PROCESS_ID) | Select-Object ProcessId,CommandLine | ConvertTo-Json -Compress"
-    env={k:v for k,v in os.environ.items() if k.upper() in {'SYSTEMROOT','WINDIR','PATH','TEMP','TMP'}}
-    env['QA_PROCESS_ID']=str(pid)
-    shell=safe_path(Path(os.environ['SYSTEMROOT'])/'System32/WindowsPowerShell/v1.0/powershell.exe')
+    shell, env = powershell_environment('QA_PROCESS_ID', str(pid))
     reason=None
     try:
         result=subprocess.run([str(shell),'-NoLogo','-NoProfile','-NonInteractive','-Command',script],env=env,capture_output=True,text=True,timeout=20,check=True)
