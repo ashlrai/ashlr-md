@@ -219,6 +219,23 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+    ["mixed", "\n\r\n"],
+  ])("preserves blank lines and line breaks around a fixed link with %s endings", (_name, nl) => {
+    const doc = `Intro line.${nl}${nl}${nl}Read [draft]() now.${nl}Next line.${nl}${nl}End.${nl}`;
+    const expected = doc.replace("[draft]()", "[draft](TODO)");
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.split(/\r\n|\n/)).toHaveLength(doc.split(/\r\n|\n/).length);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
     "-",
     "2.",
   ])("fixes a link within %s list text without changing the surrounding content", (marker) => {
