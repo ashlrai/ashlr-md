@@ -125,6 +125,13 @@ describe("rule:invalid-link-target", () => {
     }
   });
 
+  it("autofix leaves a valid link unchanged", () => {
+    const doc = "---\ntitle: Guide\n---\n\nRead [guide](https://example.com/guide) for details.\n";
+    const violations = lintDocument(doc);
+    expect(violations).toEqual([]);
+    expect(applyAllFixes(doc, violations)).toBe(doc);
+  });
+
   it("replaces a whitespace-only href with TODO while preserving the link text", () => {
     const doc =
       "---\ntitle: Guide\n---\n\nRead [café guide](   ) and [reference](./guide.md).\n";
