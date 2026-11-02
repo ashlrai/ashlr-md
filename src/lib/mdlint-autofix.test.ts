@@ -3443,6 +3443,60 @@ describe("rule:missing-alt-text", () => {
   });
 
   it.each([
+    true,
+    false,
+  ])("fixes only the undescribed image next to a described linked image (described first: %s)", (describedFirst) => {
+    const described =
+      '[![A coverage badge](../assets/coverage%20badge.svg?branch=main#badge "Coverage")](https://example.com/builds)';
+    const missing = "![](images/thumb.png?size=2#full)";
+    const repaired = "![TODO: describe image](images/thumb.png?size=2#full)";
+    const doc = `See ${describedFirst ? described : missing} and ${describedFirst ? missing : described}.\r\n`;
+    const expected = `See ${describedFirst ? described : repaired} and ${describedFirst ? repaired : described}.\r\n`;
+    const rules = [ruleMissingAltText, ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "missing-alt-text",
+    ]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(missing);
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // The described image — alt, link wrapper and both destinations — is byte-identical.
+    expect(fixed).toContain(described);
+    const remaining = lintDocument(fixed, { rules });
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(fixed, remaining)).toBe(expected);
+  });
+
+  it("adds the placeholder inside a linked image while preserving its href and a described neighbor", () => {
+    const linked = "[![](images/thumb.png?size=2#full)](https://example.com/full.png)";
+    const repaired =
+      "[![TODO: describe image](images/thumb.png?size=2#full)](https://example.com/full.png)";
+    const described = '![A garden map](../assets/map.svg?view=full#north "Map")';
+    const doc = `Before ${linked} after ${described}.\r\n`;
+    const expected = `Before ${repaired} after ${described}.\r\n`;
+    const rules = [ruleMissingAltText, ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "missing-alt-text",
+    ]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe("![](images/thumb.png?size=2#full)");
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain(described);
+    const remaining = lintDocument(fixed, { rules });
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(fixed, remaining)).toBe(expected);
+  });
+
+  it.each([
     "\n",
     "\r\n",
   ])("fixes both images in a paragraph with %j line endings", (newline) => {
