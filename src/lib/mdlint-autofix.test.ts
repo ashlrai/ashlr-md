@@ -1968,6 +1968,44 @@ describe("rule:invalid-link-target", () => {
     expect(fixed.split("\n")[2]).toBe(expectedLine);
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
+
+  it.each([
+    "",
+    " ",
+    "#",
+    "?",
+  ])("fixes only the destination of an invalid link %j followed by a newline and an unrelated paragraph", (href) => {
+    const rules = [ruleInvalidLinkTarget];
+    const link = `[draft](${href})`;
+    // The unrelated paragraph holds a valid link and a code span wrapping a
+    // broken link; neither is linted, so both must survive autofix verbatim.
+    const paragraph =
+      "Unrelated paragraph keeps [the guide](./guide.md) and `[sample](#)` intact — café.";
+    for (const newline of ["\n", "\r\n"]) {
+      for (const blank of ["", newline]) {
+        const tail = `${newline}${blank}${paragraph}${newline}`;
+        const doc = `Read ${link}${tail}`;
+        const expected = `Read [draft](TODO)${tail}`;
+        const violations = lintDocument(doc, { rules });
+
+        expect(violations).toHaveLength(1);
+        expect(violations[0].ruleId).toBe("invalid-link-target");
+        const { from, to } = violations[0].range!;
+        expect(doc.slice(from.offset, to.offset)).toBe(link);
+        // The newline and paragraph sit outside the violation's range.
+        expect(doc.slice(to.offset)).toBe(tail);
+        expect(violations[0].fix).not.toBeNull();
+        expect(applyFix(doc, violations[0])).toBe(expected);
+        const fixed = applyAllFixes(doc, violations);
+        expect(fixed).toBe(expected);
+        // Only the destination changed: the link text, the newline and the
+        // paragraph are byte-identical before and after the fix.
+        expect(fixed.endsWith(tail)).toBe(true);
+        expect(fixed.slice(0, from.offset)).toBe(doc.slice(0, from.offset));
+        expect(lintDocument(fixed, { rules })).toEqual([]);
+      }
+    }
+  });
 });
 
 // ─── 3. Rule: missing-alt-text ────────────────────────────────────────────────
