@@ -3826,6 +3826,157 @@ describe("rule:missing-alt-text", () => {
     expect(fixed.endsWith(`${prose}${newline}`)).toBe(true);
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
+
+  // ── Whitespace-only alt text ─────────────────────────────────────────────
+
+  it("invalid-link-target does not flag images with whitespace-only alt", () => {
+    const doc = "See ![  ](photo.jpg) and [guide](   ) here.\n";
+    const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
+    expect(violations).toHaveLength(1);
+    expect(violations[0].range!.from.offset).toBe(25); // [guide](   )
+  });
+
+  it.each([
+    "  ",
+    "\t",
+    " \t ",
+    "\u00a0",
+    "\u3000",
+  ])("autofix inserts the documented description placeholder for whitespace-only alt %j", (alt) => {
+    const doc = `See ![${alt}](images/chart.png) here.\n`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].fix).not.toBeNull();
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe("See ![TODO: describe image](images/chart.png) here.\n");
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
+    "  ",
+    "\t",
+    " \t ",
+    "\u00a0",
+    "\u3000",
+  ])("autofix preserves the image source for whitespace-only alt %j", (alt) => {
+    const source = 'images/caf%C3%A9.png?size=2&lang=fr#view "Café"';
+    const doc = `![${alt}](${source})\n`;
+    const expected = `![TODO: describe image](${source})\n`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+  });
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("autofixes whitespace-only alt while preserving CRLF line endings (alt '  ', line ending %j)", (newline) => {
+    const doc = ["Before", "", `See ![  ](images/chart.png).`, ""].join(newline);
+    const expected = [
+      "Before",
+      "",
+      `See ![TODO: describe image](images/chart.png).`,
+      "",
+    ].join(newline);
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("autofixes whitespace-only alt in a blockquote with line ending %j", (newline) => {
+    const doc = [
+      "Before the quote.",
+      "",
+      "> See ![  ](images/photo.jpg) for details.",
+      "> More context.",
+      "",
+      "After the quote.",
+      "",
+    ].join(newline);
+    const expected = [
+      "Before the quote.",
+      "",
+      "> See ![TODO: describe image](images/photo.jpg) for details.",
+      "> More context.",
+      "",
+      "After the quote.",
+      "",
+    ].join(newline);
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+
+  it.each([
+    ["-", "\n"],
+    ["*", "\r\n"],
+  ])("autofixes whitespace-only alt in a list item with marker %j and line ending %j", (marker, newline) => {
+    const doc = [
+      `${marker} See ![  ](images/photo.jpg) for details.`,
+      `${marker} Another item.`,
+      "",
+    ].join(newline);
+    const expected = [
+      `${marker} See ![TODO: describe image](images/photo.jpg) for details.`,
+      `${marker} Another item.`,
+      "",
+    ].join(newline);
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+
+  it("fixes multiple whitespace-only alt images with different patterns in one document", () => {
+    const doc = "Gallery: ![  ](a.png) and ![\t](b.png) and ![\u00a0](c.png).\n";
+    const expected =
+      "Gallery: ![TODO: describe image](a.png) and ![TODO: describe image](b.png) and ![TODO: describe image](c.png).\n";
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(3);
+    expect(violations.every((v) => v.fix !== null)).toBe(true);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+
+  it("preserves a valid image when fixing adjacent whitespace-only alt on the same line", () => {
+    const doc = "See ![ \t ](a.png) and ![Chart](b.png) and ![\t\t](c.png).\n";
+    const expected =
+      "See ![TODO: describe image](a.png) and ![Chart](b.png) and ![TODO: describe image](c.png).\n";
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(2);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+
+  it("violations drop from 2 to 0 after fixing whitespace-only alt images", () => {
+    const doc = "See ![  ](a.png) and ![  ](b.png).\n";
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(2);
+    const fixed = applyAllFixes(doc, violations);
+    const remaining = lintDocument(fixed, { rules });
+    expect(remaining).toHaveLength(0);
+  });
 });
 
 // ─── 4. Chained violations + multi-fix application ───────────────────────────
