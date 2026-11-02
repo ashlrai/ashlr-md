@@ -2486,6 +2486,33 @@ describe("rule:missing-alt-text", () => {
   });
 
   it.each([
+    "\n",
+    "\r\n",
+  ])("fixes a later image while preserving earlier mentions of its source with %j line endings", (newline) => {
+    const source = "images/chart%20one.png?view=full#data";
+    const prefix =
+      ["# Report", `Source: ${source}`, "Café 😀  notes.", ""].join(newline) + newline;
+    const suffix = `${newline}End of report.${newline}`;
+    const doc = `${prefix}See ![](${source}) for details.${suffix}`;
+    const expected = `${prefix}See ![TODO: describe image](${source}) for details.${suffix}`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "missing-alt-text",
+    ]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(`![](${source})`);
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    const remaining = lintDocument(fixed, { rules });
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(fixed, remaining)).toBe(expected);
+  });
+
+  it.each([
     "\nNext line.\n",
     "",
   ])("autofixes an empty alt at the end of a line with suffix %j", (suffix) => {
