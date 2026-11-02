@@ -219,6 +219,25 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    "\f",
+    "\v",
+    " \f\v ",
+  ])("replaces a form-feed or vertical-tab-only href %j with TODO while preserving the link text", (href) => {
+    const doc = `Read [café guide](${href}) and [reference](./guide.md).\n`;
+    const expected = "Read [café guide](TODO) and [reference](./guide.md).\n";
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("invalid-link-target");
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(`[café guide](${href})`);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+
+  it.each([
     "\t",
     "\t\t",
   ])("replaces a tab-only href %j with TODO while preserving the link text", (href) => {
