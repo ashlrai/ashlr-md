@@ -94,6 +94,27 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    "",
+    "#",
+    "?",
+  ])("fixes an invalid href %j at the start while preserving a matching code example", (href) => {
+    const suffix = ` continues with café and  spacing.\r\n\r\nExample: \`[draft](${href})\`.`;
+    const doc = `[draft](${href})${suffix}`;
+    const expected = `[draft](TODO)${suffix}`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("invalid-link-target");
+    expect(violations[0].range?.from.offset).toBe(0);
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
     "-",
     "2.",
   ])("fixes a link within %s list text without changing the surrounding content", (marker) => {
