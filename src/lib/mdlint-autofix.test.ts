@@ -2378,6 +2378,20 @@ describe("rule:missing-alt-text", () => {
     expect(violations).toHaveLength(1);
   });
 
+  it("fixes the documented whitespace-only image alt example", () => {
+    const doc = "See ![  ](chart.png?view=full#data).\n";
+    const expected = "See ![TODO: describe image](chart.png?view=full#data).\n";
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("missing-alt-text");
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+
   it("reports whitespace-only alt text without changing the document during linting", () => {
     const doc = "Before ![ \t ](images/photo.jpg?size=2) after.\n";
     const violations = lintDocument(doc, { rules: [ruleMissingAltText] });
