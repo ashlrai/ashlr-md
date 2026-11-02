@@ -275,6 +275,37 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    "https://example.com/a_(b)?q=1&r=2#frag",
+    "mailto:team@example.com",
+    "#install",
+    "../docs/guide.md#top",
+    '/guide "Quoted title"',
+  ])("repairs an invalid link and preserves a valid link exactly (valid destination %j)", (destination) => {
+    const valid = `[valid](${destination})`;
+    const rules = [ruleInvalidLinkTarget];
+
+    for (const validFirst of [true, false]) {
+      const doc = validFirst
+        ? `Intro ${valid}, then [broken]().\n`
+        : `Intro [broken](), then ${valid}.\n`;
+      const expected = validFirst
+        ? `Intro ${valid}, then [broken](TODO).\n`
+        : `Intro [broken](TODO), then ${valid}.\n`;
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map((violation) => violation.ruleId)).toEqual([
+        "invalid-link-target",
+      ]);
+      const { from, to } = violations[0].range!;
+      expect(doc.slice(from.offset, to.offset)).toBe("[broken]()");
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      expect(fixed).toContain(valid);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+    }
+  });
+
+  it.each([
     true,
     false,
   ])("fixes an adjacent invalid link without changing its valid namesake (valid first: %s)", (validFirst) => {
