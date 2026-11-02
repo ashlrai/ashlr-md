@@ -3485,6 +3485,93 @@ describe("rule:missing-alt-text", () => {
   it.each([
     "\n",
     "\r\n",
+  ])("is idempotent for undescribed images among code decoys, a described image and a remaining warning with %j line endings", (newline) => {
+    const undescribed = "![](images/chart.png?size=2#preview)";
+    const whitespaceAlt = '![ \t ](map.svg "Map")';
+    const decoys = [
+      "`![](decoy.png)` stays code",
+      "```md",
+      "![](fenced.png) stays inside the fence.",
+      "```",
+    ];
+    const lines = [
+      "---",
+      "title: Café gallery",
+      "---",
+      "",
+      "# Café gallery",
+      "",
+      "## Details",
+      "",
+      `Intro café ☕ keeps [guide](./guide.md) and ${decoys[0]}.`,
+      "",
+      `See ${undescribed} beside ![A chart](described.png).`,
+      `Then ${whitespaceAlt} and ![TODO: describe image](existing.png).`,
+      "",
+      ...decoys.slice(1),
+      "",
+    ];
+    const doc = lines.join(newline);
+    const expected = lines
+      .map((line) =>
+        line
+          .replace(
+            undescribed,
+            "![TODO: describe image](images/chart.png?size=2#preview)",
+          )
+          .replace(whitespaceAlt, '![TODO: describe image](map.svg "Map")'),
+      )
+      .join(newline);
+    const rules = [
+      ruleNoTrailingSpaces,
+      ruleOrphanedHeading,
+      ruleMissingAltText,
+      ruleInvalidLinkTarget,
+    ];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "orphaned-heading",
+      "missing-alt-text",
+      "missing-alt-text",
+    ]);
+    expect(violations.filter((violation) => violation.fix !== null)).toHaveLength(2);
+
+    const once = applyAllFixes(doc, violations);
+    expect(once).toBe(expected);
+    expect(once).not.toBe(doc);
+
+    // Second pass: only the unfixable orphaned-heading warning remains, so
+    // applying fixes again must be a no-op on the text.
+    const remaining = lintDocument(once, { rules });
+    expect(remaining.map((violation) => violation.ruleId)).toEqual([
+      "orphaned-heading",
+    ]);
+    expect(remaining[0].fix).toBeNull();
+    expect(applyAllFixes(once, remaining)).toBe(once);
+
+    // The whole lint-and-fix pipeline run twice from the original document
+    // reaches the same fixpoint as a single pass.
+    const fixPass = (text: string) =>
+      applyAllFixes(text, lintDocument(text, { rules }));
+    expect(fixPass(fixPass(doc))).toBe(once);
+
+    // Fix All (the UI autofix path) likewise records no new history on a
+    // second pass.
+    clearLintHistory();
+    expect(fixAllViolations(doc, violations)).toBe(once);
+    const history = [...getLintHistory()];
+    expect(history.map((entry) => entry.ruleId)).toEqual([
+      "missing-alt-text",
+      "missing-alt-text",
+    ]);
+    expect(fixAllViolations(once, remaining)).toBe(once);
+    expect(getLintHistory()).toEqual(history);
+  });
+
+  it.each([
+    "\n",
+    "\r\n",
   ])("keeps an image fix stable with all built-in rules and %j line endings", (newline) => {
     const doc = [
       "---",
