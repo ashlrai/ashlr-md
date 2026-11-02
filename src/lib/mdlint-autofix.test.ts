@@ -3643,6 +3643,19 @@ describe("rule:missing-alt-text", () => {
     expect(applyAllFixes(fixed, remaining)).toBe(expected);
   });
 
+  it("inserts the placeholder for a whitespace-only alt at line end and leaves preceding text byte-identical", () => {
+    const before = "Intro  with *emphasis*, `code ![](not-an-image.png)` and ![Ok](ok.png) — see ";
+    const doc = `${before}![ \t](chart.png "Chart")\nAfter.\n`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(`${before}![TODO: describe image](chart.png "Chart")\nAfter.\n`);
+    expect(fixed.startsWith(before)).toBe(true);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
   it.each([
     "\nNext line.\n",
     "",
