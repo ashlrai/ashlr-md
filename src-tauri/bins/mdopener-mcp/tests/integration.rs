@@ -9516,6 +9516,25 @@ fn export_text_keeps_punctuation_inside_bracketed_prose_from_both_sources() {
 }
 
 #[test]
+fn export_text_preserves_bracketed_words_and_trailing_punctuation_in_prose() {
+    let markdown = "The editor marked this sentence [draft], and the next one [final].\n\
+        Is the note [ready]? Yes [indeed]!\n";
+    let expected = "The editor marked this sentence [draft], and the next one [final].\n\
+        Is the note [ready]? Yes [indeed]!";
+
+    let file_result = run_export_text_on(markdown);
+    assert_eq!(file_result["text"].as_str().unwrap(), expected);
+
+    let ipc = MockIpc::new().on_get(
+        "/content",
+        Ok(json!({ "path": "/docs/test.md", "content": markdown })),
+    );
+    let response = tool_export_text(id(2), &json!({}), &ipc);
+    assert!(response.error.is_none());
+    assert_eq!(content_text(&response)["text"].as_str().unwrap(), expected);
+}
+
+#[test]
 fn export_text_keeps_punctuation_immediately_after_prose_brackets() {
     let markdown = "Compare [sic],next; [TODO]:now; [1]!really; [x]?yes; [note].End.\n";
     let result = run_export_text_on(markdown);
