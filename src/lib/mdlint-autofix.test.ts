@@ -3992,6 +3992,43 @@ describe("rule:missing-alt-text", () => {
     expect(remaining).toEqual([]);
     expect(applyAllFixes(fixed, remaining)).toBe(expected);
   });
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("diagnostic: the repaired alt text is exactly 'TODO: describe image' and the surrounding text is preserved (%j line endings)", (newline) => {
+    const before = ["# Gallery", "", "Intro café — see"].join(newline);
+    const image = '![](images/chart.png?size=2#preview "Chart")';
+    const repaired = '![TODO: describe image](images/chart.png?size=2#preview "Chart")';
+    const after = [
+      "for the quarterly numbers.",
+      "",
+      "Closing note: `![](decoy.png)` stays code.",
+      "",
+    ].join(newline);
+    const doc = `${before}${newline}${image} ${after}`;
+    const expected = `${before}${newline}${repaired} ${after}`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(image);
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // Diagnostic: the inserted alt text is byte-exactly the placeholder.
+    const altMatch = fixed.match(/!\[([^\]]*)\]\(images\/chart\.png[^)]*\)/);
+    expect(altMatch).not.toBeNull();
+    expect(altMatch![1]).toBe("TODO: describe image");
+    // The text before and after the image is byte-identical.
+    expect(fixed.slice(0, from.offset)).toBe(doc.slice(0, from.offset));
+    expect(fixed.slice(from.offset + repaired.length)).toBe(doc.slice(to.offset));
+    const remaining = lintDocument(fixed, { rules });
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(fixed, remaining)).toBe(expected);
+  });
 });
 
 // ─── 4. Chained violations + multi-fix application ───────────────────────────
