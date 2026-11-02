@@ -360,6 +360,25 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(expected, { rules })).toEqual([]);
   });
 
+  it("fixes invalid links in different paragraphs of a multi-line document without touching the lines between them", () => {
+    const between =
+      "\n\nMiddle paragraph with *emphasis*, a [valid](./ok.md) link,\n" +
+      "and a fenced block:\n\n```md\n[sample]()\n```\n\n## Heading  \n\n";
+    const doc = `First [alpha]( ) line\ncontinues here.${between}Last [beta](#) line.\n`;
+    const expected = `First [alpha](TODO) line\ncontinues here.${between}Last [beta](TODO) line.\n`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "invalid-link-target",
+      "invalid-link-target",
+    ]);
+    expect(violations.map((violation) => violation.range!.from.line)).toEqual([1, 13]);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(applyAllFixes(doc, [...violations].reverse())).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+
   it("fixes an invalid link followed by a valid link", () => {
     const doc =
       "---\ntitle: Guide\n---\n\nRead [draft]() then [guide](https://example.com/guide).\n";
