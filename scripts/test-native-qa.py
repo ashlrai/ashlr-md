@@ -95,6 +95,22 @@ class Tests(unittest.TestCase):
                 cleanup.assert_called_once_with(proc)
             self.assertIn(('DELETE','/session/synthetic-1'),calls)
 
+    def test_dom_mismatch_logs_only_bounded_observation_then_cleans_up(self):
+        from unittest.mock import Mock
+        with tempfile.TemporaryDirectory() as t:
+            root=Path(t); app=root/'app'; app.write_bytes(b'synthetic')
+            proc=Mock(pid=123456); proc.poll.return_value=None
+            def driver(method,path,payload=None):
+                if path=='/session': return {'sessionId':'synthetic-1'}
+                if path.endswith('/execute/sync'): return {'heading':'x'*1000, 'text':'wrong', 'extra':'must not log'}
+                return {}
+            with patch.object(qa,'validate_probe_paths'), patch.object(qa.subprocess,'Popen',return_value=proc), patch.object(qa,'wd',side_effect=driver), patch.object(qa,'stop_group') as cleanup, patch.object(qa.signal,'signal'), patch.object(qa.signal,'alarm'), patch.object(qa.time,'monotonic',side_effect=[0,0,61]), patch('builtins.print') as output:
+                with self.assertRaisesRegex(ValueError,'native DOM fixture mismatch'): qa.probe(root,app)
+                cleanup.assert_called_once_with(proc)
+                entries=[c.args[1] for c in output.call_args_list if c.args[0]=='Bounded synthetic DOM observation:']
+                self.assertEqual(len(entries),1)
+                self.assertEqual(qa.json.loads(entries[0]), {'heading':'x'*256,'text':'wrong'})
+
     def test_malformed_delete_cannot_skip_group_cleanup(self):
         from unittest.mock import Mock
         with tempfile.TemporaryDirectory() as t:
