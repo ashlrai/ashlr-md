@@ -133,6 +133,46 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    "\n",
+    "\r\n",
+  ])("fixes a nested task-list link while preserving its context with %j line endings", (newline) => {
+    const doc = [
+      "---",
+      "title: Release",
+      "---",
+      "",
+      "- Release checklist",
+      "  - [ ] Read [draft](?) before [guide](./guide.md); example: `[draft](?)`.",
+      "  - [x] Keep this item.",
+      "",
+    ].join(newline);
+    const expected = [
+      "---",
+      "title: Release",
+      "---",
+      "",
+      "- Release checklist",
+      "  - [ ] Read [draft](TODO) before [guide](./guide.md); example: `[draft](?)`.",
+      "  - [x] Keep this item.",
+      "",
+    ].join(newline);
+    const violations = lintDocument(doc);
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "invalid-link-target",
+    ]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe("[draft](?)");
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    const remaining = lintDocument(fixed);
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(fixed, remaining)).toBe(expected);
+  });
+
+  it.each([
     "",
     " ",
     "#",
