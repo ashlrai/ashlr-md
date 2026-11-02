@@ -6564,6 +6564,29 @@ describe("autofix: empty document", () => {
   });
 });
 
+describe("autofix: whitespace-only document", () => {
+  it.each([
+    ["spaces only", "   "],
+    ["blank lines only", "\n\n"],
+    ["mixed spaces, tabs and blank lines", " \t \n\n  \n"],
+    ["CRLF blank lines with spaces", "\r\n  \r\n"],
+    ["single newline", "\n"],
+  ])("preserves %s without placeholders under every rule set", (_label, doc) => {
+    const defaultRules = BUILTIN_RULES.filter((rule) =>
+      LINTER_DEFAULT_ENABLED_RULES.includes(rule.id),
+    );
+    for (const rules of [BUILTIN_RULES, defaultRules]) {
+      const violations = lintDocument(doc, { rules });
+      expect(violations).toEqual([]);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(doc);
+      expect(fixed).not.toContain("TODO");
+      // Second pass is a no-op.
+      expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(doc);
+    }
+  });
+});
+
 describe("autofix: fenced-code preservation", () => {
   it.each([
     ["```", "\n"],
