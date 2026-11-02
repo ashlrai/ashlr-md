@@ -1263,6 +1263,33 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(fixed, { rules: [ruleInvalidLinkTarget] })).toHaveLength(0);
   });
 
+  it.each([
+    "\n",
+    "\r\n",
+  ])("autofixes two invalid links across one paragraph with %j line endings", (newline) => {
+    const doc = [
+      "Before café [first]() and  more text,",
+      "then [second](?) after a\ttab.",
+      "",
+    ].join(newline);
+    const expected = [
+      "Before café [first](TODO) and  more text,",
+      "then [second](TODO) after a\ttab.",
+      "",
+    ].join(newline);
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "invalid-link-target",
+      "invalid-link-target",
+    ]);
+    expect(violations.every((violation) => violation.fix !== null)).toBe(true);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(applyAllFixes(doc, [...violations].reverse())).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+
   it("fixes different invalid destinations with the same label independently", () => {
     const doc = "Before [café guide]() and [café guide](#) after.\n";
     const expected = "Before [café guide](TODO) and [café guide](TODO) after.\n";
