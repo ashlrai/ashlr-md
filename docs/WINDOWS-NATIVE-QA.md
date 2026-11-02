@@ -63,3 +63,18 @@ and trust-check return. Diagnostics include only those markers, elapsed time,
 a recognized signature status (otherwise `unknown`), and signer/EKU match booleans;
 never raw PowerShell output or certificate contents. A timeout remains failure, not evidence of an invalid signature
 or permission to execute. Certificate/revocation checks are not disabled.
+
+## Failure diagnostics
+
+A failed exact-content check now additionally reports only bounded synthetic
+window state: title (128 characters), location origin/path (256, no query or
+fragment), ready state, Tauri-presence and root booleans, body text (512), and
+article/frame counts capped at 100. The unchanged content oracle still decides
+success; diagnostic observations cannot make a wrong document pass.
+Tauri driver 2.1.0 maps `tauri:options.args` to Edge `ms:edgeOptions.args`, which
+Microsoft documents as application arguments when launching WebView2. Original
+721b source buffers CLI paths at setup and drains them after frontend mount.
+These contracts do not prove the cause of the observed empty heading/paragraph.
+Cleanup errors report only the failed owned relative path and file-type,
+read-only/reparse flags before rethrowing. No attribute, ACL or permission change
+is attempted; the prior WinError 5 does not itself prove a read-only attribute.
