@@ -6417,6 +6417,68 @@ fn export_text_preserves_brackets_in_fenced_code() {
 }
 
 #[test]
+fn export_text_preserves_bracketed_prose_across_consecutive_lines() {
+    let cases = [
+        // One phrase per line, no blank line between them.
+        (
+            "[first draft]\n[second pass]\n[final copy]\n",
+            "[first draft]\n[second pass]\n[final copy]",
+        ),
+        // Brackets mid-sentence on adjacent lines, one with a link beside it.
+        (
+            "Review [TODO] today\nthen read [the guide](https://example.com) [sic]\nand ship [v2].\n",
+            "Review [TODO] today\nthen read the guide [sic]\nand ship [v2].",
+        ),
+        // A phrase that itself wraps over the line break stays whole.
+        (
+            "Mark it [needs\nreview] before [merge].\n",
+            "Mark it [needs\nreview] before [merge].",
+        ),
+        // Hard breaks (trailing backslash) between bracketed lines.
+        (
+            "[alpha]\\\n[beta]\\\n[gamma]\n",
+            "[alpha]\n[beta]\n[gamma]",
+        ),
+        // Blockquote and list lines keep their phrases in order.
+        (
+            "> [quoted one]\n> [quoted two]\n\n- [item a]\n- [item b]\n",
+            "[quoted one]\n[quoted two]\n\n[item a]\n[item b]",
+        ),
+        // Non-ASCII phrases and adjacent bracket pairs across lines.
+        (
+            "[café][naïve]\n[要確認]\n[third][fourth]\n",
+            "[café][naïve]\n[要確認]\n[third][fourth]",
+        ),
+    ];
+    for (markdown, expected) in cases {
+        let result = run_export_text_on(markdown);
+        let text = result["text"].as_str().unwrap();
+        assert_eq!(text, expected, "{markdown:?}");
+        assert_eq!(
+            result["char_count"].as_u64().unwrap() as usize,
+            expected.chars().count(),
+            "{markdown:?}"
+        );
+    }
+}
+
+#[test]
+fn export_text_keeps_bracketed_phrase_order_across_consecutive_lines() {
+    let phrases = ["[one]", "[two words]", "[3]", "[four (4)]", "[five]"];
+    let markdown = format!("{}\n", phrases.join("\n"));
+    let result = run_export_text_on(&markdown);
+    let text = result["text"].as_str().unwrap();
+    let mut from = 0;
+    for phrase in phrases {
+        let at = text[from..]
+            .find(phrase)
+            .unwrap_or_else(|| panic!("{phrase} missing or out of order in {text:?}"));
+        from += at + phrase.len();
+    }
+    assert_eq!(text.lines().count(), phrases.len(), "{text:?}");
+}
+
+#[test]
 fn export_text_preserves_adjacent_bracketed_words_in_prose() {
     let md = "Read [first] [second], then [third][fourth]. See [link](https://example.com).\n";
     let result = run_export_text_on(md);
