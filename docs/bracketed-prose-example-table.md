@@ -48,6 +48,15 @@ Inputs and outputs are JSON strings: `\n` is a newline, `\t` is a tab, and `\\` 
 | `export_text_keeps_digits_in_bracketed_prose` | `export_text` | ` "Compare [item 10] with [item 2]; see [release 3](/releases/3).\n" ` | ` "Compare [item 10] with [item 2]; see release 3." ` |
 | `export_text_keeps_digits_in_bracketed_prose` | `export_text` | ` "Keep [step 1] and follow [step 2].\n\n[step 2]: /guide\n" ` | ` "Keep [step 1] and follow step 2." ` |
 | `export_text_keeps_multiple_undefined_numbered_references` | `export_text` | ` "Evidence [1], [23][24], and [1] supports the claim; see [42].\n" ` | ` "Evidence [1], [23][24], and [1] supports the claim; see [42]." ` |
+| `export_text_keeps_a_standalone_numeric_citation` | `export_text` | ` "[1]\n" ` | ` "[1]" ` |
+| `export_text_keeps_a_standalone_numeric_citation` | `export_text` | ` "[1]\n\nThe finding holds.\n" ` | ` "[1]\n\nThe finding holds." ` |
+| `export_text_keeps_a_standalone_numeric_citation` | `export_text` | ` "Claim [1].\n\n[1]\n\nDetails follow.\n" ` | ` "Claim [1].\n\n[1]\n\nDetails follow." ` |
+| `export_text_keeps_a_standalone_numeric_citation` | `export_text` | ` "The finding holds.\n\n[1]\n" ` | ` "The finding holds.\n\n[1]" ` |
+| `export_text_keeps_a_standalone_numeric_citation` | `export_text` | ` "Summary.\n\n[1] [2] [3]\n" ` | ` "Summary.\n\n[1] [2] [3]" ` |
+| `export_text_keeps_a_standalone_numeric_citation` | `export_text` | ` "> [1]\n" ` | ` "[1]" ` |
+| `export_text_keeps_a_standalone_numeric_citation` | `export_text` | ` "- [1]\n" ` | ` "[1]" ` |
+| `export_text_keeps_a_standalone_numeric_citation` | `export_text` | ` "[1]\n\n[1]: /u\n" ` | ` "1" ` |
+| `export_text_keeps_a_standalone_numeric_citation` | `strip_inline_markdown` | ` "[1]" ` | ` "[1]" ` |
 | `export_text_keeps_bracketed_prose_at_the_end_of_a_paragraph` | `export_text` | ` "The quotation was accurate [sic]\n" ` | ` "The quotation was accurate [sic]" ` |
 | `export_text_keeps_bracketed_prose_at_the_end_of_a_paragraph` | `export_text` | ` "The finding was confirmed [1].\n" ` | ` "The finding was confirmed [1]." ` |
 | `export_text_keeps_bracketed_prose_at_the_end_of_a_paragraph` | `export_text` | ` "The quotation was\naccurate [sic]\n\nAnother paragraph.\n" ` | ` "The quotation was\naccurate [sic]\n\nAnother paragraph." ` |
