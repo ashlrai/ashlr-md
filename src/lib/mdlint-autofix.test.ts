@@ -1717,6 +1717,54 @@ describe("rule:invalid-link-target", () => {
     }
   });
 
+  it.each([
+    "",
+    "#",
+    "?",
+    " \t ",
+  ])("fixes a repeated invalid destination %j shared by links with distinct labels", (href) => {
+    const rules = [ruleInvalidLinkTarget];
+    const alpha = `[alpha](${href})`;
+    const beta = `[beta](${href})`;
+    const doc = `Read ${alpha} and ${beta} before [guide](./guide.md).\n`;
+    const expected =
+      "Read [alpha](TODO) and [beta](TODO) before [guide](./guide.md).\n";
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "invalid-link-target",
+      "invalid-link-target",
+    ]);
+    expect(
+      violations.map((violation) =>
+        doc.slice(violation.range!.from.offset, violation.range!.to.offset),
+      ),
+    ).toEqual([alpha, beta]);
+    expect(violations.every((violation) => violation.fix !== null)).toBe(true);
+    // Each fix repairs only its own destination; the neighboring link's
+    // distinct label and destination stay byte-identical.
+    expect(applyFix(doc, violations[0])).toBe(
+      `Read [alpha](TODO) and ${beta} before [guide](./guide.md).\n`,
+    );
+    expect(applyFix(doc, violations[1])).toBe(
+      `Read ${alpha} and [beta](TODO) before [guide](./guide.md).\n`,
+    );
+    for (const fixed of [
+      applyAllFixes(doc, violations),
+      applyAllFixes(doc, [...violations].reverse()),
+    ]) {
+      expect(fixed).toBe(expected);
+      // Both invalid destinations became TODO and each distinct label
+      // survived unchanged.
+      expect(fixed.match(/\(TODO\)/g)).toHaveLength(2);
+      expect(fixed).toContain("[alpha](TODO)");
+      expect(fixed).toContain("[beta](TODO)");
+    }
+    const remaining = lintDocument(expected, { rules });
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(expected, remaining)).toBe(expected);
+  });
+
   it("autofixes two invalid links on one line without changing surrounding text", () => {
     const doc = "Before [first]() between [second](#) and [valid](./file.md) after.\n";
     const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
