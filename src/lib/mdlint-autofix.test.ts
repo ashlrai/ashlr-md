@@ -184,6 +184,28 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    ["\n", "[alpha]()", "[beta](   )"],
+    ["\r\n", "[alpha](\t)", "[beta]()"],
+  ])("multiple invalid links on one line each become TODO and keep both labels (%j)", (nl, first, second) => {
+    const doc = `# Title${nl}${nl}Try ${first}, then ${second}.${nl}`;
+    const expected = `# Title${nl}${nl}Try [alpha](TODO), then [beta](TODO).${nl}`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(2);
+    expect(violations.every((v) => v.ruleId === "invalid-link-target")).toBe(true);
+    // Each diagnostic covers exactly one link, in document order, on the same line.
+    expect(violations.map((v) => doc.slice(v.range!.from.offset, v.range!.to.offset))).toEqual([first, second]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain("[alpha]");
+    expect(fixed).toContain("[beta]");
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    // Idempotent: a second pass changes nothing.
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+
+  it.each([
     "\n",
     "\r\n",
   ])("mixed valid and invalid links: autofix changes only the invalid href and keeps every valid link (%j)", (nl) => {
