@@ -1950,6 +1950,28 @@ describe("rule:invalid-link-target", () => {
     expect(applyAllFixes(expected, remaining)).toBe(expected);
   });
 
+  it.each([
+    ["", "#"],
+    ["#", " \t "],
+    ["?", ""],
+  ])("fixes a repeated label with different invalid hrefs %j and %j on one line inside emphasis", (first, second) => {
+    const rules = [ruleInvalidLinkTarget];
+    const doc = `**See [docs](${first})**, _then [docs](${second})_; done (see [docs](./docs.md)).\n`;
+    const expected =
+      "**See [docs](TODO)**, _then [docs](TODO)_; done (see [docs](./docs.md)).\n";
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "invalid-link-target",
+      "invalid-link-target",
+    ]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(applyAllFixes(doc, [...violations].reverse())).toBe(expected);
+    expect(fixed.match(/\[docs\]\(TODO\)/g)).toHaveLength(2);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+
   it("autofixes two invalid links on one line without changing surrounding text", () => {
     const doc = "Before [first]() between [second](#) and [valid](./file.md) after.\n";
     const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
