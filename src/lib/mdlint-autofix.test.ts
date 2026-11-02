@@ -5212,3 +5212,23 @@ describe("invalid-link-target autofix: link label preservation", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+describe("empty document", () => {
+  it.each([
+    ["invalid-link-target", ruleInvalidLinkTarget],
+    ["missing-alt-text", ruleMissingAltText],
+  ])("%s leaves an empty document unchanged and reports no fixes", (_id, rule) => {
+    const violations = lintDocument("", { rules: [rule] });
+
+    expect(violations).toEqual([]);
+    expect(violations.filter((v) => v.fix)).toEqual([]);
+    expect(applyAllFixes("", violations)).toBe("");
+  });
+
+  it("leaves an empty document unchanged with the full builtin rule set", () => {
+    const violations = lintDocument("");
+
+    expect(violations.filter((v) => v.fix)).toEqual([]);
+    expect(applyAllFixes("", violations)).toBe("");
+  });
+});
