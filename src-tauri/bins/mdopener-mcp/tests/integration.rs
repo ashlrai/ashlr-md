@@ -9397,6 +9397,29 @@ fn bracketed_prose_example_table_matches_outputs() {
     assert_eq!(count, 74, "all table examples must be checked");
 }
 
+/// A standalone `[1]` closing a paragraph, with no definition anywhere,
+/// is prose: both brackets and the words before it survive.
+#[test]
+fn export_text_keeps_standalone_bracket_number_at_end_of_paragraph() {
+    for (markdown, expected) in [
+        ("The results were conclusive [1]\n", "The results were conclusive [1]"),
+        ("The results were conclusive [1].\n", "The results were conclusive [1]."),
+        (
+            "First paragraph ends here [1]\n\nSecond paragraph ends here [2]\n",
+            "First paragraph ends here [1]\n\nSecond paragraph ends here [2]",
+        ),
+        (
+            "Line one of the paragraph\ncontinues and ends [1]\n\nNext.\n",
+            "Line one of the paragraph\ncontinues and ends [1]\n\nNext.",
+        ),
+        ("> A quoted claim [1]\n", "A quoted claim [1]"),
+        ("- A list claim [1]\n", "A list claim [1]"),
+    ] {
+        let result = run_export_text_on(markdown);
+        assert_eq!(result["text"].as_str().unwrap(), expected, "input: {markdown:?}");
+    }
+}
+
 #[test]
 fn export_text_keeps_literal_brackets_in_blockquote_prose() {
     let markdown = "> See note [1] and the [guide](/guide).\n";
