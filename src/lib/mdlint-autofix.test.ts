@@ -125,6 +125,35 @@ describe("rule:invalid-link-target", () => {
     }
   });
 
+  it.each([
+    "\n",
+    "\r\n",
+  ])("preserves valid links and surrounding text when the document has no violations with %j line endings", (nl) => {
+    const doc = [
+      "---",
+      "title: Getting Started",
+      "---",
+      "",
+      "# Getting Started",
+      "",
+      "Welcome to the guide. Visit [the docs](./guide.md?view=full) or jump to #quick-start.",
+      "",
+      "## Quick start",
+      "",
+      "Run `mdopener init` then read the [reference](./reference.md). Questions? Email us at [support](mailto:support@example.com).",
+      "",
+      "That's everything.",
+      "",
+    ].join(nl);
+    // Linting with the full default rule set reports no violations.
+    const violations = lintDocument(doc);
+    expect(violations).toEqual([]);
+    // applyAllFixes with zero violations returns the document byte-for-byte identical.
+    expect(applyAllFixes(doc, violations)).toBe(doc);
+    // Same result through the full lint-and-fix pipeline.
+    expect(applyAllFixes(doc, lintDocument(doc))).toBe(doc);
+  });
+
   it("replaces a whitespace-only href with TODO while preserving the link text", () => {
     const doc =
       "---\ntitle: Guide\n---\n\nRead [café guide](   ) and [reference](./guide.md).\n";
