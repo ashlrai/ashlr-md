@@ -6032,6 +6032,49 @@ describe("invalid-link-target autofix: link label preservation", () => {
   });
 });
 
+describe("invalid-link-target autofix: preserves surrounding content", () => {
+  it.each([
+    "\n",
+    "\r\n",
+  ])("fixing an invalid link leaves an unrelated heading and paragraph unchanged with %j line endings", (nl) => {
+    const doc = [
+      "# Main Title",
+      "",
+      "This is a paragraph with an [invalid link]() in it.",
+      "",
+      "## Subsection",
+      "",
+      "Another paragraph with valid content.",
+      "",
+    ].join(nl);
+
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("invalid-link-target");
+
+    const fixed = applyAllFixes(doc, violations);
+
+    // Heading unchanged
+    expect(fixed).toContain("# Main Title");
+    expect(fixed).toContain("## Subsection");
+
+    // Unrelated paragraph unchanged
+    expect(fixed).toContain("Another paragraph with valid content.");
+
+    // Link fixed in place
+    expect(fixed).not.toContain("[invalid link]()");
+    expect(fixed).toContain("[invalid link](TODO)");
+
+    // Paragraph that held the link is otherwise intact
+    expect(fixed).toContain("This is a paragraph with");
+
+    // Re-lint is clean
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
+
 describe("link and image autofix: mixed-fix idempotence", () => {
   const rules = [ruleInvalidLinkTarget, ruleMissingAltText];
   const fixPass = (text: string) => applyAllFixes(text, lintDocument(text, { rules }));
