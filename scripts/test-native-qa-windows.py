@@ -354,15 +354,16 @@ class Tests(unittest.TestCase):
         with canonical_tempdir() as t:
             root=Path(t); child=root/'Programs'; child.mkdir()
             info=MagicMock(st_file_attributes=1,st_mode=0o040700)
-            error=PermissionError('synthetic'); error.winerror=5
+            # Sharing violation is ineligible for DOS-bit changes on every platform.
+            error=PermissionError('synthetic'); error.winerror=32
             def fail(path,onexc): onexc(os.rmdir,str(child),error)
             output=io.StringIO()
-            with patch.object(w.os,'name','posix'), patch.object(w.shutil,'rmtree',side_effect=fail), patch.object(w.Path,'lstat',return_value=info), patch.object(w.os,'chmod') as chmod, patch('sys.stdout',output):
+            with patch.object(w.shutil,'rmtree',side_effect=fail), patch.object(w.Path,'lstat',return_value=info), patch.object(w.os,'chmod') as chmod, patch.object(w,'clear_readonly_attribute') as clear, patch('sys.stdout',output):
                 with self.assertRaises(PermissionError): self.remove_callback_tree(root)
-                chmod.assert_not_called()
+                chmod.assert_not_called(); clear.assert_not_called()
             self.assertTrue(child.is_dir())
             parsed=json.loads(output.getvalue().split(': ',1)[1])
-            self.assertEqual(parsed,{'relative':'Programs','readonly':True,'reparse':False,'directory':True,'symlink':False,'winerror':5})
+            self.assertEqual(parsed,{'relative':'Programs','readonly':True,'reparse':False,'directory':True,'symlink':False,'winerror':32})
 
     def test_cleanup_diagnostic_refuses_outside_and_linked_ancestors(self):
         with canonical_tempdir() as t:
