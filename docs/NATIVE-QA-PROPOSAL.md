@@ -1,4 +1,4 @@
-# Original MD0.5 Linux native probe — bounded manual qualification
+# Original MD0.5 Linux native probe - bounded manual qualification
 
 This is a manually invoked, fixed-input qualification of original release run41362219024, source721b976149ad402cac56205f28bf253603f76535. It is not an installer/updater test or a release-readiness claim. The owner specifically approved adding and running this manual read-only artifact-access job on2026-11-02. This does not authorize release promotion, write permissions or other test targets.
 
