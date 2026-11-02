@@ -1,0 +1,12 @@
+# Ashlr MD
+
+> An open-source, AI-native Markdown app for macOS, Windows, and Linux.
+
+## Docs
+
+- [README](https://github.com/ashlrai/ashlr-md/blob/main/README.md): Features, setup, development, and architecture.
+- [Agent guide](https://github.com/ashlrai/ashlr-md/blob/main/docs/AGENTS.md): Connect and use AI agents with Ashlr MD.
+- [Installation](https://github.com/ashlrai/ashlr-md/blob/main/docs/INSTALL.md): Per-OS installation instructions.
+- [Obsidian](https://github.com/ashlrai/ashlr-md/blob/main/docs/OBSIDIAN.md): Obsidian compatibility details.
+- [Phantom](https://github.com/ashlrai/ashlr-md/blob/main/docs/PHANTOM.md): How Ashlr MD plugs into Phantom.
+- [Contributing](https://github.com/ashlrai/ashlr-md/blob/main/CONTRIBUTING.md): Contribution guidance.
