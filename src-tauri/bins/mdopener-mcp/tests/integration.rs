@@ -9089,6 +9089,58 @@ fn export_text_keeps_brackets_unless_a_reference_is_defined() {
     assert!(docs.contains("keeps its brackets unless the document defines its label"));
 }
 
+/// An ordinary word in brackets with no link destination — no `(...)`
+/// tail, no `[label]`, and no definition anywhere in the document — is
+/// prose: the page shows its brackets, so the export keeps them. Only a
+/// real link beside the word reads its text.
+#[test]
+fn export_text_keeps_brackets_around_an_ordinary_word() {
+    use mdopener_mcp::strip_inline_markdown;
+    let cases = [
+        // Alone on the line, and at either end of a sentence.
+        ("[word]\n", "[word]"),
+        ("[word] opens a sentence.\n", "[word] opens a sentence."),
+        ("A sentence ends on [word].\n", "A sentence ends on [word]."),
+        (
+            "The [word] sits mid-sentence.\n",
+            "The [word] sits mid-sentence.",
+        ),
+        // A `(` after a space is no destination: the brackets stay.
+        (
+            "See [word] (a parenthetical note) here.\n",
+            "See [word] (a parenthetical note) here.",
+        ),
+        // Inside emphasis, and in a heading, list item and blockquote.
+        ("**[word]** and _[word]_\n", "[word] and [word]"),
+        ("# Title [word]\n", "Title [word]"),
+        ("- item [word]\n", "item [word]"),
+        ("> quoted [word]\n", "quoted [word]"),
+        // Undefined `[label]` and `[]` tails are prose as written.
+        ("Keep [word][label] here.\n", "Keep [word][label] here."),
+        ("Keep [word][] here.\n", "Keep [word][] here."),
+        // A link beside the word reads its text; the word keeps brackets.
+        (
+            "Read [word] and [the guide](/guide).\n",
+            "Read [word] and the guide.",
+        ),
+        // The same word, once as prose and once as a link.
+        ("[word] then [word](/guide)\n", "[word] then word"),
+    ];
+    for (markdown, expected) in cases {
+        let result = run_export_text_on(markdown);
+        assert_eq!(result["text"].as_str().unwrap(), expected, "{markdown:?}");
+        assert_eq!(strip_markdown(markdown), expected, "{markdown:?}");
+    }
+    // With no document around a line, no reference is defined either.
+    for (line, expected) in [
+        ("The [word] stays.", "The [word] stays."),
+        ("[word][] and [word][label]", "[word][] and [word][label]"),
+        ("[word] then [word](/u)", "[word] then word"),
+    ] {
+        assert_eq!(strip_inline_markdown(line), expected, "{line:?}");
+    }
+}
+
 #[test]
 fn export_text_keeps_bracketed_todo_in_surrounding_prose() {
     let markdown = "Please review [TODO] before the next release.\n";
