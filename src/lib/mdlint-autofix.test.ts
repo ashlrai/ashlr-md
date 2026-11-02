@@ -4626,6 +4626,29 @@ describe("rule:missing-alt-text", () => {
     expect(remaining).toEqual([]);
     expect(applyAllFixes(fixed, remaining)).toBe(expected);
   });
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("fixes an undescribed image as the sole content on its own line at the end of a document with %j line endings", (newline) => {
+    const doc = `# Gallery${newline}${newline}Summary of the collection.${newline}${newline}![](images/hero.png)`;
+    const expected = `# Gallery${newline}${newline}Summary of the collection.${newline}${newline}![TODO: describe image](images/hero.png)`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("missing-alt-text");
+    // Source is preserved in the diagnostic message.
+    expect(violations[0].message).toBe("Image is missing alt text: images/hero.png");
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.endsWith("\n")).toBe(false);
+    // Source URL must survive the fix intact.
+    expect(fixed).toContain("images/hero.png");
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
 });
 
 // ─── 4. Chained violations + multi-fix application ───────────────────────────
