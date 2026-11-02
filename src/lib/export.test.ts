@@ -787,7 +787,7 @@ describe("exportPdf", () => {
       vi.spyOn(document.body, "appendChild").mockImplementationOnce((node) => {
         const r = origAppend(node);
         setTimeout(() => {
-          if (typeof iframe.onload === "function") (iframe.onload as any)();
+          if (typeof iframe.onload === "function") (iframe.onload as () => void)();
         }, 0);
         return r;
       });

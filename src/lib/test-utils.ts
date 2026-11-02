@@ -115,7 +115,7 @@ export function createMockIDB(opts: MockIDBOptions = {}): Pick<IDBFactory, "open
   class MockIDBObjectStore {
     put(value: IdbRecord): MockIDBRequest {
       const req = new MockIDBRequest();
-      const key = String(value["path"] ?? "");
+      const key = String(value.path ?? "");
       _data.set(key, { ...value });
       setTimeout(() => req._resolve(undefined), 0);
       return req;

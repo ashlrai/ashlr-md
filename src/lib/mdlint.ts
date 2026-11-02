@@ -293,12 +293,12 @@ export const ruleNoBareUrls: LintRule = {
       const to = from + url.length;
       violations.push({
         ruleId: "no-bare-urls",
-        message: `Bare URL: ${url.length > 60 ? url.slice(0, 57) + "…" : url}`,
+        message: `Bare URL: ${url.length > 60 ? `${url.slice(0, 57)}…` : url}`,
         severity: "warning",
         range: range(doc, from, to),
         fix: (d) => {
           // Replace this specific occurrence by offset
-          return d.slice(0, from) + `[${url}](${url})` + d.slice(to);
+          return `${d.slice(0, from)}[${url}](${url})${d.slice(to)}`;
         },
       });
     }
@@ -599,7 +599,7 @@ export const ruleInvalidLinkTarget: LintRule = {
           message: `Invalid link target: [${text.slice(0, 30)}](${href || "empty"})`,
           severity: "warning",
           range: range(doc, from, to),
-          fix: (d) => d.slice(0, hrefStart) + "TODO" + d.slice(hrefEnd),
+          fix: (d) => `${d.slice(0, hrefStart)}TODO${d.slice(hrefEnd)}`,
         });
       }
     }
@@ -633,7 +633,7 @@ export const ruleMissingAltText: LintRule = {
         const src = srcMatch ? srcMatch[1] : "";
         violations.push({
           ruleId: "missing-alt-text",
-          message: `Image is missing alt text: ${src.length > 40 ? src.slice(0, 37) + "…" : src}`,
+          message: `Image is missing alt text: ${src.length > 40 ? `${src.slice(0, 37)}…` : src}`,
           severity: "warning",
           range: range(doc, from, to),
           fix: (d) => {
