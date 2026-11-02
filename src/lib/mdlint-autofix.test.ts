@@ -755,7 +755,7 @@ describe("rule:invalid-link-target", () => {
       const link = `[draft](${destination})`;
       const following = ` — read [guide](./guide.md#details).${newline}${newline}Keep café and  spacing.${newline}`;
       const doc = link + following;
-      const expected = "[draft](TODO)" + following;
+      const expected = `[draft](TODO)${following}`;
       const rules = [ruleInvalidLinkTarget];
       const violations = lintDocument(doc, { rules });
 
@@ -3125,8 +3125,8 @@ describe("rule:missing-alt-text", () => {
     const src = "images/line-end.png?size=2#preview";
     const prose = `Ends with [a link](./guide.md#top) and ![A map](map.svg) then `;
     const lastLine = "Trailing paragraph keeps its  spacing.";
-    const doc = [prose + `![](${src})`, lastLine, ""].join(newline);
-    const expected = [prose + `![TODO: describe image](${src})`, lastLine, ""].join(
+    const doc = [`${prose}![](${src})`, lastLine, ""].join(newline);
+    const expected = [`${prose}![TODO: describe image](${src})`, lastLine, ""].join(
       newline,
     );
     const rules = [ruleMissingAltText, ruleInvalidLinkTarget];
@@ -3819,21 +3819,20 @@ describe("chained violations and multi-line fixes", () => {
   });
 
   it("fixes all four default-enabled rule violations in one pass", () => {
-    const doc =
-      [
-        "# Section A   ", // trailing spaces (3 = not hard-break)
-        "",
-        "## Section B", // orphaned heading (no body before ## C)
-        "",
-        "## Section C",
-        "",
-        "Body text.",
-        "",
-        "See ![](chart.png) for data.",
-        "",
-        "Contact [us]() for more.",
-        "Read [the guide](./guide.md) and [the draft](#).",
-      ].join("\n") + "\n";
+    const doc = `${[
+      "# Section A   ", // trailing spaces (3 = not hard-break)
+      "",
+      "## Section B", // orphaned heading (no body before ## C)
+      "",
+      "## Section C",
+      "",
+      "Body text.",
+      "",
+      "See ![](chart.png) for data.",
+      "",
+      "Contact [us]() for more.",
+      "Read [the guide](./guide.md) and [the draft](#).",
+    ].join("\n")}\n`;
 
     const violations = lintDocument(doc, {
       rules: [
@@ -4643,20 +4642,19 @@ describe("edge cases", () => {
   });
 
   it("all four default rules can run together on a messy document", () => {
-    const doc =
-      [
-        "# Heading A   ", // trailing spaces
-        "",
-        "## Heading B", // orphaned heading (followed by Heading C)
-        "",
-        "## Heading C",
-        "",
-        "Body paragraph.",
-        "",
-        "Visit ![](chart.png).", // missing alt
-        "",
-        "Contact [us]().", // invalid link target
-      ].join("\n") + "\n";
+    const doc = `${[
+      "# Heading A   ", // trailing spaces
+      "",
+      "## Heading B", // orphaned heading (followed by Heading C)
+      "",
+      "## Heading C",
+      "",
+      "Body paragraph.",
+      "",
+      "Visit ![](chart.png).", // missing alt
+      "",
+      "Contact [us]().", // invalid link target
+    ].join("\n")}\n`;
 
     const violations = lintDocument(doc, {
       rules: [

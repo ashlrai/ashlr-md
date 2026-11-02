@@ -282,7 +282,7 @@ export function buildThemeAwareRichHtml(
   const pageLang = languageTag(lang) ?? DEFAULT_EXPORT_LANG;
 
   // Resolve the palette — fall back to paper for unknown themes.
-  const palette = THEME_PALETTES[theme] ?? THEME_PALETTES["paper"];
+  const palette = THEME_PALETTES[theme] ?? THEME_PALETTES.paper;
   const paletteVars = Object.entries(palette)
     .map(([k, v]) => `${k}:${v}`)
     .join(";");
