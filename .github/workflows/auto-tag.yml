@@ -1,8 +1,10 @@
-# Auto-tag: create v<version> when the app version changes on main
+# Auto-tag: create v<version> on main when the manifest version has no tag
+# and every required check for that exact commit is green. The gate is tag
+# existence, not the commit diff: a missed tag self-heals on the next green
+# main CI run (workflow_run) or on workflow_dispatch.
 # Ported from ashlrai/phantom-secrets auto-tag.yml (RQ-AUTOTAGPORTMDQ9).
 # Version carriers: package.json, src-tauri/tauri.conf.json and
 # src-tauri/Cargo.toml must agree (docs/RELEASING.md), or no tag.
-# and every required check for that exact commit is green.
 # Tags are created only here, with the ashlr-release GitHub App token, so the
 # tag-triggered release workflow runs. release-please (if present) only opens
 # version PRs and never creates tags.
@@ -52,7 +54,6 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       REPO: ${{ github.repository }}
       BRANCH: main
-      VERSION_FILE: package.json
       SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
       TRIGGER: ${{ github.event_name }}
       # Required checks designed to report skipped on push to main (PR-only
@@ -60,7 +61,7 @@ jobs:
       SKIP_OK: ""
       ACTIONS_APP_ID: "15368"   # GitHub Actions; other apps' same-named runs never count
     steps:
-      - name: Detect version change
+      - name: Resolve version and tag state
         id: version
         shell: bash
         run: |
@@ -73,14 +74,8 @@ jobs:
             if [ "$a" != "$b" ] || [ "$a" != "$c" ]; then echo "::error::version carriers disagree" >&2; return 1; fi
             echo "$a"
           }
-          parent=$(gh api "repos/$REPO/commits/$SHA" -q '.parents[0].sha')
           new=$(read_version "$SHA")
-          old=$(read_version "$parent" || echo none)
           [[ "$new" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::unexpected version '$new'"; exit 1; }
-          if [ "$new" = "$old" ] && [ "$TRIGGER" != workflow_dispatch ]; then
-            echo "Version unchanged ($new); nothing to tag."
-            echo "changed=false" >> "$GITHUB_OUTPUT"; exit 0
-          fi
           if git ls-remote --exit-code --tags "https://github.com/$REPO.git" "refs/tags/v$new" >/dev/null; then
             echo "Tag v$new already exists; nothing to do."
             echo "changed=false" >> "$GITHUB_OUTPUT"; exit 0
@@ -106,7 +101,7 @@ jobs:
           # must be completed + success. Commit statuses are ignored: a required
           # name with no app-15368 check run is missing.
           evaluate() {
-            runs=$(gh api --paginate "repos/$REPO/commits/$SHA/check-runs?filter=latest&app_id=$ACTIONS_APP_ID&per_page=100"               -q '.check_runs[] | select(.app.id == '"$ACTIONS_APP_ID"') | [.name, .status, (.conclusion // "")] | @tsv')
+            runs=$(gh api --paginate "repos/$REPO/commits/$SHA/check-runs?filter=latest&app_id=$ACTIONS_APP_ID&per_page=100" -q '.check_runs[] | select(.app.id == '"$ACTIONS_APP_ID"') | [.name, .status, (.conclusion // "")] | @tsv')
             pending=0; bad=0
             while IFS= read -r name; do
               rows=$(awk -F'	' -v n="$name" '$1==n' <<<"$runs")
