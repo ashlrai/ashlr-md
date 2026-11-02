@@ -985,6 +985,25 @@ describe("rule:invalid-link-target", () => {
     expect(twice).toBe(once);
   });
 
+  it.each([
+    "",
+    " \t ",
+    "#",
+    "?",
+  ])("keeps a single link fix for destination %j unchanged on a subsequent fix-all pass", (destination) => {
+    const doc = `📚 Read [draft](${destination}) beside [guide](./guide.md).\r\n`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+    expect(violations).toHaveLength(1);
+    expect(violations[0].fix).not.toBeNull();
+
+    const once = applyFix(doc, violations[0]);
+    expect(once).toBe("📚 Read [draft](TODO) beside [guide](./guide.md).\r\n");
+    const remaining = lintDocument(once, { rules });
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(once, remaining)).toBe(once);
+  });
+
   it("is idempotent for an invalid link with all built-in rules enabled", () => {
     const doc =
       "---\ntitle: Guide\n---\n\n# Guide\n\nSee ![](chart.png) and [draft]().   \n";
