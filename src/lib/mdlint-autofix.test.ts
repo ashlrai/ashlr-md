@@ -993,6 +993,53 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(fixed, { rules })).toHaveLength(0);
   });
 
+  it.each([
+    "\n",
+    "\r\n",
+  ])("fixes each invalid link in a mixed document while preserving every valid link exactly (%j)", (newline) => {
+    const validLocal = '[guide](./guide.md "Guide")';
+    const validRemote = "[docs](https://example.com/a%20b?x=1#frag)";
+    const doc = [
+      "# Mixed",
+      "",
+      `See ${validLocal}, [a]() and ${validRemote} first.`,
+      "Then [b](?) mid-line, `[sample](#)` in code, [ok](mailto:team@example.com).",
+      "Last [c](#) stays.",
+      "",
+    ].join(newline);
+    const expected = [
+      "# Mixed",
+      "",
+      `See ${validLocal}, [a](TODO) and ${validRemote} first.`,
+      "Then [b](TODO) mid-line, `[sample](#)` in code, [ok](mailto:team@example.com).",
+      "Last [c](TODO) stays.",
+      "",
+    ].join(newline);
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "invalid-link-target",
+      "invalid-link-target",
+      "invalid-link-target",
+    ]);
+    expect(
+      violations.map((violation) =>
+        doc.slice(violation.range!.from.offset, violation.range!.to.offset),
+      ),
+    ).toEqual(["[a]()", "[b](?)", "[c](#)"]);
+    expect(violations.every((violation) => violation.fix !== null)).toBe(true);
+    expect(applyFix(doc, violations[0])).toBe(doc.replace("[a]()", "[a](TODO)"));
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(applyAllFixes(doc, [...violations].reverse())).toBe(expected);
+    expect(fixed).toContain(validLocal);
+    expect(fixed).toContain(validRemote);
+    const remaining = lintDocument(fixed, { rules });
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(fixed, remaining)).toBe(expected);
+  });
+
   it("autofix preserves surrounding text", () => {
     const doc = "Before [link](#) after.\n";
     const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
