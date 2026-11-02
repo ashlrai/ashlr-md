@@ -2996,6 +2996,57 @@ describe("rule:missing-alt-text", () => {
     expect(applyAllFixes(fixed, remaining)).toBe(expected);
   });
 
+  it.each([
+    [true, "\n"],
+    [true, "\r\n"],
+    [false, "\n"],
+    [false, "\r\n"],
+  ])("adds the placeholder only to the undescribed image on separate lines (described first: %s, line endings %j)", (describedFirst, newline) => {
+    const described =
+      '![A café terrace at sunrise ☕](../assets/caf%C3%A9.jpg?size=2&format=webp#view "Terrace")';
+    const undescribed = '![](images/chart.png?view=full#data "Chart")';
+    const repaired = '![TODO: describe image](images/chart.png?view=full#data "Chart")';
+    const images = describedFirst ? [described, undescribed] : [undescribed, described];
+    const fixedImages = describedFirst ? [described, repaired] : [repaired, described];
+    const layout = (pair: string[]) =>
+      [
+        "---",
+        "title: Gallery",
+        "---",
+        "",
+        "# Café gallery",
+        "",
+        "Intro keeps [guide](./guide.md) and `![](decoy.png)` as code.",
+        `Before ${pair[0]} after.`,
+        `Then ${pair[1]} too.`,
+        "",
+      ].join(newline);
+    const doc = layout(images);
+    const expected = layout(fixedImages);
+    // The full default rule set must see exactly the undescribed image:
+    // the described image, the decoy code span and the valid link stay clean.
+    const violations = lintDocument(doc);
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "missing-alt-text",
+    ]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(undescribed);
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // The described image survives byte-identical, shifted only by the
+    // placeholder text when it follows the repaired image.
+    expect(fixed.indexOf(described)).toBe(
+      doc.indexOf(described) + (describedFirst ? 0 : "TODO: describe image".length),
+    );
+    expect(fixed.length - doc.length).toBe("TODO: describe image".length);
+    const remaining = lintDocument(fixed);
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(fixed, remaining)).toBe(expected);
+  });
+
   it("preserves a descriptive image with a relative source and its surrounding prose", () => {
     const paragraph =
       "Before the illustration, see ![A map of the café garden](../assets/garden.png) for details.\r\n";
