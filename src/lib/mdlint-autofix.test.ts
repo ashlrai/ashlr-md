@@ -6454,6 +6454,13 @@ describe("autofix: empty document", () => {
   it("returns an empty document when given no violations", () => {
     expect(applyAllFixes("", [])).toBe("");
   });
+
+  it("fixAllViolations returns an empty document and records no history", () => {
+    clearLintHistory();
+    const violations = lintDocument("", { rules: BUILTIN_RULES });
+    expect(fixAllViolations("", violations)).toBe("");
+    expect(getLintHistory()).toEqual([]);
+  });
 });
 
 describe("autofix: fenced-code preservation", () => {
