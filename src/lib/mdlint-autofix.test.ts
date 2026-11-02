@@ -2152,6 +2152,31 @@ describe("rule:missing-alt-text", () => {
   });
 
   it.each([
+    ["", "\n", "\n"],
+    ["", "\r\n", "\r\n"],
+    [" \t ", "\n", "\n\n"],
+    ["", "\r\n", "\r\n\r\n"],
+  ])("changes only the description of a line-ending image %j before an unrelated paragraph (%j, separator %j)", (alt, newline, separator) => {
+    const image = `![${alt}](images/chart.png "Chart")`;
+    const paragraph = `Unrelated paragraph: café ☕ with [a link](./guide.md) and \`![](skip-me.png)\` in code.`;
+    const tail = `${separator}${paragraph}${newline}`;
+    const doc = `${image}${tail}`;
+    const expected = `![TODO: describe image](images/chart.png "Chart")${tail}`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(image);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // Everything after the image (newline(s) and paragraph) is byte-identical.
+    expect(fixed.slice(fixed.length - tail.length)).toBe(tail);
+    expect(fixed.length - doc.length).toBe("TODO: describe image".length - alt.length);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
     ["", "(", "),"],
     [" \t ", "“", "”;"],
     ["", "[", "]!?"],
