@@ -12,7 +12,7 @@ All notable changes to Ashlr MD are documented here. This project adheres to
 Released 2026-06-06. [Release notes and downloads](https://github.com/ashlrai/ashlr-md/releases/tag/v0.4.0).
 <!-- fresh:end -->
 
-## [0.4.1] — Unreleased
+## [0.6.0] — 2026-11-02
 
 ### Added
 - **`mdopener-mcp setup --local [--json]`** finds Ollama (`127.0.0.1:11434`)
@@ -3423,6 +3423,16 @@ Released 2026-06-06. [Release notes and downloads](https://github.com/ashlrai/as
   per preferences section, plus a shared icon set) — no behavior change, the
   panel is now a thin composition shell.
 
+## [0.5.0] — 2026-11-01
+
+Build-qualified prerelease, published as a GitHub prerelease from the
+`release-validation/md-0.5.0-editing-repairs` branch (commit `721b976`) for
+four-platform build and updater-artifact qualification. It was not a stable,
+installation-ready release: native launch/install/update testing was still
+pending, macOS builds were ad-hoc signed and not notarized, and no updater
+feed or compiled assets were published. Superseded by [0.6.0], which contains
+every change the candidate carried plus all work merged to `main` since.
+
 ## [0.4.0] — 2026-06-06
 
 ### Agent integration & human review
@@ -3588,7 +3598,8 @@ callouts), WYSIWYG + source editing, PDF/DOCX/HTML export, local-first tiered
 AI, agent hand-off (`mdopen` CLI · `mdopener://` · MCP server), the macOS `.md`
 default handler, and smart agent-output rendering.
 
-[0.4.1]: https://github.com/ashlrai/ashlr-md/compare/v0.4.0...HEAD
+[0.6.0]: https://github.com/ashlrai/ashlr-md/compare/v0.4.0...HEAD
+[0.5.0]: https://github.com/ashlrai/ashlr-md/releases/tag/v0.5.0
 [0.4.0]: https://github.com/ashlrai/ashlr-md/releases/tag/v0.4.0
 [0.3.0]: https://github.com/ashlrai/ashlr-md/compare/v0.2.0...v0.4.0
 [0.2.0]: https://github.com/ashlrai/ashlr-md/releases/tag/v0.2.0
