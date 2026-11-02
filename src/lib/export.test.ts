@@ -752,6 +752,28 @@ describe("exportPdf", () => {
     expect(print).toHaveBeenCalled();
   });
 
+  it("prints only once when the frame fires repeated load events", async () => {
+    document.body.innerHTML = '<div class="markdown-body"><p>Print me</p></div>';
+    vi.useFakeTimers();
+    try {
+      const print = vi.fn();
+      patchIframe(print);
+      const done = exportPdf("Repeated load");
+      await vi.advanceTimersByTimeAsync(0);
+      const iframe = document.querySelector("iframe");
+      expect(iframe).not.toBeNull();
+      iframe?.dispatchEvent(new Event("load"));
+      await vi.runAllTimersAsync();
+      await done;
+      expect(print).toHaveBeenCalledTimes(1);
+      expect(toast.success).toHaveBeenCalledTimes(1);
+      expect(document.querySelector("iframe")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+      vi.restoreAllMocks();
+    }
+  });
+
   it("throws a user-visible error when not in Read view", async () => {
     teardownDom();
     await expect(exportPdf("No view")).rejects.toMatch(

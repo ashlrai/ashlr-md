@@ -727,6 +727,8 @@ export async function exportPdf(_title: string): Promise<void> {
     });
 
     iframe.onload = () => {
+      // Frame creation and document.close() can each fire load. Print once.
+      iframe.onload = null;
       try {
         // Wait one tick for the frame to lay out, then for its fonts.
         setTimeout(async () => {
@@ -761,6 +763,7 @@ export async function exportPdf(_title: string): Promise<void> {
     // Write the full standalone document into the iframe.
     const doc = iframe.contentDocument ?? iframe.contentWindow?.document;
     if (!doc) {
+      iframe.onload = null;
       iframe.remove();
       reject("Could not access print frame document.");
       return;
