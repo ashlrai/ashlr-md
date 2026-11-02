@@ -26,6 +26,8 @@ jobs:
       - name: Synthetic Windows harness and descendant cleanup checks
         run: python scripts/test-native-qa-windows.py
       - name: Check installed WebView2 and Edge driver compatibility
+        id: driver
+        timeout-minutes: 2
         run: python scripts/native-qa-windows.py --check-driver
       - name: Install pinned driver and build locked signature verifier
         run: |
@@ -46,5 +48,6 @@ jobs:
         if: always()
         env:
           STAGE_PATH: ${{ steps.prepare.outputs.stage }}
+          DRIVER_STAGE_PATH: ${{ steps.driver.outputs.driver_stage }}
         run: python scripts/native-qa-windows.py --cleanup
       # No cache/upload, new credentials, runtime download, or security-setting changes.

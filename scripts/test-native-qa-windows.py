@@ -199,14 +199,102 @@ class Tests(unittest.TestCase):
                 if failure:
                     with self.assertRaisesRegex(ValueError,'mismatch'): w.main()
                 else: w.main()
-                driver.assert_called_once_with()
+                driver.assert_called_once_with(provision=True)
                 for untouched in [prepare,prepared,worker,run_worker,run]: untouched.assert_not_called()
         workflow=(SCRIPT.parents[1]/'.github/workflows/native-qa-windows.yml').read_text()
         check=workflow.index('      - name: Check installed WebView2')
         build=workflow.index('      - name: Install pinned driver')
         prepare=workflow.index('      - name: Prepare and verify original artifacts')
         self.assertLess(check,build); self.assertLess(build,prepare)
-        self.assertEqual(workflow[check:build], '      - name: Check installed WebView2 and Edge driver compatibility\n        run: python scripts/native-qa-windows.py --check-driver\n')
+        self.assertEqual(workflow[check:build], '      - name: Check installed WebView2 and Edge driver compatibility\n        id: driver\n        timeout-minutes: 2\n        run: python scripts/native-qa-windows.py --check-driver\n')
+
+    def test_pinned_driver_rejects_unknown_runtime_and_tokens_before_io(self):
+        with patch.object(w,'driver_stage') as stage, patch.object(w.urllib.request,'build_opener') as network:
+            for runtime,env in [('132.0.2903.86',{}),('131.0.2903.86',{'GH_TOKEN':'synthetic'})]:
+                with patch.dict(os.environ,env,clear=True), self.assertRaises(ValueError): w.pinned_driver(runtime,True)
+            stage.assert_not_called(); network.assert_not_called()
+
+    def test_pinned_driver_reuse_checks_hash_then_signature_without_download(self):
+        with canonical_tempdir() as t:
+            root=Path(t); exe=root/'msedgedriver.exe'; exe.touch()
+            with patch.object(w,'driver_stage',return_value=root), patch.object(w,'hash_file',return_value=w.DRIVER_EXE_HASH), patch.object(w,'verify_driver_signature') as signature, patch.object(w.urllib.request,'build_opener') as network, patch.dict(os.environ,{},clear=True):
+                self.assertEqual(w.pinned_driver('131.0.2903.86'),exe)
+                signature.assert_called_once_with(exe); network.assert_not_called()
+            with patch.object(w,'driver_stage',return_value=root), patch.object(w,'hash_file',return_value='bad'), patch.object(w,'verify_driver_signature') as signature, patch.dict(os.environ,{},clear=True):
+                with self.assertRaises(ValueError): w.pinned_driver('131.0.2903.86')
+                signature.assert_not_called()
+
+    def test_pinned_driver_archive_rejects_bad_hash_and_traversal(self):
+        import hashlib
+        with canonical_tempdir() as t:
+            dest=Path(t)/'msedgedriver.exe'
+            with self.assertRaises(ValueError): w.extract_driver(b'bad',dest)
+            data=io.BytesIO()
+            with zipfile.ZipFile(data,'w') as z:
+                for name in ['../msedgedriver.exe','Driver_Notes/','Driver_Notes/EULA','Driver_Notes/LICENSE','Driver_Notes/credits.html']: z.writestr(name,b'')
+            raw=data.getvalue()
+            with patch.object(w,'DRIVER_ZIP_HASH',hashlib.sha256(raw).hexdigest()), self.assertRaises(ValueError): w.extract_driver(raw,dest)
+            self.assertFalse(dest.exists())
+
+    def test_provision_transport_is_fixed_bounded_and_owned(self):
+        with canonical_tempdir() as t:
+            output=Path(t)/'output'; output.touch()
+            response=MagicMock(status=200); response.geturl.return_value=w.DRIVER_URL; response.read.return_value=b'archive'
+            opener=MagicMock(); opener.open.return_value.__enter__.return_value=response
+            with patch.dict(os.environ,{'RUNNER_TEMP':t,'GITHUB_OUTPUT':str(output)},clear=True), patch.object(w.urllib.request,'build_opener',return_value=opener) as build, patch.object(w,'extract_driver') as extract, patch.object(w,'hash_file',return_value=w.DRIVER_EXE_HASH), patch.object(w,'verify_driver_signature'):
+                root=Path(t)/w.DRIVER_STAGE
+                self.assertEqual(w.pinned_driver('131.0.2903.86',True),root/'msedgedriver.exe')
+                opener.open.assert_called_once_with(w.DRIVER_URL,timeout=30)
+                response.read.assert_called_once_with(16*1024*1024+1)
+                extract.assert_called_once_with(b'archive',root/'msedgedriver.exe')
+                proxy,redirect=build.call_args.args
+                self.assertEqual(proxy.proxies,{})
+                self.assertIsNone(redirect.redirect_request(None,None,302,'redirect',{},'https://other.invalid'))
+                self.assertEqual(output.read_text(),f'driver_stage={root}\n')
+                with self.assertRaises(FileExistsError): w.pinned_driver('131.0.2903.86',True)
+                self.assertEqual(opener.open.call_count,1)
+
+    def test_provision_output_failure_removes_only_new_empty_directory(self):
+        with canonical_tempdir() as t:
+            with patch.dict(os.environ,{'RUNNER_TEMP':t},clear=True), patch.object(w.urllib.request,'build_opener') as network:
+                with self.assertRaises(KeyError): w.pinned_driver('131.0.2903.86',True)
+                self.assertFalse((Path(t)/w.DRIVER_STAGE).exists())
+                network.assert_not_called()
+
+    def test_download_wrong_final_url_never_extracts(self):
+        with canonical_tempdir() as t:
+            output=Path(t)/'output'; output.touch()
+            response=MagicMock(status=200); response.geturl.return_value='https://other.invalid/'
+            opener=MagicMock(); opener.open.return_value.__enter__.return_value=response
+            with patch.dict(os.environ,{'RUNNER_TEMP':t,'GITHUB_OUTPUT':str(output)},clear=True), patch.object(w.urllib.request,'build_opener',return_value=opener), patch.object(w,'extract_driver') as extract:
+                with self.assertRaises(ValueError): w.pinned_driver('131.0.2903.86',True)
+                response.read.assert_not_called(); extract.assert_not_called()
+
+    def test_bad_pinned_signature_prevents_executable_version_call(self):
+        import types
+        with canonical_tempdir() as t:
+            root=Path(t); (root/'msedgedriver.exe').touch()
+            with patch.dict(sys.modules,{'winreg':types.SimpleNamespace(HKEY_LOCAL_MACHINE=1)}), patch.dict(os.environ,{'EDGEWEBDRIVER':t},clear=True), patch.object(w,'reg_value',return_value='131.0.2903.86'), patch.object(w,'driver_stage',return_value=root), patch.object(w,'hash_file',return_value=w.DRIVER_EXE_HASH), patch.object(w,'verify_driver_signature',side_effect=ValueError('bad signature')), patch.object(w.subprocess,'run',return_value=MagicMock(stdout='Microsoft Edge WebDriver 156.0.4314.42')) as run:
+                with self.assertRaisesRegex(ValueError,'bad signature'): w.driver_path()
+                run.assert_called_once_with([str(root/'msedgedriver.exe'),'--version'],capture_output=True,text=True,check=True,timeout=10)
+
+    def test_driver_signature_requires_valid_microsoft_codesigning(self):
+        with canonical_tempdir() as t:
+            with patch.dict(os.environ,{'SYSTEMROOT':t,'GH_TOKEN':'never-inherited'}), patch.object(w.subprocess,'run') as run:
+                valid={'status':'Valid','subject':w.MICROSOFT_SUBJECT,'eku':['1.3.6.1.5.5.7.3.3']}
+                for value in [dict(valid,status='NotSigned'),dict(valid,subject='Other'),dict(valid,eku=[])]:
+                    run.return_value=MagicMock(stdout=json.dumps(value))
+                    with self.assertRaises(ValueError): w.verify_driver_signature(Path(t)/'msedgedriver.exe')
+                run.return_value=MagicMock(stdout=json.dumps(valid)); w.verify_driver_signature(Path(t)/'msedgedriver.exe')
+                self.assertNotIn('GH_TOKEN',run.call_args.kwargs['env'])
+                self.assertEqual(run.call_args.kwargs['timeout'],30)
+                self.assertNotIn('-ExecutionPolicy',run.call_args.args[0])
+
+    def test_driver_cleanup_without_installer_stage(self):
+        with canonical_tempdir() as t:
+            root=Path(t)/w.DRIVER_STAGE; root.mkdir(); (root/'partial').touch()
+            with patch.dict(os.environ,{'RUNNER_TEMP':t,'DRIVER_STAGE_PATH':str(root)},clear=True): w.cleanup()
+            self.assertFalse(root.exists())
 
     def test_preexisting_install_refused_before_installer(self):
         import types

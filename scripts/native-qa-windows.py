@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Original Windows NSIS qualification on a disposable standard hosted runner."""
 import ctypes
+import io
+import urllib.request
 import hashlib
 import importlib.util
 import json
@@ -167,7 +169,69 @@ def no_existing_install():
         except FileNotFoundError: pass
 
 
-def driver_path():
+
+DRIVER_VERSION = '131.0.2903.86'
+DRIVER_URL = f'https://msedgedriver.microsoft.com/{DRIVER_VERSION}/edgedriver_win64.zip'
+DRIVER_ZIP_HASH = '16ad3ea073e26f0000d1315e0a851eeb44b2754c66d47652e265cce5dea662af'
+DRIVER_EXE_HASH = 'c34a6b22814a18599f2a67bef922ba879ae44158f216d4d2df797d293f545665'
+DRIVER_STAGE = 'md050-pinned-edge-driver'
+MICROSOFT_SUBJECT = 'CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US'
+
+
+def driver_stage():
+    return safe_path(stage().parent / DRIVER_STAGE)
+
+
+def verify_driver_signature(driver):
+    # Fixed script and literal environment input, never shell-interpolated paths.
+    script = "$s=Get-AuthenticodeSignature -LiteralPath $env:QA_DRIVER_FILE; @{status=$s.Status.ToString(); subject=$s.SignerCertificate.Subject; eku=@($s.SignerCertificate.EnhancedKeyUsageList | ForEach-Object {$_.ObjectId})} | ConvertTo-Json -Compress"
+    env = {k:v for k,v in os.environ.items() if k.upper() in {'SYSTEMROOT','WINDIR','PATH','TEMP','TMP'}}
+    env['QA_DRIVER_FILE'] = str(driver)
+    shell = safe_path(Path(os.environ['SYSTEMROOT'])/'System32/WindowsPowerShell/v1.0/powershell.exe')
+    result = subprocess.run([str(shell),'-NoLogo','-NoProfile','-NonInteractive','-Command',script],env=env,capture_output=True,text=True,timeout=30,check=True)
+    require(len(result.stdout)<=8192, 'signature response too large')
+    value=json.loads(result.stdout)
+    require(value.get('status')=='Valid' and value.get('subject')==MICROSOFT_SUBJECT and '1.3.6.1.5.5.7.3.3' in value.get('eku',[]), 'valid Microsoft code-signing signature required')
+
+
+def extract_driver(data, destination):
+    require(len(data)<=16*1024*1024 and hashlib.sha256(data).hexdigest()==DRIVER_ZIP_HASH, 'pinned driver archive digest mismatch')
+    with zipfile.ZipFile(io.BytesIO(data)) as archive:
+        entries=archive.infolist()
+        allowed={'Driver_Notes/','Driver_Notes/credits.html','Driver_Notes/EULA','Driver_Notes/LICENSE','msedgedriver.exe'}
+        require(len(entries)==5 and {x.filename for x in entries}==allowed, 'unexpected driver archive inventory')
+        require(all(x.orig_filename==x.filename and '\x00' not in x.orig_filename and not x.flag_bits&1 and stat.S_IFMT(x.external_attr>>16) in (0,stat.S_IFREG,stat.S_IFDIR) and x.file_size<=20*1024*1024 for x in entries), 'unsafe driver archive entry')
+        info=archive.getinfo('msedgedriver.exe')
+        require(info.file_size==17870408, 'driver executable size mismatch')
+        data=archive.read(info)
+    require(hashlib.sha256(data).hexdigest()==DRIVER_EXE_HASH, 'pinned driver executable digest mismatch')
+    with destination.open('xb') as f: f.write(data)
+
+
+def pinned_driver(runtime, provision=False):
+    require(runtime.split('.')[:3]==DRIVER_VERSION.split('.')[:3], 'runtime not covered by pinned driver; no dynamic download')
+    require(not os.environ.get('GH_TOKEN') and not os.environ.get('GITHUB_TOKEN'), 'driver provisioning must be token-free')
+    root=driver_stage(); driver=root/'msedgedriver.exe'
+    if provision:
+        root.mkdir()  # Exclusive ownership; never reuse or overwrite another stage.
+        try:
+            with open(os.environ['GITHUB_OUTPUT'],'a',encoding='utf-8') as output: output.write(f'driver_stage={root}\n')
+        except Exception:
+            root.rmdir()
+            raise
+        class NoRedirect(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self,*args,**kwargs): return None
+        opener=urllib.request.build_opener(urllib.request.ProxyHandler({}),NoRedirect())
+        with opener.open(DRIVER_URL,timeout=30) as response:
+            require(response.status==200 and response.geturl()==DRIVER_URL, 'unexpected driver download response')
+            data=response.read(16*1024*1024+1)
+        extract_driver(data,driver)
+    require(hash_file(driver,20*1024*1024)==DRIVER_EXE_HASH, 'pinned driver changed')
+    verify_driver_signature(driver)  # Before even executing --version.
+    return driver
+
+
+def driver_path(provision=False):
     import winreg
     runtime = reg_value(winreg.HKEY_LOCAL_MACHINE,RUNTIME_KEY,'pv')
     require(isinstance(runtime,str) and re.fullmatch(r'[1-9][0-9]*\.[0-9]+\.[0-9]+\.[0-9]+',runtime), 'machine WebView2 runtime missing; no automatic installation')
@@ -179,7 +243,13 @@ def driver_path():
     found=re.search(r'\b([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)\b', result.stdout)
     require(found is not None, 'Edge driver version missing or malformed')
     print(f'WebView2 {runtime}; Edge driver {found[1]}', flush=True)
-    require(found[1].split('.')[:3] == runtime.split('.')[:3], 'Edge driver does not match WebView2 runtime; no unpinned download')
+    if found[1].split('.')[:3] != runtime.split('.')[:3]:
+        driver=pinned_driver(runtime,provision)
+        result=subprocess.run([str(driver),'--version'],capture_output=True,text=True,check=True,timeout=10)
+        found=re.search(r'\b([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)\b',result.stdout)
+        require(found and found[1]==DRIVER_VERSION, 'pinned driver version mismatch')
+        print(f'Pinned Edge driver {found[1]}',flush=True)
+    require(found[1].split('.')[:3]==runtime.split('.')[:3], 'Edge driver does not match WebView2 runtime')
     return driver
 
 
@@ -266,6 +336,10 @@ def run_worker(mode, timeout):
 
 
 def cleanup():
+    if os.environ.get('DRIVER_STAGE_PATH'):
+        root=driver_stage()
+        require(os.environ['DRIVER_STAGE_PATH']==str(root), 'unexpected driver cleanup path')
+        if root.exists(): shutil.rmtree(root)
     if not os.environ.get('STAGE_PATH'): return
     work=selected()
     if (work/'install-attempted').exists(): run_worker('--uninstall-worker',90)
@@ -276,7 +350,7 @@ def main():
     require(os.name=='nt','Windows runner required')
     require(len(sys.argv)==2,'expected one fixed phase')
     mode=sys.argv[1]
-    if mode=='--check-driver': driver_path()
+    if mode=='--check-driver': driver_path(provision=True)
     elif mode=='--prepare': prepare()
     elif mode=='--probe': run_worker('--worker',300)
     elif mode=='--worker': worker()

@@ -14,7 +14,7 @@ The preparation token exists only in its step, with no display or application pr
 
 The original Tauri CLI 2.11.2 configuration has no Windows installer override; its default NSIS mode is current-user. The runner must have no existing Ashlr MD uninstall registration. `/S /NS /D=<owned path>` runs the normal silent installer without shortcuts or autorun. The final `/D=` path is deliberately unquoted as required by NSIS. No `/NCRC`, elevation, policy change, UAC or SmartScreen bypass is used. An unexpected prompt or security denial is a failure, not permission to suppress it.
 
-Before installation, the machine WebView2 Runtime registry version must be present and nonzero, and the runner's existing `EDGEWEBDRIVER` binary must match its first three version components. Missing or mismatched dependencies fail before installation: there is no runtime or driver download fallback. Pinned `tauri-driver` 2.1.0 uses that explicit native driver. Actual hosted compatibility remains to be established; listing versions is not a native test pass.
+Before installation, the machine WebView2 Runtime registry version must be present and nonzero, and the selected EdgeDriver must match its first three version components. The existing `EDGEWEBDRIVER` is preferred; only the fixed, verified compatibility fallback below may replace it for this probe. Missing or otherwise mismatched dependencies fail before installation; there is no runtime download. Pinned `tauri-driver` 2.1.0 uses that explicit native driver. Actual hosted compatibility remains to be established; listing versions is not a native test pass.
 
 The worker joins a non-inherited Windows Job Object with kill-on-close before spawning any installer, driver or application. A token-free supervisor bounds the entire worker at 300 seconds; worker exit or termination closes its final job handle and kills descendants. Nested-job assignment failures abort before installation. The Windows-only synthetic regression checks actual child and grandchild termination. Individual installer and WebDriver calls also have timeouts; no POSIX signal/alarm assumptions are used.
 
@@ -35,3 +35,24 @@ Stable metadata must still identify 0.4. The app's read-only update check is per
 - [NSIS command-line syntax](https://nsis.sourceforge.io/Docs/Chapter3.html)
 - [Windows Job Objects](https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects)
 - [GitHub Actions billing](https://docs.github.com/en/billing/concepts/product-billing/github-actions)
+
+## Pinned compatibility fallback
+
+The observed hosted machine has WebView2 `131.0.2903.86` while its bundled
+EdgeDriver is `156.0.4314.42`. The token-free preflight may download only
+`https://msedgedriver.microsoft.com/131.0.2903.86/edgedriver_win64.zip`, and only
+for the `131.0.2903` runtime build. It does not install or update WebView2.
+The archive SHA-256 is
+`16ad3ea073e26f0000d1315e0a851eeb44b2754c66d47652e265cce5dea662af`;
+the extracted executable SHA-256 is
+`c34a6b22814a18599f2a67bef922ba879ae44158f216d4d2df797d293f545665`.
+These identify independently retrieved official bytes, not an official checksum feed.
+Before executing even `--version`, Windows must validate the executable's
+Authenticode status, exact Microsoft Corporation signer and code-signing EKU.
+The download has no proxy, redirects, artifact token or dynamic version lookup;
+archive inventory, sizes and digests are checked before exclusive extraction.
+A separate exclusively created runner-temporary directory is cleaned by the
+always-run cleanup step, including after a partial download. The native worker
+never downloads a driver: it rechecks the retained digest, signature and version.
+An unsupported runtime fails closed. This does not establish the application's
+Authenticode reputation or relax SmartScreen, UAC, certificate or TLS settings.
