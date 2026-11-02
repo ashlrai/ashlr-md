@@ -1,7 +1,7 @@
 # mdlint autofix test inventory
 
-Scope: `src/lib/mdlint-autofix.test.ts` alone: 161 `it`/`it.each` call sites
-(242 test cases once `it.each` tables expand) in eight `describe` blocks.
+Scope: `src/lib/mdlint-autofix.test.ts` alone: 215 `it`/`it.each` call sites
+(400 test cases once `it.each` tables expand) in eight `describe` blocks.
 Test names below are quoted verbatim; `%j` and `%s` are `it.each` placeholders
 that expand to one case per table row. For what the fixes do, see the
 [autofix guide](mdlint-autofix-guide.md).
@@ -73,7 +73,8 @@ Fixes leave neighboring Markdown, prose, line endings, and sources intact.
 - Unicode: "preserves a Unicode image source and surrounding prose when fixing
   empty alt text", "keeps each normalization form when empty-alt sources
   differ only by composition", "autofixes Unicode whitespace-only alt text
-  without changing a Unicode source or CRLF".
+  without changing a Unicode source or CRLF", "inserts the placeholder into an
+  image missing alt text %j surrounded by Unicode prose".
 
 ### Multiple violations in one pass
 
