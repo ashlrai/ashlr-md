@@ -118,7 +118,7 @@ def prepared():
 
 
 def native_env(work):
-    allowed = {'PATH','PATHEXT','SYSTEMROOT','WINDIR','COMSPEC','PROGRAMFILES','PROGRAMFILES(X86)','PROGRAMW6432','USERNAME','USERDOMAIN','EDGEWEBDRIVER'}
+    allowed = {'PATH','PATHEXT','SYSTEMROOT','WINDIR','COMSPEC','PROGRAMFILES','PROGRAMFILES(X86)','PROGRAMW6432','USERNAME','USERDOMAIN','EDGEWEBDRIVER','ARGV_QUERY_READY'}
     env = {k:v for k,v in os.environ.items() if k.upper() in allowed}
     for key, part in {'HOME':'home','USERPROFILE':'home','APPDATA':'roaming','LOCALAPPDATA':'local','TEMP':'tmp','TMP':'tmp'}.items():
         path = work/part
@@ -359,24 +359,77 @@ def process_in_owned_job(pid):
     finally: kernel.CloseHandle(handle)
 
 
+def job_process_ids():
+    # Explicit owned job, including child jobs; never enumerate the whole machine.
+    from ctypes import wintypes as wt
+    require(_JOB is not None, 'missing owned job')
+    class Pids(ctypes.Structure):
+        _fields_=[('assigned',wt.DWORD),('count',wt.DWORD),('ids',ctypes.c_size_t*256)]
+    kernel=ctypes.WinDLL('kernel32',use_last_error=True)
+    kernel.QueryInformationJobObject.argtypes=[wt.HANDLE,ctypes.c_int,ctypes.c_void_p,wt.DWORD,ctypes.c_void_p]
+    kernel.QueryInformationJobObject.restype=wt.BOOL
+    result=Pids()
+    require(kernel.QueryInformationJobObject(_JOB,3,ctypes.byref(result),ctypes.sizeof(result),None), 'owned process list unavailable')
+    require(result.assigned==result.count and result.count<=256, 'owned process list truncated')
+    return list(result.ids[:result.count])
+
+
+def process_image(pid):
+    from ctypes import wintypes as wt
+    require(type(pid) is int and 0<pid<=0xffffffff, 'invalid owned process id')
+    kernel=ctypes.WinDLL('kernel32',use_last_error=True)
+    kernel.OpenProcess.argtypes=[wt.DWORD,wt.BOOL,wt.DWORD]; kernel.OpenProcess.restype=wt.HANDLE
+    kernel.CloseHandle.argtypes=[wt.HANDLE]; kernel.CloseHandle.restype=wt.BOOL
+    kernel.QueryFullProcessImageNameW.argtypes=[wt.HANDLE,wt.DWORD,wt.LPWSTR,ctypes.POINTER(wt.DWORD)]
+    kernel.QueryFullProcessImageNameW.restype=wt.BOOL
+    handle=kernel.OpenProcess(0x1000,False,pid)
+    require(handle, 'owned process open failed')
+    try:
+        require(process_in_owned_job(pid), 'process left owned job')
+        buffer=ctypes.create_unicode_buffer(32768); length=wt.DWORD(len(buffer))
+        require(kernel.QueryFullProcessImageNameW(handle,0,buffer,ctypes.byref(length)), 'owned process image unavailable')
+        return buffer.value
+    finally: kernel.CloseHandle(handle)
+
+
 def owned_app_processes(app):
     require(hash_file(app,64*1024**2)==EXE_HASH,'diagnostic app identity mismatch')
-    script = "@(Get-CimInstance Win32_Process -Filter \"Name='md-opener.exe'\" | Where-Object {$_.ExecutablePath -eq $env:QA_APP_PATH} | Select-Object ProcessId,ExecutablePath,CommandLine) | ConvertTo-Json -Compress"
+    return [pid for pid in job_process_ids() if os.path.normcase(process_image(pid))==os.path.normcase(str(app))]
+
+
+class ProcessQueryUnavailable(ValueError):
+    pass
+
+
+def query_command_line(pid):
+    require(type(pid) is int and 0<pid<=0xffffffff,'invalid process query id')
+    # Only a previously verified owned PID (or our preflight self), never arbitrary WQL.
+    script="Get-CimInstance Win32_Process -Filter ('ProcessId=' + $env:QA_PROCESS_ID) | Select-Object ProcessId,CommandLine | ConvertTo-Json -Compress"
     env={k:v for k,v in os.environ.items() if k.upper() in {'SYSTEMROOT','WINDIR','PATH','TEMP','TMP'}}
-    env['QA_APP_PATH']=str(app)
+    env['QA_PROCESS_ID']=str(pid)
     shell=safe_path(Path(os.environ['SYSTEMROOT'])/'System32/WindowsPowerShell/v1.0/powershell.exe')
+    reason=None
     try:
         result=subprocess.run([str(shell),'-NoLogo','-NoProfile','-NonInteractive','-Command',script],env=env,capture_output=True,text=True,timeout=20,check=True)
-        require(len(result.stdout)<=40000,'process response too large')
-        rows=json.loads(result.stdout or '[]')
-    except (subprocess.SubprocessError,ValueError):
-        raise ValueError('owned app process query failed') from None
-    if isinstance(rows,dict): rows=[rows]
-    require(isinstance(rows,list) and len(rows)<=4,'unexpected app process count')
-    for row in rows:
-        require(isinstance(row,dict) and row.get('ExecutablePath')==str(app),'unexpected process path')
-        require(process_in_owned_job(row.get('ProcessId')),'app process not owned by probe job')
-    return rows
+        require(len(result.stdout)<=40000,'response size')
+        row=json.loads(result.stdout)
+        require(isinstance(row,dict) and row.get('ProcessId')==pid and isinstance(row.get('CommandLine'),str) and 0<len(row['CommandLine'])<=32768,'response shape')
+        return row['CommandLine']
+    except subprocess.TimeoutExpired: reason='timeout'
+    except subprocess.CalledProcessError: reason='exit'
+    except (OSError,subprocess.SubprocessError): reason='launch'
+    except (ValueError,TypeError): reason='shape'
+    raise ProcessQueryUnavailable('process query unavailable: '+reason) from None
+
+
+def check_process_query():
+    ready=False
+    try: query_command_line(os.getpid()); ready=True
+    except ProcessQueryUnavailable as error: print(str(error))
+    print('Optional argv query available:',ready)
+    output=os.environ.get('GITHUB_OUTPUT')
+    require(bool(output),'missing workflow output')
+    with open(output,'a',encoding='utf-8') as f: f.write('ready='+str(ready).lower()+'\n')
 
 
 def argv_summary(args,fixture):
@@ -388,9 +441,15 @@ def argv_summary(args,fixture):
 
 def report_app_argv(app,fixture):
     try:
+        if os.environ.get('ARGV_QUERY_READY')!='true':
+            print('Owned synthetic app argv diagnostic unavailable: preflight'); return
         rows=owned_app_processes(app)
         require(len(rows)==1,'expected one newly launched owned app')
-        print('Owned synthetic app argv:',json.dumps(argv_summary(windows_argv(rows[0].get('CommandLine')),fixture)))
+        command=query_command_line(rows[0])
+        require(rows==owned_app_processes(app),'owned app identity changed during query')
+        print('Owned synthetic app argv:',json.dumps(argv_summary(windows_argv(command),fixture)))
+    except ProcessQueryUnavailable as error:
+        print(str(error))
     except Exception:
         print('Owned synthetic app argv diagnostic unavailable')
 
@@ -403,14 +462,27 @@ def clear_readonly_attribute(path,attributes):
     require(kernel.SetFileAttributesW(str(path),attributes & ~1),'readonly attribute cleanup failed')
 
 
+def validate_cleanup_root(root):
+    # Only workflow-selected exclusive staging roots, never arbitrary supplied paths.
+    artifact=stage(); driver=driver_stage()
+    require((root==artifact and os.environ.get('STAGE_PATH')==str(root))
+            or (root==driver and os.environ.get('DRIVER_STAGE_PATH')==str(root)), 'unowned cleanup root')
+    safe_path(root)
+    info=root.lstat()
+    require(stat.S_ISDIR(info.st_mode) and not stat.S_ISLNK(info.st_mode) and not getattr(info,'st_file_attributes',0)&0x400,'unsafe cleanup root')
+
+
 def remove_owned_tree(root):
+    validate_cleanup_root(root)
     def failure(function,path,error):
         # Observe only a failed entry beneath our owned synthetic root. Never
-        # follow a junction or change ACLs. Only the readonly DOS bit on a real
-        # owned file or directory may be cleared before one removal retry.
+        # follow a junction or change ACLs. Only the exact observed readonly DOS
+        # bit on an owned regular file or directory may be cleared before one removal retry.
         try:
             relative=Path(path).relative_to(root)
-            require('..' not in relative.parts, 'cleanup path escaped owned root')
+            require(relative!=Path('.') and '..' not in relative.parts, 'cleanup path escaped owned root')
+            root_info=root.lstat()
+            require(stat.S_ISDIR(root_info.st_mode) and not stat.S_ISLNK(root_info.st_mode) and not getattr(root_info,'st_file_attributes',0)&0x400,'unsafe cleanup root')
             parent=root
             for part in relative.parts[:-1]:
                 parent=parent/part
@@ -511,6 +583,7 @@ def main():
     require(len(sys.argv)==2,'expected one fixed phase')
     mode=sys.argv[1]
     if mode=='--check-driver': driver_path(provision=True)
+    elif mode=='--check-process-query': check_process_query()
     elif mode=='--prepare': prepare()
     elif mode=='--probe': run_worker('--worker',300)
     elif mode=='--worker': worker()

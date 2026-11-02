@@ -29,6 +29,10 @@ jobs:
         id: driver
         timeout-minutes: 2
         run: python scripts/native-qa-windows.py --check-driver
+      - name: Check optional process argv diagnostic availability
+        id: process_query
+        timeout-minutes: 1
+        run: python scripts/native-qa-windows.py --check-process-query
       - name: Install pinned driver and build locked signature verifier
         run: |
           cargo install tauri-driver --version 2.1.0 --locked
@@ -42,6 +46,7 @@ jobs:
         run: python scripts/native-qa-windows.py --prepare
       - name: Install probe and uninstall without artifact token
         env:
+          ARGV_QUERY_READY: ${{ steps.process_query.outputs.ready }}
           STAGE_PATH: ${{ steps.prepare.outputs.stage }}
         run: python scripts/native-qa-windows.py --probe
       - name: Uninstall if needed and remove owned staging

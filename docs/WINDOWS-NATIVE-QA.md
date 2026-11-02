@@ -76,19 +76,29 @@ Microsoft documents as application arguments when launching WebView2. Original
 721b source buffers CLI paths at setup and drains them after frontend mount.
 These contracts do not prove the cause of the observed empty heading/paragraph.
 Cleanup errors report only the failed owned relative path and file-type,
-read-only/reparse flags. Any failed owned file or directory that carried the DOS
-read-only bit may have that single bit cleared after a WinError 5 from removal,
-then that same removal is retried once. Other attributes are preserved,
-reparse paths and linked ancestors are rejected, and any subsequent failure is
-propagated. No ACL or security-policy change is performed. The bounded retry
-covers the read-only bit the shell stamps on the special folders it creates
-under the synthetic profile (Start Menu, Programs and siblings) and on metadata
-files such as desktop.ini.
+read-only/reparse flags. As in merged #640, owned regular files and directories
+may have only their DOS read-only bit cleared after WinError 5 from removal, then
+that same removal is retried once. Other attributes remain unchanged. This covers
+shell-folder parents and metadata files such as desktop.ini without guessing each
+successive folder name. The helper itself requires one of the two fixed, selected
+artifact/driver staging roots and validates its canonical nonreparse identity.
+Root itself, escaping paths, reparse targets/ancestors, other errors and special
+file types cannot trigger attribute changes. No ACL/security-policy change occurs.
+A failed retry remains a failed cleanup. Tests cover the complete synthetic shell
+folder chain as an example, regular-file cleanup, and root/containment negatives.
 
 Before creating a WebDriver session, the probe verifies that the original installer
-left no running instance of the exact installed executable. Afterwards, a bounded
-read-only process query selects that same executable, verifies membership in the
-probe's owned Windows Job Object, and parses its command line with the Windows API.
+left no running instance of the exact installed executable inside its owned job.
+This mandatory guard uses `QueryInformationJobObject` (complete list, maximum 256)
+and `QueryFullProcessImageNameW` with limited-query handles, not PowerShell/CIM.
+Windows case-insensitive image comparison is applied only to the qualified installed
+path; handles are closed and incomplete/failed inspection remains a failure.
+Before artifact preparation, a token-free optional CIM self-query checks availability
+with the unchanged 20-second budget. Only timeout/exit/launch/shape failure classes
+are reported, never captured output. Unavailable argv diagnostics do not block the
+original DOM scenario. If available, the later query selects one verified owned PID,
+rechecks identity/job membership after querying, and parses its command line with
+the Windows API. No unsupported remote-memory/PEB inspection is used.
 Only the argument count and exact/prefixed/quoted synthetic-fixture match booleans
 are printed. Raw arguments, process environment and unrelated processes are never
 logged. A missing or ambiguous observation is reported as unavailable, not proof

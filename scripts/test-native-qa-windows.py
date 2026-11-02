@@ -26,6 +26,25 @@ def canonical_tempdir(**kwargs):
 
 
 class Tests(unittest.TestCase):
+    def remove_callback_tree(self, root):
+        with patch.object(w,'validate_cleanup_root'):
+            return w.remove_owned_tree(root)
+
+    def test_cleanup_accepts_only_selected_fixed_nonreparse_roots(self):
+        with canonical_tempdir() as t:
+            parent=Path(t); artifact=parent/w.STAGE; driver=parent/w.DRIVER_STAGE
+            artifact.mkdir(); driver.mkdir(); other=parent/'other'; other.mkdir()
+            with patch.dict(os.environ,{'RUNNER_TEMP':str(parent),'STAGE_PATH':str(artifact),'DRIVER_STAGE_PATH':str(driver)}):
+                w.validate_cleanup_root(artifact); w.validate_cleanup_root(driver)
+                with self.assertRaises(ValueError): w.validate_cleanup_root(other)
+                with patch.dict(os.environ,{'STAGE_PATH':'wrong'}):
+                    with self.assertRaises(ValueError): w.validate_cleanup_root(artifact)
+                with patch.object(w,'safe_path',side_effect=ValueError('link')):
+                    with self.assertRaises(ValueError): w.validate_cleanup_root(artifact)
+            with patch.object(w,'validate_cleanup_root',side_effect=ValueError('unowned')), patch.object(w.shutil,'rmtree') as remove:
+                with self.assertRaises(ValueError): w.remove_owned_tree(other)
+                remove.assert_not_called()
+
     def test_runtime_guard_still_rejects_relative_parent_and_reparse_paths(self):
         from types import SimpleNamespace
         with canonical_tempdir() as t:
@@ -203,7 +222,9 @@ class Tests(unittest.TestCase):
                 for untouched in [prepare,prepared,worker,run_worker,run]: untouched.assert_not_called()
         workflow=(SCRIPT.parents[1]/'.github/workflows/native-qa-windows.yml').read_text()
         check=workflow.index('      - name: Check installed WebView2')
-        build=workflow.index('      - name: Install pinned driver')
+        build=workflow.index('      - name: Check optional process argv')
+        self.assertLess(build,workflow.index('      - name: Prepare and verify original artifacts'))
+        self.assertIn('ARGV_QUERY_READY: ${{ steps.process_query.outputs.ready }}',workflow)
         prepare=workflow.index('      - name: Prepare and verify original artifacts')
         self.assertLess(check,build); self.assertLess(build,prepare)
         self.assertEqual(workflow[check:build], '      - name: Check installed WebView2 and Edge driver compatibility\n        id: driver\n        timeout-minutes: 2\n        run: python scripts/native-qa-windows.py --check-driver\n')
@@ -337,7 +358,7 @@ class Tests(unittest.TestCase):
             def fail(path,onexc): onexc(os.rmdir,str(child),error)
             output=io.StringIO()
             with patch.object(w.os,'name','posix'), patch.object(w.shutil,'rmtree',side_effect=fail), patch.object(w.Path,'lstat',return_value=info), patch.object(w.os,'chmod') as chmod, patch('sys.stdout',output):
-                with self.assertRaises(PermissionError): w.remove_owned_tree(root)
+                with self.assertRaises(PermissionError): self.remove_callback_tree(root)
                 chmod.assert_not_called()
             self.assertTrue(child.is_dir())
             parsed=json.loads(output.getvalue().split(': ',1)[1])
@@ -350,7 +371,7 @@ class Tests(unittest.TestCase):
                 def fail(path,onexc): onexc(os.rmdir,str(target),error)
                 output=io.StringIO()
                 with patch.object(w.shutil,'rmtree',side_effect=fail), patch.object(w.Path,'lstat',return_value=info) as lstat, patch('sys.stdout',output):
-                    with self.assertRaises(PermissionError): w.remove_owned_tree(root)
+                    with self.assertRaises(PermissionError): self.remove_callback_tree(root)
                 self.assertEqual(lstat.call_count,0 if info is None else 1)
                 self.assertIn('diagnostic unavailable',output.getvalue())
 
@@ -361,34 +382,83 @@ class Tests(unittest.TestCase):
             self.assertTrue(result[key]); self.assertEqual(result['argument_count'],2)
             self.assertNotIn('private-token',json.dumps(result))
         output=io.StringIO()
-        with patch.object(w,'owned_app_processes',return_value=[{'CommandLine':'private-command'}]), patch.object(w,'windows_argv',return_value=['app',str(fixture),'private-token']), patch('sys.stdout',output): w.report_app_argv(Path('/app'),fixture)
+        with patch.dict(os.environ,{'ARGV_QUERY_READY':'true'}), patch.object(w,'owned_app_processes',return_value=[123]), patch.object(w,'query_command_line',return_value='private-command'), patch.object(w,'windows_argv',return_value=['app',str(fixture),'private-token']), patch('sys.stdout',output): w.report_app_argv(Path('/app'),fixture)
         self.assertNotIn('private',output.getvalue())
         with patch.object(w,'owned_app_processes',side_effect=ValueError('private-command')), patch('sys.stdout',output): w.report_app_argv(Path('/app'),fixture)
         self.assertNotIn('private',output.getvalue())
 
-    def test_app_query_requires_exact_path_and_owned_job(self):
-        with canonical_tempdir() as t:
-            app=Path(t)/'md-opener.exe'; app.touch()
-            row={'ProcessId':123,'ExecutablePath':str(app),'CommandLine':'private-command'}
-            with patch.dict(os.environ,{'SYSTEMROOT':t,'GH_TOKEN':'not-inherited'}), patch.object(w,'hash_file',return_value=w.EXE_HASH), patch.object(w.subprocess,'run',return_value=MagicMock(stdout=json.dumps(row))) as run, patch.object(w,'process_in_owned_job',return_value=False):
-                with self.assertRaises(ValueError): w.owned_app_processes(app)
-                self.assertNotIn('GH_TOKEN',run.call_args.kwargs['env'])
-                self.assertEqual(run.call_args.kwargs['timeout'],20)
-            with patch.dict(os.environ,{'SYSTEMROOT':t}), patch.object(w,'hash_file',return_value=w.EXE_HASH), patch.object(w.subprocess,'run',return_value=MagicMock(stdout=json.dumps(dict(row,ExecutablePath='other')))), patch.object(w,'process_in_owned_job') as member:
-                with self.assertRaises(ValueError): w.owned_app_processes(app)
-                member.assert_not_called()
+    def test_app_query_uses_only_job_images_and_original_hash(self):
+        app=Path('/synthetic/md-opener.exe')
+        with patch.object(w,'hash_file',return_value=w.EXE_HASH), patch.object(w,'job_process_ids',return_value=[1,2]), patch.object(w,'process_image',side_effect=[str(app),'other']) as image, patch.object(w.subprocess,'run') as run:
+            self.assertEqual(w.owned_app_processes(app),[1]); self.assertEqual(image.call_count,2); run.assert_not_called()
+        with patch.object(w,'hash_file',return_value='wrong'), patch.object(w,'job_process_ids') as ids:
+            with self.assertRaises(ValueError): w.owned_app_processes(app)
+            ids.assert_not_called()
 
-    def test_process_query_failure_traceback_does_not_disclose_captured_data(self):
+    def test_query_sanitizes_timeout_exit_and_shape_without_token(self):
         import traceback
         with canonical_tempdir() as t:
-            error=subprocess.CalledProcessError(1,'private-command',output='private-argv',stderr='private-stderr')
-            with patch.dict(os.environ,{'SYSTEMROOT':t}), patch.object(w,'hash_file',return_value=w.EXE_HASH), patch.object(w.subprocess,'run',side_effect=error):
-                try: w.owned_app_processes(Path(t)/'md-opener.exe')
-                except ValueError as caught:
-                    rendered=''.join(traceback.format_exception(caught))
-                    self.assertIn('owned app process query failed',rendered)
-                    for secret in ['private-command','private-argv','private-stderr']: self.assertNotIn(secret,rendered)
-                else: self.fail('query failure accepted')
+            for error,kind in [(subprocess.TimeoutExpired('private-command',20,output='private-argv'),'timeout'),(subprocess.CalledProcessError(1,'private-command',output='private-argv',stderr='private-stderr'),'exit'),(OSError('private-argv'),'launch')]:
+                with patch.dict(os.environ,{'SYSTEMROOT':t,'GH_TOKEN':'private-token'}), patch.object(w.subprocess,'run',side_effect=error) as run:
+                    try: w.query_command_line(123)
+                    except w.ProcessQueryUnavailable as caught:
+                        rendered=''.join(traceback.format_exception(caught)); self.assertIn('unavailable: '+kind,rendered)
+                        for secret in ['private-command','private-argv','private-stderr','private-token']: self.assertNotIn(secret,rendered)
+                    else: self.fail('query failure accepted')
+                    self.assertNotIn('GH_TOKEN',run.call_args.kwargs['env']); self.assertEqual(run.call_args.kwargs['timeout'],20)
+            for result in ['private-invalid-json',json.dumps({'ProcessId':124,'CommandLine':'private-command'})]:
+                with patch.dict(os.environ,{'SYSTEMROOT':t}), patch.object(w.subprocess,'run',return_value=MagicMock(stdout=result)):
+                    with self.assertRaisesRegex(w.ProcessQueryUnavailable,'shape'): w.query_command_line(123)
+            with patch.object(w.subprocess,'run') as run:
+                with self.assertRaises(ValueError): w.query_command_line('123 OR 1=1')
+                run.assert_not_called()
+
+    def test_optional_preflight_failure_does_not_prepare_or_launch(self):
+        with canonical_tempdir() as t:
+            output=Path(t)/'output'; capture=io.StringIO()
+            with patch.dict(os.environ,{'GITHUB_OUTPUT':str(output)}), patch.object(w,'query_command_line',side_effect=w.ProcessQueryUnavailable('process query unavailable: timeout')), patch.object(w,'prepare') as prep, patch.object(w,'worker') as worker, patch('sys.stdout',capture):
+                w.check_process_query(); prep.assert_not_called(); worker.assert_not_called()
+            self.assertEqual(output.read_text(),'ready=false\n'); self.assertIn('timeout',capture.getvalue())
+            with patch.dict(os.environ,{'ARGV_QUERY_READY':'false'}), patch.object(w,'owned_app_processes') as processes, patch.object(w,'query_command_line') as query:
+                w.report_app_argv(Path('/app'),Path('/fixture')); processes.assert_not_called(); query.assert_not_called()
+
+    def test_query_result_requires_same_owned_identity_afterward(self):
+        output=io.StringIO()
+        with patch.dict(os.environ,{'ARGV_QUERY_READY':'true'}), patch.object(w,'owned_app_processes',side_effect=[[123],[]]), patch.object(w,'query_command_line',return_value='private-command'), patch.object(w,'windows_argv') as parse, patch('sys.stdout',output):
+            w.report_app_argv(Path('/app'),Path('/fixture')); parse.assert_not_called()
+        self.assertNotIn('private',output.getvalue()); self.assertIn('unavailable',output.getvalue())
+
+    def test_job_process_list_is_complete_bounded_and_explicit(self):
+        kernel=MagicMock()
+        def query(job,kind,pointer,size,returned):
+            self.assertEqual(job,123); self.assertEqual(kind,3)
+            obj=pointer._obj; obj.assigned=2; obj.count=2; obj.ids[0]=1; obj.ids[1]=2; return 1
+        kernel.QueryInformationJobObject.side_effect=query
+        with patch.object(w,'_JOB',123), patch.object(w.ctypes,'WinDLL',return_value=kernel,create=True):
+            self.assertEqual(w.job_process_ids(),[1,2])
+            def truncated(*args): args[2]._obj.assigned=257; args[2]._obj.count=256; return 1
+            kernel.QueryInformationJobObject.side_effect=truncated
+            with self.assertRaises(ValueError): w.job_process_ids()
+            kernel.QueryInformationJobObject.side_effect=None; kernel.QueryInformationJobObject.return_value=0
+            with self.assertRaises(ValueError): w.job_process_ids()
+
+    def test_process_image_closes_limited_handle_on_failure(self):
+        kernel=MagicMock(); kernel.OpenProcess.return_value=44; kernel.QueryFullProcessImageNameW.return_value=0
+        with patch.object(w.ctypes,'WinDLL',return_value=kernel,create=True), patch.object(w,'process_in_owned_job',return_value=True):
+            with self.assertRaises(ValueError): w.process_image(123)
+        kernel.OpenProcess.assert_called_once_with(0x1000,False,123); kernel.CloseHandle.assert_called_once_with(44)
+
+    def test_entire_finite_readonly_shell_folder_chain_retries_once(self):
+        with canonical_tempdir() as t:
+            root=Path(t); deepest=Path('home/AppData/Roaming/Microsoft/Windows/Start Menu/Programs')
+            chain=[deepest,*[p for p in deepest.parents if p!=Path('.')]]
+            error=PermissionError('synthetic'); error.winerror=5
+            info=MagicMock(st_mode=0o040700,st_file_attributes=17)
+            def remove(path,onexc):
+                for relative in chain: onexc(w.os.rmdir,str(root/relative),error)
+            with patch.object(w.os,'name','nt'), patch.object(w,'Path',type(root)), patch.object(type(root),'lstat',return_value=info), patch.object(w,'stage',return_value=root), patch.object(w.shutil,'rmtree',side_effect=remove), patch.object(w.os,'rmdir') as retry, patch.object(w,'clear_readonly_attribute') as clear:
+                self.remove_callback_tree(root)
+                self.assertEqual(clear.call_count,7); self.assertEqual(retry.call_count,7)
 
     def test_owned_readonly_entries_get_one_delete_retry_each(self):
         with canonical_tempdir() as t:
@@ -400,11 +470,11 @@ class Tests(unittest.TestCase):
             ]:
                 error=PermissionError('synthetic'); error.winerror=5
                 def fail(path,onexc): onexc(getattr(w.os,name),str(target),error)
-                with patch.object(w.os,'name','nt'), patch.object(w,'Path',type(root)), patch.object(type(root),'lstat',return_value=info), patch.object(w.shutil,'rmtree',side_effect=fail), patch.object(w.os,name) as retry, patch.object(w,'clear_readonly_attribute') as clear:
-                    w.remove_owned_tree(root)
+                with patch.object(w.os,'name','nt'), patch.object(w,'Path',type(root)), patch.object(type(root),'lstat',autospec=True,side_effect=lambda path: info if path==target else MagicMock(st_mode=0o040700,st_file_attributes=16)), patch.object(w.shutil,'rmtree',side_effect=fail), patch.object(w.os,name) as retry, patch.object(w,'clear_readonly_attribute') as clear:
+                    self.remove_callback_tree(root)
                     clear.assert_called_once_with(target,info.st_file_attributes); retry.assert_called_once_with(str(target))
                     clear.reset_mock(); retry.reset_mock(); retry.side_effect=PermissionError('still denied')
-                    with self.assertRaises(PermissionError): w.remove_owned_tree(root)
+                    with self.assertRaises(PermissionError): self.remove_callback_tree(root)
                     self.assertEqual(retry.call_count,1)
 
     def test_readonly_cleanup_rejects_all_other_entries_and_errors(self):
@@ -418,8 +488,17 @@ class Tests(unittest.TestCase):
                 error=PermissionError('synthetic'); error.winerror=winerror
                 info=MagicMock(st_mode=mode,st_file_attributes=attrs)
                 def fail(current,onexc): onexc((lambda p: None) if wrong_function else w.os.rmdir,str(target),error)
-                with patch.object(w.os,'name','nt'), patch.object(w,'Path',type(root)), patch.object(type(root),'lstat',return_value=info), patch.object(w.shutil,'rmtree',side_effect=fail), patch.object(w,'clear_readonly_attribute') as clear:
-                    with self.assertRaises(PermissionError): w.remove_owned_tree(root)
+                with patch.object(w.os,'name','nt'), patch.object(w,'Path',type(root)), patch.object(type(root),'lstat',autospec=True,side_effect=lambda path: info if path==target else MagicMock(st_mode=0o040700,st_file_attributes=16)), patch.object(w.shutil,'rmtree',side_effect=fail), patch.object(w,'clear_readonly_attribute') as clear:
+                    with self.assertRaises(PermissionError): self.remove_callback_tree(root)
+                    clear.assert_not_called()
+
+    def test_cleanup_never_clears_root_or_escaping_target(self):
+        with canonical_tempdir() as t:
+            root=Path(t); error=PermissionError('synthetic'); error.winerror=5
+            for target in [root,root/'..'/'outside',root.parent/'outside']:
+                def fail(current,onexc): onexc(w.os.rmdir,str(target),error)
+                with patch.object(w.os,'name','nt'), patch.object(w,'Path',type(root)), patch.object(w.shutil,'rmtree',side_effect=fail), patch.object(w,'clear_readonly_attribute') as clear:
+                    with self.assertRaises(PermissionError): self.remove_callback_tree(root)
                     clear.assert_not_called()
 
     def test_dos_attribute_setter_preserves_every_other_bit(self):
@@ -476,7 +555,7 @@ class Tests(unittest.TestCase):
         with canonical_tempdir() as t:
             receipt=Path(t)/'pids.json'
             child='import subprocess,sys,time,json,os; p=subprocess.Popen([sys.executable,"-c","import time; time.sleep(60)"]); open('+repr(str(receipt)+'.tmp')+',"w").write(json.dumps([os.getpid(),p.pid])); os.replace('+repr(str(receipt)+'.tmp')+','+repr(str(receipt))+'); time.sleep(60)'
-            worker='import importlib.util,subprocess,sys,time,os; s=importlib.util.spec_from_file_location("qa",'+repr(str(SCRIPT))+'); m=importlib.util.module_from_spec(s); s.loader.exec_module(m); m.enter_owned_job(); assert m.process_in_owned_job(os.getpid()); subprocess.Popen([sys.executable,"-c",'+repr(child)+']); time.sleep(60)'
+            worker='import importlib.util,subprocess,sys,time,os; s=importlib.util.spec_from_file_location("qa",'+repr(str(SCRIPT))+'); m=importlib.util.module_from_spec(s); s.loader.exec_module(m); m.enter_owned_job(); assert m.process_in_owned_job(os.getpid()); assert os.getpid() in m.job_process_ids(); assert os.path.samefile(m.process_image(os.getpid()),sys.executable); subprocess.Popen([sys.executable,"-c",'+repr(child)+']); time.sleep(60)'
             proc=subprocess.Popen([sys.executable,'-c',worker])
             handles=[]
             try:
