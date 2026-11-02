@@ -5242,3 +5242,82 @@ describe("invalid-link-target autofix: link label preservation", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+describe("invalid-link-target autofix: placeholder diagnostic", () => {
+  it.each([
+    "",
+    "   ",
+    "#",
+    "?",
+  ])("writes exactly TODO as the destination for invalid href %j while preserving surrounding text", (href) => {
+    const label = "the café draft";
+    const link = `[${label}](${href})`;
+    const doc = `Opening prose. ${link} Closing prose.\n`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    const violation = violations[0];
+    expect(violation.ruleId).toBe("invalid-link-target");
+    expect(violation.severity).toBe("warning");
+    expect(violation.message).toBe(
+      `Invalid link target: [${label}](${href || "empty"})`,
+    );
+    expect(violation.fix).not.toBeNull();
+    const { from, to } = violation.range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(link);
+
+    const fixed = applyAllFixes(doc, violations);
+    // The captured destination is exactly TODO — no residue of the old href
+    // or padding around it.
+    const match = fixed.match(/\[the café draft]\(([^)]*)\)/);
+    expect(match).not.toBeNull();
+    expect(match![1]).toBe("TODO");
+    // Everything outside the flagged link survives byte-for-byte.
+    expect(fixed.slice(0, from.offset)).toBe(doc.slice(0, from.offset));
+    expect(fixed.slice(from.offset + `[${label}](TODO)`.length)).toBe(
+      doc.slice(to.offset),
+    );
+    expect(fixed).toBe(`Opening prose. [${label}](TODO) Closing prose.\n`);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("inserts the placeholder in only the flagged link amid a valid link, code span and image (%j line endings)", (newline) => {
+    const doc = [
+      "---",
+      "title: Guide",
+      "---",
+      "",
+      "See ![chart](images/chart.png) and `[sample]()` in code,",
+      "then [draft](?) beside [guide](./guide.md).",
+      "",
+    ].join(newline);
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("invalid-link-target");
+    expect(violations[0].fix).not.toBeNull();
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe("[draft](?)");
+
+    const fixed = applyAllFixes(doc, violations);
+    const match = fixed.match(/\[draft]\(([^)]*)\)/);
+    expect(match).not.toBeNull();
+    expect(match![1]).toBe("TODO");
+    // TODO appears once: it is the new destination, not inserted elsewhere.
+    expect(fixed.split("TODO")).toHaveLength(2);
+    expect(fixed.slice(0, from.offset)).toBe(doc.slice(0, from.offset));
+    expect(fixed.slice(from.offset + "[draft](TODO)".length)).toBe(
+      doc.slice(to.offset),
+    );
+    expect(fixed).toContain("`[sample]()`");
+    expect(fixed).toContain("[guide](./guide.md)");
+    expect(fixed).toContain("![chart](images/chart.png)");
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
