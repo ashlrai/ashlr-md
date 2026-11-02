@@ -7129,3 +7129,30 @@ describe("missing-alt-text autofix: idempotence for linked and angle-bracket ima
     expect(fixPass(fixPass(doc))).toBe(once);
   });
 });
+
+describe("rule:invalid-link-target CRLF with valid neighbors", () => {
+  it("changes only the invalid href bytes and keeps every CRLF and valid link", () => {
+    const doc = [
+      "# Guide",
+      "",
+      "Valid [docs](https://example.com/a) and [local](./b.md).",
+      "Broken [oops]() here.",
+      "Valid [anchor](#top) after.",
+      "",
+    ].join("\r\n");
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(doc.replace("[oops]()", "[oops](TODO)"));
+
+    // Common prefix and suffix cover everything except the inserted "TODO".
+    const at = doc.indexOf("[oops](") + "[oops](".length;
+    expect(fixed.slice(0, at)).toBe(doc.slice(0, at));
+    expect(fixed.slice(at + "TODO".length)).toBe(doc.slice(at));
+    expect(fixed.match(/\r\n/g)).toHaveLength(doc.match(/\r\n/g)!.length);
+    expect(fixed.replace(/\r\n/g, "")).not.toMatch(/[\r\n]/);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
