@@ -6211,3 +6211,103 @@ describe("rule:missing-alt-text two undescribed images", () => {
     expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
   });
 });
+
+describe("rule:missing-alt-text mixed described and undescribed images", () => {
+  it.each([
+    "\n",
+    "\r\n",
+  ])("adds description only to the undescribed image and preserves the described one with %j line endings", (newline) => {
+    const described = "![a bar chart showing quarterly revenue](chart.png)";
+    const undescribed = "![](photo.jpg)";
+    const doc = `Gallery.${newline}${described} and ${undescribed} on the right.${newline}End.${newline}`;
+
+    const expectedDescribed = described; // must not change
+    const expectedUndescribed = "![TODO: describe image](photo.jpg)";
+    const expected = `Gallery.${newline}${expectedDescribed} and ${expectedUndescribed} on the right.${newline}End.${newline}`;
+
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    // Only the undescribed image is flagged
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("missing-alt-text");
+
+    // The violation range covers the undescribed image
+    expect(
+      doc.slice(violations[0].range!.from.offset, violations[0].range!.to.offset),
+    ).toBe(undescribed);
+
+    const fixed = applyAllFixes(doc, violations);
+
+    // Described image preserved exactly
+    expect(fixed).toContain(described);
+    // Undescribed image now has a placeholder
+    expect(fixed).toContain(expectedUndescribed);
+    // Full document matches expected
+    expect(fixed).toBe(expected);
+
+    // Re-lint is clean
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+
+    // Idempotent
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+
+  it.each([
+    ["\n", "\n\n"],
+    ["\r\n", "\r\n\r\n"],
+  ])("multiple undescribed images get descriptions while described ones stay intact (%j line endings)", (newline, gap) => {
+    const good1 = "![a logo](logo.svg)";
+    const bad1 = "![](banner.png)";
+    const good2 = '![map of the region "Map"](map.png)';
+    const bad2 = "![  ](thumb.jpg)";
+
+    const doc = `Intro.${gap}${good1}, ${bad1}, ${good2}, and ${bad2}.${newline}`;
+
+    const expectedBad1 = "![TODO: describe image](banner.png)";
+    const expectedBad2 = "![TODO: describe image](thumb.jpg)";
+
+    const expected = `Intro.${gap}${good1}, ${expectedBad1}, ${good2}, and ${expectedBad2}.${newline}`;
+
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    // Only the two undescribed images are flagged
+    expect(violations).toHaveLength(2);
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+      "missing-alt-text",
+      "missing-alt-text",
+    ]);
+
+    const fixed = applyAllFixes(doc, violations);
+
+    // Both described images preserved exactly
+    expect(fixed).toContain(good1);
+    expect(fixed).toContain(good2);
+    // Both undescribed images now have placeholders
+    expect(fixed).toContain(expectedBad1);
+    expect(fixed).toContain(expectedBad2);
+    expect(fixed).toBe(expected);
+
+    // Re-lint is clean
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+
+  it("handles described image with trailing punctuation and adjacent undescribed image", () => {
+    const doc = "See ![the diagram](diagram.png). And ![](screen.jpg) here.\n";
+    const expected =
+      "See ![the diagram](diagram.png). And ![TODO: describe image](screen.jpg) here.\n";
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("missing-alt-text");
+
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain("![the diagram](diagram.png).");
+    expect(fixed).toContain("![TODO: describe image](screen.jpg)");
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
