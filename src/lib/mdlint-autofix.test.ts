@@ -7007,3 +7007,34 @@ describe("rule:invalid-link-target CRLF document", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+describe("missing-alt-text autofix: idempotence for linked and angle-bracket images", () => {
+  const rules = [ruleMissingAltText];
+  const fixPass = (text: string) => applyAllFixes(text, lintDocument(text, { rules }));
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("a second autofix produces exactly the first result with %j line endings", (nl) => {
+    const doc = [
+      "# Gallery",
+      "",
+      '[![](badge.svg)](https://example.com/build) and ![](<my pic.png> "Pic").',
+      "Keep ![ok](c.png) and `![](decoy.png)` as is.",
+      "",
+    ].join(nl);
+    const expected = [
+      "# Gallery",
+      "",
+      '[![TODO: describe image](badge.svg)](https://example.com/build) and ![TODO: describe image](<my pic.png> "Pic").',
+      "Keep ![ok](c.png) and `![](decoy.png)` as is.",
+      "",
+    ].join(nl);
+
+    const once = fixPass(doc);
+    expect(once).toBe(expected);
+    expect(lintDocument(once, { rules })).toEqual([]);
+    expect(fixPass(once)).toBe(once);
+    expect(fixPass(fixPass(doc))).toBe(once);
+  });
+});
