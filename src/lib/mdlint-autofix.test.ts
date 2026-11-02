@@ -6531,3 +6531,48 @@ describe("rule:missing-alt-text unicode image sources", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+describe("rule:missing-alt-text CRLF documents", () => {
+  it("inserts the placeholder in every undescribed image of a CRLF document and keeps each line ending", () => {
+    const decoyFence = "```md\r\n![](decoy.png)\r\n```";
+    const doc = [
+      "# Gallery café",
+      "",
+      "![](images/one.png)  ",
+      'Second ![ ](images/two.png "Two") and ![Described](images/three.png).',
+      "",
+      decoyFence,
+      "",
+      "Last: ![](images/four.png)",
+      "",
+    ].join("\r\n");
+    const expected = [
+      "# Gallery café",
+      "",
+      "![TODO: describe image](images/one.png)  ",
+      'Second ![TODO: describe image](images/two.png "Two") and ![Described](images/three.png).',
+      "",
+      decoyFence,
+      "",
+      "Last: ![TODO: describe image](images/four.png)",
+      "",
+    ].join("\r\n");
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+      "missing-alt-text",
+      "missing-alt-text",
+      "missing-alt-text",
+    ]);
+    expect(violations.every(({ fix }) => fix !== null)).toBe(true);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // No bare LF was introduced and the line count is unchanged.
+    expect(fixed.replace(/\r\n/g, "")).not.toMatch(/[\r\n]/);
+    expect(fixed.split("\r\n")).toHaveLength(doc.split("\r\n").length);
+    const remaining = lintDocument(fixed, { rules });
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(fixed, remaining)).toBe(expected);
+  });
+});
