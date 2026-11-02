@@ -136,6 +136,27 @@ class Tests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError,'native Open dialog timeout'): w.real_open_file('session',work/'app',fixture,work)
                 proc.kill.assert_called_once(); self.assertEqual(proc.communicate.call_count,2)
 
+    def test_dialog_observation_schema_bounds_and_private_fields_rejected(self):
+        valid={'stage':'wait','reason':'not-found','count':1,'overflow':False,'windows':[{'class':'#32770','pattern':True,'modal':False,'enabled':True}]}
+        encode=lambda value: 'qa-uia-windows:'+json.dumps(value)
+        self.assertEqual(w.dialog_observation(encode(valid)),valid)
+        import copy
+        variants=[]
+        for key,value in [('title','private'),('stage','private'),('reason','private'),('count',9),('count',True),('overflow',1),('windows',[{}]*9)]:
+            item=copy.deepcopy(valid); item[key]=value; variants.append(item)
+        for key,value in [('title','private'),('class','a'*65),('class','secret\ntext'),('pattern',1),('modal','private'),('enabled',None)]:
+            item=copy.deepcopy(valid); item['windows'][0][key]=value; variants.append(item)
+        for item in variants:
+            with self.assertRaises(ValueError): w.dialog_observation(encode(item))
+        for text in ['',encode(valid)+'\n'+encode(valid),'qa-uia-windows:'+'x'*4097]:
+            with self.assertRaises(ValueError): w.dialog_observation(text)
+        script=(SCRIPT.parent/'native-qa-open-dialog.ps1').read_text()
+        self.assertIn("$window.Current.ProcessId -ne $targetPid",script)
+        self.assertIn("$dialogReason='not-found'",script)
+        self.assertIn("$dialogReason = 'provider-error'",script)
+        self.assertNotIn('$window.Current.Name',script)
+        self.assertNotIn('$window.Current.AutomationId',script)
+
     def test_ui_script_is_scoped_and_uses_only_real_control_patterns(self):
         script=(SCRIPT.parent/'native-qa-open-dialog.ps1').read_text()
         self.assertIn('RootElement.FindAll([Windows.Automation.TreeScope]::Children, $condition)',script)

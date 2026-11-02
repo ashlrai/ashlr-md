@@ -2,6 +2,8 @@ param([ValidateSet('Preflight','Open')][string]$Mode)
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $phase = 'assemblies'
+$dialogReason = 'provider-error'
+$observation = @{stage='not-started'; count=0; overflow=$false; windows=@()}
 try {
     Add-Type -AssemblyName UIAutomationClient
     Add-Type -AssemblyName UIAutomationTypes
@@ -28,20 +30,39 @@ try {
     $dialog = $null
     while ([DateTime]::UtcNow -lt $deadline) {
         # Immediate desktop children only; never traverse unrelated desktop subtrees.
+        $observation = @{stage='query'; count=0; overflow=$false; windows=@()}
         $windows = [Windows.Automation.AutomationElement]::RootElement.FindAll([Windows.Automation.TreeScope]::Children, $condition)
-        if ($windows.Count -gt 8) { throw 'window-count' }
+        $observation.count = [Math]::Min(8, $windows.Count)
+        $observation.overflow = $windows.Count -gt 8
+        if ($windows.Count -gt 8) { $dialogReason='count-overflow'; throw 'window-count' }
         $matches = @()
         foreach ($window in $windows) {
+            $observation.stage = 'inspect'
+            if ($window.Current.ProcessId -ne $targetPid) { $dialogReason='ownership'; throw 'unexpected-owner' }
+            # Read only class/pattern flags, never Name, text, paths or desktop descendants.
+            $class = $window.Current.ClassName
+            if ($null -eq $class -or $class -cnotmatch '^[A-Za-z0-9_#.: -]{1,64}$') { $class = 'unknown' }
+            $modal = $null
+            $available = $false
+            try {
+                $readPattern = $null
+                $available = $window.TryGetCurrentPattern([Windows.Automation.WindowPattern]::Pattern, [ref]$readPattern)
+                if ($available) { $modal = [bool]$readPattern.Current.IsModal }
+            } catch { $available = $false; $modal = $null }
+            $observation.windows += @{class=$class; pattern=[bool]$available; modal=$modal; enabled=[bool]$window.Current.IsEnabled}
+            $observation.stage = 'select'
             if ($window.Current.ClassName -ceq '#32770') {
                 $pattern = $window.GetCurrentPattern([Windows.Automation.WindowPattern]::Pattern)
                 if ($pattern.Current.IsModal -and $window.Current.IsEnabled) { $matches += $window }
             }
         }
-        if ($matches.Count -gt 1) { throw 'ambiguous-dialog' }
+        if ($matches.Count -gt 1) { $dialogReason='ambiguous'; throw 'ambiguous-dialog' }
         if ($matches.Count -eq 1) { $dialog = $matches[0]; break }
+        $observation.stage = 'wait'
         Start-Sleep -Milliseconds 200
     }
-    if ($null -eq $dialog -or $dialog.Current.ProcessId -ne $targetPid) { throw 'dialog-unavailable' }
+    if ($null -eq $dialog) { $dialogReason='not-found'; throw 'dialog-unavailable' }
+    if ($dialog.Current.ProcessId -ne $targetPid) { $dialogReason='ownership'; throw 'dialog-unavailable' }
     $phase = 'filename'
     $editCondition = [Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::ControlTypeProperty, [Windows.Automation.ControlType]::Edit)
     $edits = $dialog.FindAll([Windows.Automation.TreeScope]::Descendants, $editCondition)
@@ -69,6 +90,7 @@ try {
     [Console]::WriteLine('qa-uia-open-invoked')
 } catch {
     # Fixed phase only, never provider errors, dialog text, paths or process data.
+    if ($phase -eq 'dialog') { $observation['reason']=$dialogReason; [Console]::Error.WriteLine('qa-uia-windows:' + ($observation | ConvertTo-Json -Compress -Depth 4)) }
     [Console]::Error.WriteLine('qa-uia-failed:' + $phase)
     exit 1
 }

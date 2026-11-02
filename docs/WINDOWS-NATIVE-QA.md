@@ -147,3 +147,18 @@ References: [WebDriver Element Click](https://www.w3.org/TR/webdriver/#element-c
 [Microsoft UIA file dialogs](https://learn.microsoft.com/en-us/windows/apps/dev-tools/winapp-cli/ui-automation#file-dialog-interaction),
 [ValuePattern](https://learn.microsoft.com/en-us/dotnet/api/system.windows.automation.valuepattern.setvalue),
 [InvokePattern](https://learn.microsoft.com/en-us/dotnet/framework/ui-automation/invoke-a-control-using-ui-automation).
+
+### One bounded dialog-identity observation
+
+Run 41407111469 passed UIA assembly preflight, but the real Open attempt stopped
+in the dialog-identification phase before filename or confirmation. That phase
+alone does not distinguish a missing picker from a provider exception. One bounded
+read-only diagnostic reports at most eight exact-owned-PID direct desktop windows:
+class (64 restricted ASCII characters), enabled flag, WindowPattern availability
+and modal boolean. It never records titles, text, paths, handles or other processes.
+Fixed query/inspect/select/wait stages and provider-error/not-found/ambiguous/
+count-overflow/ownership reasons distinguish provider limitations from absence.
+Malformed or oversized observations are not printed. Existing dialog identity,
+filename and confirmation predicates are unchanged; observation cannot authorize
+input. If this attempt establishes no supported reliable dialog identity, retain
+the failed CLI and blocked UI qualification instead of repeatedly relaxing selectors.
