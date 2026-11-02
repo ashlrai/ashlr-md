@@ -6489,3 +6489,27 @@ describe("autofix: lone described image", () => {
     expect(applyAllFixes(doc, violations)).toBe(doc);
   });
 });
+
+describe("rule:missing-alt-text unicode image sources", () => {
+  it.each([
+    "images/cafe\u0301 日本語 😀.png?言語=日本語#詳細",
+    "../مرحبا/café.png",
+    "画像/星🌟-café.png",
+  ])("inserts a description without changing the Unicode source <%s>", (source) => {
+    const image = `![](<${source}> "Café ☕")`;
+    const repaired = `![TODO: describe image](<${source}> "Café ☕")`;
+    const doc = `前文 😀 ${image} 後文\r\n`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "missing-alt-text",
+    ]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(image);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(`前文 😀 ${repaired} 後文\r\n`);
+    expect(fixed).toContain(`(<${source}> "Café ☕")`);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
