@@ -1282,7 +1282,9 @@ interface FoundAttribute {
 
 /** The first `name` attribute in `attrs` (a start tag's attributes), its value decoded of `&quot;`. */
 function attributeValue(attrs: string, name: string): FoundAttribute | null {
-  const re = new RegExp(String.raw`\s+(${TAG_ATTRIBUTE})`, "gy");
+  // matchAll drives the walk through the global flag; a sticky one would
+  // shadow its skip-ahead, silently ending the scan at a broken attribute.
+  const re = new RegExp(String.raw`\s+(${TAG_ATTRIBUTE})`, "g");
   for (const m of attrs.matchAll(re)) {
     const eq = m[1].indexOf("=");
     const key = (eq === -1 ? m[1] : m[1].slice(0, eq)).trim().toLowerCase();
