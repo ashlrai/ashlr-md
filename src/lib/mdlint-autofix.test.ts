@@ -5106,3 +5106,21 @@ describe("edge cases", () => {
     expect(ids.has("invalid-link-target")).toBe(true);
   });
 });
+
+describe("invalid-link-target autofix: link label preservation", () => {
+  it.each([
+    ["#", "[Read the full style guide](#)"],
+    ["", "[Read the full style guide]()"],
+    ["?", "[Read the full style guide](?)"],
+  ])("keeps a multiword label exactly when fixing destination %j", (_dest, link) => {
+    const label = "Read the full style guide";
+    const doc = `See ${link} now.\n`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(`See [${label}](TODO) now.\n`);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
