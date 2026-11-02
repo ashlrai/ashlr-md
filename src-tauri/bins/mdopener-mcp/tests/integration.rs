@@ -9568,6 +9568,47 @@ fn export_text_keeps_adjacent_bracketed_phrases_in_order() {
 }
 
 #[test]
+fn export_text_keeps_adjacent_sic_and_todo_from_both_sources() {
+    for (markdown, expected) in [
+        (
+            "The quotation needs review [sic][TODO] before publication.\n",
+            "The quotation needs review [sic][TODO] before publication.",
+        ),
+        (
+            "[TODO][sic] marks the note; see [the guide][guide].\n\n[guide]: /guide\n",
+            "[TODO][sic] marks the note; see the guide.",
+        ),
+        (
+            "Keep [sic][TODO] as written.\n\n[sic]: /source\n",
+            "Keep [sic][TODO] as written.",
+        ),
+    ] {
+        let file_result = run_export_text_on(markdown);
+        assert_eq!(
+            file_result["text"].as_str().unwrap(),
+            expected,
+            "{markdown:?}"
+        );
+
+        let ipc = MockIpc::new().on_get(
+            "/content",
+            Ok(json!({ "path": "/docs/test.md", "content": markdown })),
+        );
+        let response = tool_export_text(id(2), &json!({}), &ipc);
+        assert!(
+            response.error.is_none(),
+            "{markdown:?}: {:?}",
+            response.error
+        );
+        assert_eq!(
+            content_text(&response)["text"].as_str().unwrap(),
+            expected,
+            "{markdown:?}"
+        );
+    }
+}
+
+#[test]
 fn export_text_keeps_bracketed_prose_on_separate_lines() {
     for (markdown, expected) in [
         ("[first]\n[second]\n[third]\n", "[first]\n[second]\n[third]"),
