@@ -175,6 +175,59 @@ class Tests(unittest.TestCase):
             redirect=next(h() for h in handlers if isinstance(h,type) and issubclass(h,qa.urllib.request.HTTPRedirectHandler))
             self.assertIsNone(redirect.redirect_request(None,None,None,None,None,'https://example.com'))
 
+    def test_session_creation_gets_60_seconds_other_calls_10(self):
+        from unittest.mock import MagicMock
+        import io
+        opener=MagicMock()
+        for method,path,seconds in [('POST','/session',60),('GET','/status',10),('DELETE','/session/test-id',10),('POST','/session/test-id/execute/sync',10)]:
+            opener.open.return_value=io.BytesIO(b'{"value": {}}')
+            with patch.object(qa.urllib.request,'build_opener',return_value=opener):
+                qa.wd(method,path)
+            self.assertEqual(opener.open.call_args.kwargs['timeout'],seconds)
+
+    def test_prepare_failure_publishes_owned_cleanup_not_probe(self):
+        with tempfile.TemporaryDirectory() as t:
+            root=Path(t); output=root/'output'; output.write_text('')
+            with patch.dict(qa.os.environ,{'RUNNER_TEMP':t,'GITHUB_OUTPUT':str(output),'GH_TOKEN':'synthetic'},clear=True), patch.object(qa,'module',side_effect=ValueError('synthetic preparation failure')), patch.object(qa,'probe') as probe:
+                with self.assertRaisesRegex(ValueError,'preparation failure'): qa.prepare()
+                work=root/'md050-original-native-qa'
+                self.assertTrue(work.is_dir()); self.assertEqual(work.stat().st_mode & 0o777,0o700)
+                self.assertEqual(output.read_text(),f'stage={work}\n')
+                qa.os.environ['STAGE_PATH']=str(work)
+                with self.assertRaises(ValueError): qa.run_prepared()
+                probe.assert_not_called()
+                qa.cleanup(); self.assertFalse(work.exists())
+
+    def test_prepare_collision_is_never_owned_or_removed(self):
+        with tempfile.TemporaryDirectory() as t:
+            root=Path(t); output=root/'output'; output.write_text(''); work=root/'md050-original-native-qa'; work.mkdir(); (work/'sentinel').write_text('unchanged')
+            with patch.dict(qa.os.environ,{'RUNNER_TEMP':t,'GITHUB_OUTPUT':str(output),'GH_TOKEN':'synthetic'},clear=True):
+                with self.assertRaises(FileExistsError): qa.prepare()
+                self.assertEqual(output.read_text(),''); qa.cleanup()
+                self.assertEqual((work/'sentinel').read_text(),'unchanged')
+
+    def test_prepared_phase_refuses_token_and_cleans_after_probe_failure(self):
+        with tempfile.TemporaryDirectory() as t:
+            root=Path(t); work=root/'md050-original-native-qa'; work.mkdir(mode=0o700)
+            (work/'qualified.json').write_text(qa.json.dumps({'sha':qa.SHA,'run':qa.RUN,'app_sha256':qa.APP_HASH}))
+            with patch.dict(qa.os.environ,{'RUNNER_TEMP':t,'STAGE_PATH':str(work),'GH_TOKEN':'synthetic'},clear=True), patch.object(qa,'probe',side_effect=ValueError('synthetic probe failure')) as probe:
+                with self.assertRaisesRegex(ValueError,'token'): qa.run_prepared()
+                probe.assert_not_called(); del qa.os.environ['GH_TOKEN']
+                with self.assertRaisesRegex(ValueError,'probe failure'): qa.run_prepared()
+                probe.assert_called_once_with(work,work/qa.APP)
+                qa.cleanup(); self.assertFalse(work.exists())
+
+    def test_workflow_separates_token_and_always_cleanup(self):
+        source=(Path(__file__).resolve().parents[1]/'.github/workflows/native-qa.yml').read_text()
+        prep=source.split('- name: Prepare and verify original artifacts',1)[1].split('- name: Probe original native DOM',1)[0]
+        after=source.split('- name: Probe original native DOM',1)[1]
+        self.assertIn('GH_TOKEN: ${{ github.token }}',prep)
+        self.assertNotIn('dbus-run-session',prep)
+        self.assertNotIn('GH_TOKEN',after); self.assertNotIn('github.token',after)
+        self.assertIn('if: always()',after)
+        self.assertIn('scripts/native-qa.py --cleanup',after)
+        self.assertIn('dbus-run-session -- xvfb-run -a python3 scripts/native-qa.py --probe',after)
+
     def test_no_arbitrary_cli_inputs(self):
         with patch.object(qa.sys,'argv',['qa','arbitrary']):
             with self.assertRaises(ValueError): qa.main()

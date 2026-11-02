@@ -8,6 +8,7 @@ import re
 import stat
 from pathlib import Path
 import signal
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -127,7 +128,7 @@ def wd(method, path, payload=None):
         def redirect_request(self, *args, **kwargs):
             return None
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect)
-    with opener.open(request, timeout=10) as response:
+    with opener.open(request, timeout=60 if (method, path) == ('POST', '/session') else 10) as response:
         value = json.load(response)['value']
     require(not isinstance(value, dict) or 'error' not in value, 'WebDriver command failed')
     return value
@@ -223,39 +224,82 @@ def probe(work, app):
 
 
 
-def main():
-    # Separate preparation process consumes token; probe subprocess gets none.
-    if len(sys.argv) == 4 and sys.argv[1] == '--probe':
-        probe(Path(sys.argv[2]), Path(sys.argv[3]))
-        return
-    require(len(sys.argv) == 1, 'no arbitrary run/SHA/artifact inputs supported')
+def staging_path():
+    raw = os.environ.get('RUNNER_TEMP', '')
+    require(raw and '\n' not in raw and '\r' not in raw, 'invalid RUNNER_TEMP')
+    root = Path(raw)
+    require(root.is_absolute() and root.resolve() == root, 'RUNNER_TEMP must be absolute without symlinks')
+    info = root.lstat()
+    require(stat.S_ISDIR(info.st_mode) and info.st_uid == os.getuid(), 'RUNNER_TEMP must be an owned directory')
+    return root / 'md050-original-native-qa'
+
+
+def selected_stage():
+    work = staging_path()
+    require(os.environ.get('STAGE_PATH') == str(work), 'missing or unexpected prepared stage')
+    info = work.lstat()
+    require(stat.S_ISDIR(info.st_mode) and info.st_uid == os.getuid() and stat.S_IMODE(info.st_mode) == 0o700, 'invalid prepared stage')
+    return work
+
+
+def prepare():
     token = os.environ.pop('GH_TOKEN', '')
     require(bool(token), 'artifact-read token required')
+    work = staging_path()
+    work.mkdir(mode=0o700)  # Exclusive: never reuse/clean another existing directory.
+    try:
+        output = os.environ.get('GITHUB_OUTPUT', '')
+        require(bool(output), 'missing workflow output file')
+        with open(output, 'a', encoding='utf-8') as f:
+            f.write(f'stage={work}\n')
+    except BaseException:
+        work.rmdir()
+        raise
+    # Output precedes verification so the always-cleanup step owns failed preparation.
     prov = module()
     artifacts = prov.pages(prov.fetch, f'{prov.REPO}/actions/runs/{RUN}/artifacts', 'artifacts')
-    with tempfile.TemporaryDirectory(prefix='md-native-qa-') as temp:
-        work = Path(temp)
-        zips = {}
-        for leg in prov.LEGS:
-            a = prov.exactly([x for x in artifacts if x.get('name') == leg], leg)
-            require(a.get('expired') is False and a.get('workflow_run', {}).get('head_sha') == SHA, 'artifact not current/exact source')
-            target = work / (leg + '.zip')
-            download_zip(a, target, token)
-            zips[leg] = target
-        token = None
-        receipt = prov.verify_provenance(prov.fetch, TAG, SHA, RUN, zips)
-        app, sig = select_linux(zips['bundle-ubuntu-22.04'], work)
-        key = work / 'public-key.txt'
-        key.write_text(receipt['public_key'])
-        subprocess.run([str(ROOT / 'scripts/release-signature-check/target/release/release-signature-check'), str(key), str(sig), str(app)], check=True, timeout=30)
-        # Read-only metadata: abort on any drift; never accept a UI Install dialog.
-        latest = prov.fetch(prov.REPO + '/releases/latest')
-        require(latest.get('tag_name') == 'v0.4.0' and latest.get('prerelease') is False, 'stable release changed; review before probe')
-        with plain_opener().open('https://github.com/ashlrai/ashlr-md/releases/latest/download/latest.json', timeout=30) as response:
-            metadata = json.loads(response.read(1024 * 1024 + 1))
-        require(metadata.get('version') == '0.4.0', 'stable updater metadata changed')
-        clean = {k:v for k,v in os.environ.items() if k in ('PATH','DISPLAY','XAUTHORITY','DBUS_SESSION_BUS_ADDRESS','LANG')}
-        subprocess.run([sys.executable, str(Path(__file__).resolve()), '--probe', str(work), str(app)], env=clean, check=True, timeout=150, start_new_session=False)
+    zips = {}
+    for leg in prov.LEGS:
+        a = prov.exactly([x for x in artifacts if x.get('name') == leg], leg)
+        require(a.get('expired') is False and a.get('workflow_run', {}).get('head_sha') == SHA, 'artifact not current/exact source')
+        target = work / (leg + '.zip')
+        download_zip(a, target, token)
+        zips[leg] = target
+    token = None
+    receipt = prov.verify_provenance(prov.fetch, TAG, SHA, RUN, zips)
+    app, sig = select_linux(zips['bundle-ubuntu-22.04'], work)
+    key = work / 'public-key.txt'
+    key.write_text(receipt['public_key'])
+    subprocess.run([str(ROOT / 'scripts/release-signature-check/target/release/release-signature-check'), str(key), str(sig), str(app)], check=True, timeout=30)
+    # Read-only metadata: abort on any drift; never accept a UI Install dialog.
+    latest = prov.fetch(prov.REPO + '/releases/latest')
+    require(latest.get('tag_name') == 'v0.4.0' and latest.get('prerelease') is False, 'stable release changed; review before probe')
+    with plain_opener().open('https://github.com/ashlrai/ashlr-md/releases/latest/download/latest.json', timeout=30) as response:
+        metadata = json.loads(response.read(1024 * 1024 + 1))
+    require(metadata.get('version') == '0.4.0', 'stable updater metadata changed')
+    with (work / 'qualified.json').open('x', encoding='utf-8') as f:
+        json.dump({'sha': SHA, 'run': RUN, 'app_sha256': APP_HASH}, f)
+    print('Preparation complete; original Linux payload verified. No native process started.')
+
+
+def run_prepared():
+    require(not os.environ.get('GH_TOKEN') and not os.environ.get('GITHUB_TOKEN'), 'token must not enter probe step')
+    work = selected_stage()
+    marker = work / 'qualified.json'
+    require(marker.is_file() and not marker.is_symlink() and marker.stat().st_size < 1024, 'missing preparation receipt')
+    require(json.loads(marker.read_text()) == {'sha': SHA, 'run': RUN, 'app_sha256': APP_HASH}, 'invalid preparation receipt')
+    probe(work, work / APP)
+
+
+def cleanup():
+    if not os.environ.get('STAGE_PATH'):
+        return  # Prepare did not create a directory; never remove a collision.
+    shutil.rmtree(selected_stage())
+
+
+def main():
+    require(len(sys.argv) == 2 and sys.argv[1] in ('--prepare', '--probe', '--cleanup'), 'expected fixed prepare/probe/cleanup phase')
+    {'--prepare': prepare, '--probe': run_prepared, '--cleanup': cleanup}[sys.argv[1]]()
 
 
 if __name__ == '__main__':

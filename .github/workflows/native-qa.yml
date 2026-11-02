@@ -34,8 +34,18 @@ jobs:
           dpkg-query -W webkit2gtk-driver libwebkit2gtk-4.1-0 xvfb dbus-x11 libfuse2
           cargo install tauri-driver --version 2.1.0 --locked
           cargo build --locked --release --manifest-path scripts/release-signature-check/Cargo.toml
-      - name: Verify original artifacts and probe native DOM
+      - name: Prepare and verify original artifacts
+        id: prepare
         env:
           GH_TOKEN: ${{ github.token }}
-        run: dbus-run-session -- xvfb-run -a python3 scripts/native-qa.py
+        run: python3 scripts/native-qa.py --prepare
+      - name: Probe original native DOM without artifact token
+        env:
+          STAGE_PATH: ${{ steps.prepare.outputs.stage }}
+        run: dbus-run-session -- xvfb-run -a python3 scripts/native-qa.py --probe
+      - name: Remove owned qualification staging
+        if: always()
+        env:
+          STAGE_PATH: ${{ steps.prepare.outputs.stage }}
+        run: python3 scripts/native-qa.py --cleanup
       # Intentionally no cache/upload, release changes, credentials or provider calls.
