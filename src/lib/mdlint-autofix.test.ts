@@ -6531,3 +6531,28 @@ describe("rule:missing-alt-text unicode image sources", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+describe("rule:invalid-link-target CRLF document", () => {
+  it.each([
+    "",
+    "   ",
+    "#",
+    "?",
+  ])("replaces the invalid href %j and keeps every CRLF and the surrounding text", (href) => {
+    const link = `[café guide](${href})`;
+    const doc = `# Title\r\n\r\nSee ${link} for details — and more.\r\n  Indented tail.\r\n\r\n- item\r\n`;
+    const expected = doc.replace(link, "[café guide](TODO)");
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(link);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // No bare LF introduced and no CR lost.
+    expect(fixed.match(/\r\n/g)).toHaveLength(doc.match(/\r\n/g)!.length);
+    expect(fixed.replace(/\r\n/g, "")).not.toMatch(/[\r\n]/);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
