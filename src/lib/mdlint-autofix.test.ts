@@ -7128,4 +7128,20 @@ describe("missing-alt-text autofix: idempotence for linked and angle-bracket ima
     expect(fixPass(once)).toBe(once);
     expect(fixPass(fixPass(doc))).toBe(once);
   });
+  it("inserts the description placeholder for an undescribed image and preserves CRLF endings", () => {
+    const doc = "# Gallery\r\n\r\n![](images/chart.png)\r\nAfter the image.\r\n";
+    const expected =
+      "# Gallery\r\n\r\n![TODO: describe image](images/chart.png)\r\nAfter the image.\r\n";
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "missing-alt-text",
+    ]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // Every line ending is still CRLF: no bare LF introduced or CR dropped.
+    expect(fixed.replace(/\r\n/g, "")).not.toMatch(/[\r\n]/);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
 });
