@@ -35,7 +35,7 @@ try {
         $observation.count = [Math]::Min(8, $windows.Count)
         $observation.overflow = $windows.Count -gt 8
         if ($windows.Count -gt 8) { $dialogReason='count-overflow'; throw 'window-count' }
-        $matches = @()
+        $candidates = @()
         foreach ($window in $windows) {
             $observation.stage = 'inspect'
             if ($window.Current.ProcessId -ne $targetPid) { $dialogReason='ownership'; throw 'unexpected-owner' }
@@ -53,11 +53,11 @@ try {
             $observation.stage = 'select'
             if ($window.Current.ClassName -ceq '#32770') {
                 $pattern = $window.GetCurrentPattern([Windows.Automation.WindowPattern]::Pattern)
-                if ($pattern.Current.IsModal -and $window.Current.IsEnabled) { $matches += $window }
+                if ($pattern.Current.IsModal -and $window.Current.IsEnabled) { $candidates += $window }
             }
         }
-        if ($matches.Count -gt 1) { $dialogReason='ambiguous'; throw 'ambiguous-dialog' }
-        if ($matches.Count -eq 1) { $dialog = $matches[0]; break }
+        if ($candidates.Count -gt 1) { $dialogReason='ambiguous'; throw 'ambiguous-dialog' }
+        if ($candidates.Count -eq 1) { $dialog = $candidates[0]; break }
         $observation.stage = 'wait'
         Start-Sleep -Milliseconds 200
     }
@@ -67,15 +67,15 @@ try {
     $editCondition = [Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::ControlTypeProperty, [Windows.Automation.ControlType]::Edit)
     $edits = $dialog.FindAll([Windows.Automation.TreeScope]::Descendants, $editCondition)
     if ($edits.Count -gt 16) { throw 'edit-count' }
-    $matches = @()
+    $candidates = @()
     foreach ($edit in $edits) {
         $parent = [Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($edit)
         $isFilename = $edit.Current.AutomationId -ceq '1148'
         if ($null -ne $parent -and $parent.Current.ControlType -eq [Windows.Automation.ControlType]::ComboBox -and $parent.Current.AutomationId -ceq '1148') { $isFilename = $true }
-        if ($isFilename -and $edit.Current.ProcessId -eq $targetPid -and $edit.Current.IsEnabled) { $matches += $edit }
+        if ($isFilename -and $edit.Current.ProcessId -eq $targetPid -and $edit.Current.IsEnabled) { $candidates += $edit }
     }
-    if ($matches.Count -ne 1) { throw 'ambiguous-filename' }
-    $value = $matches[0].GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern)
+    if ($candidates.Count -ne 1) { throw 'ambiguous-filename' }
+    $value = $candidates[0].GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern)
     if ($value.Current.IsReadOnly) { throw 'readonly' }
     $value.SetValue($fixture)
     if ($value.Current.Value -cne $fixture) { throw 'readback' }

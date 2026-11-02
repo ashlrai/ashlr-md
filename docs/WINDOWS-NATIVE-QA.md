@@ -162,3 +162,15 @@ Malformed or oversized observations are not printed. Existing dialog identity,
 filename and confirmation predicates are unchanged; observation cannot authorize
 input. If this attempt establishes no supported reliable dialog identity, retain
 the failed CLI and blocked UI qualification instead of repeatedly relaxing selectors.
+
+The first bounded observation (41408781729) exposed a separate diagnostic bug:
+PowerShell's case-insensitive automatic `$Matches` variable collided with the
+helper's candidate-array name. Scalar regex class validation overwrote that array,
+so a non-dialog `TauriWindow` could be selected as a string and fail strict property
+access. An actual standalone PowerShell 7.6.9 reproduction confirmed this behavior;
+renaming the candidate collection avoids it. The durable PowerShell regression
+executes the real helper's selection block with synthetic provider stand-ins,
+covering ordinary windows, one enabled modal dialog, disabled and ambiguous cases.
+It runs under built-in Windows PowerShell before artifact preparation. This tests
+language semantics, not native UIA compatibility. The earlier pre-diagnostic picker
+failure remains unexplained; only one corrected bounded observation is justified.
