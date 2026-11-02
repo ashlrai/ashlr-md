@@ -2860,6 +2860,54 @@ describe("rule:missing-alt-text", () => {
   it.each([
     "\n",
     "\r\n",
+  ])("inserts a placeholder in every undescribed image across list, quote and paragraph lines and leaves other lines unchanged (line endings %j)", (nl) => {
+    const lines = [
+      "# Gallery",
+      "",
+      "- Item one ![](one.png)",
+      "- Item two with ![described](two.png) kept",
+      "",
+      '> Quote café ![](three.png "T")',
+      "",
+      "Plain line with [link](./guide.md).",
+      "Last ![](four.png) line.",
+      "",
+    ];
+    const doc = lines.join(nl);
+    const expected = [
+      "# Gallery",
+      "",
+      "- Item one ![TODO: describe image](one.png)",
+      "- Item two with ![described](two.png) kept",
+      "",
+      '> Quote café ![TODO: describe image](three.png "T")',
+      "",
+      "Plain line with [link](./guide.md).",
+      "Last ![TODO: describe image](four.png) line.",
+      "",
+    ].join(nl);
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+      "missing-alt-text",
+      "missing-alt-text",
+      "missing-alt-text",
+    ]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // Lines without an undescribed image are byte-identical.
+    const before = doc.split(nl);
+    const after = fixed.split(nl);
+    expect(after).toHaveLength(before.length);
+    const unchanged = before.filter((line, i) => after[i] === line);
+    expect(unchanged).toEqual(before.filter((line) => !line.includes("![](")));
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
+    "\n",
+    "\r\n",
   ])("inserts a placeholder in both undescribed images repeated on one line and keeps their sources (line endings %j)", (nl) => {
     const first = '![](a.png?x=1#y "A")';
     const second = "![](b.png)";
