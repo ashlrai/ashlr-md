@@ -2606,6 +2606,35 @@ describe("rule:invalid-link-target", () => {
 
 describe("rule:missing-alt-text", () => {
   it.each([
+    "\n",
+    "\r\n",
+  ])("inserts a placeholder in each of two undescribed images on separate lines without changing intervening text (line endings %j)", (nl) => {
+    const doc = [
+      "# Gallery",
+      "",
+      "First café ![](a.png) end  ",
+      "Middle `![](decoy.png)` text [guide](./guide.md).",
+      'Second ![](b.png?x=1#y "B") done.',
+      "",
+    ].join(nl);
+    const expected = doc
+      .replace("![](a.png)", "![TODO: describe image](a.png)")
+      .replace('![](b.png?x=1#y "B")', '![TODO: describe image](b.png?x=1#y "B")');
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+      "missing-alt-text",
+      "missing-alt-text",
+    ]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.match(/TODO: describe image/g)).toHaveLength(2);
+    expect(fixed).toContain("`![](decoy.png)`");
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
     "",
     "Intro.\r\n",
   ])("fixes an image on a final line without a trailing newline (prefix %j)", (prefix) => {
