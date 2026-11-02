@@ -85,6 +85,8 @@ interface Opened {
   crepe: Crepe;
   /** What the app would save now (null: no change was reported). */
   saved: () => string | null;
+  /** Report pending edits now, as the debounced markdownUpdated would. */
+  flush: () => void;
 }
 
 /** Open `raw` as MarkdownEditor does, recording what it would save. */
@@ -95,12 +97,12 @@ async function open(raw: string): Promise<Opened> {
   document.body.appendChild(root);
   const crepe = new Crepe({ root, defaultValue: body });
   let last: string | null = null;
-  keepSourceOnSave(crepe, body, (written) => {
+  const keep = keepSourceOnSave(crepe, body, (written) => {
     last = joinFrontmatter(frontmatter, inLineBreaks(written, crlf));
   });
   await crepe.create();
   editors.push(crepe);
-  return { crepe, saved: () => last };
+  return { crepe, saved: () => last, flush: keep.flush };
 }
 
 /** Type `text` at `offset` characters into the first text containing `needle`. */
@@ -137,19 +139,23 @@ function typeAfterNth(crepe: Crepe, needle: string, nth: number, text: string) {
   });
 }
 
-/** Wait for the listener's debounced markdownUpdated. */
-const settle = () => new Promise((r) => setTimeout(r, 300));
+/**
+ * Force the debounced (200 ms) markdownUpdated report now, through the same
+ * onChange path keepSourceOnSave uses — the flush pendingEdits calls before a
+ * save, tab switch or close. A real 300 ms sleep used to stand in for it.
+ */
+const settle = (ed: Opened) => ed.flush();
 
 describe("WYSIWYG round trip: one edit elsewhere keeps the rest byte for byte", () => {
   for (const [file, raw] of Object.entries(fixtures)) {
     const name = file.split("/").pop();
     it(`${name}`, async () => {
       const ed = await open(raw);
-      await settle();
+      settle(ed);
       // Opening reports no change: nothing to save.
       expect(ed.saved()).toBeNull();
       typeInto(ed.crepe, "Edit me here.", "Edit me ".length, "X");
-      await settle();
+      settle(ed);
       expect(ed.saved()).toBe(raw.replace("Edit me here.", "Edit me Xhere."));
     });
   }
@@ -160,13 +166,13 @@ describe("WYSIWYG round trip: an edit inside a block keeps its spelling", () => 
     const name = file.split("/").pop();
     it(`${name}`, async () => {
       const ed = await open(raw);
-      await settle();
+      settle(ed);
       // Opening changes nothing (a report of the text as it is, at most).
       expect(ed.saved() ?? raw).toBe(raw);
       // Type from the last EDIT back, so the earlier positions stay put.
       const count = raw.split("EDIT").length - 1;
       for (let i = count - 1; i >= 0; i--) typeAfterNth(ed.crepe, "EDIT", i, "X");
-      await settle();
+      settle(ed);
       expect(ed.saved()).toBe(raw.replaceAll("EDIT", "EDITX"));
     });
   }
@@ -177,7 +183,7 @@ describe("WYSIWYG round trip: an edit inside a block rewrites only that block", 
     const raw = "Intro.\n\n- one\n- two\n  - nested\n\nOutro.\n";
     const ed = await open(raw);
     typeInto(ed.crepe, "two", 3, "!");
-    await settle();
+    settle(ed);
     // `-` is written as Milkdown's `*` in the edited list, but tight: it
     // used to gain a blank line between every item.
     const saved = ed.saved() as string;
@@ -192,7 +198,7 @@ describe("WYSIWYG round trip: an edit inside a block rewrites only that block", 
     const raw =
       "Intro.\n\n|  name | n |\n|------:|:-|\n|  alpha | 1 |\n|  b | 22 |\n\nOutro.\n";
     const ed = await open(raw);
-    await settle();
+    settle(ed);
     ed.crepe.editor.action((ctx) => {
       const view = ctx.get(editorViewCtx);
       let pos = -1;
@@ -204,7 +210,7 @@ describe("WYSIWYG round trip: an edit inside a block rewrites only that block", 
       );
       addColumnAfter(view.state, view.dispatch);
     });
-    await settle();
+    settle(ed);
     // Every column used to be re-padded to its widest cell.
     expect(ed.saved()).toBe(
       "Intro.\n\n|  name | n | |\n|------:|:-| :---: |\n|  alpha | 1 | |\n|  b | 22 | |\n\nOutro.\n",
@@ -215,7 +221,7 @@ describe("WYSIWYG round trip: an edit inside a block rewrites only that block", 
     const raw = "| a | b |\n| - | - |\n| x |   |\n|   | y |\n";
     const ed = await open(raw);
     typeInto(ed.crepe, "x", 1, "!");
-    await settle();
+    settle(ed);
     const saved = ed.saved() as string;
     // It used to be written `| x! | <br /> |`.
     expect(saved).not.toContain("<br");
@@ -228,7 +234,7 @@ describe("WYSIWYG round trip: an edit inside a block rewrites only that block", 
       "First [a][x] here.\n\n[x]: https://example.com/x\n\nSecond [b][y].\n\n[y]: https://example.com/y\n";
     const ed = await open(raw);
     typeInto(ed.crepe, "First", 0, "The ");
-    await settle();
+    settle(ed);
     const saved = ed.saved() as string;
     // The edited paragraph's link is written inline; its definition stays
     // (another reference may use it), and the rest is as it was.
@@ -249,7 +255,7 @@ describe("WYSIWYG round trip: an edit inside a block rewrites only that block", 
       const to = from + doc.child(1).nodeSize;
       view.dispatch(view.state.tr.delete(from, to));
     });
-    await settle();
+    settle(ed);
     expect(ed.saved()).toBe("Setext\n======\n\n+ plus\n+ list\n");
   });
 
@@ -260,7 +266,7 @@ describe("WYSIWYG round trip: an edit inside a block rewrites only that block", 
       const raw = `Para here.\n\n${last}\n`;
       const ed = await open(raw);
       typeInto(ed.crepe, "Para here.", 4, "X");
-      await settle();
+      settle(ed);
       expect(ed.saved()).toBe(raw.replace("Para here.", "ParaX here."));
     }
   });
@@ -291,7 +297,7 @@ describe("WYSIWYG round trip: an edit inside a block rewrites only that block", 
     const raw = "Setext\n======\n\n* a\n* b\n\nEdit me here.\n";
     const ed = await open(raw);
     typeInto(ed.crepe, "Edit me here.", 0, "Z");
-    await settle();
+    settle(ed);
     expect(ed.saved()).not.toBe(raw);
     ed.crepe.editor.action((ctx) => {
       const view = ctx.get(editorViewCtx);
@@ -301,7 +307,7 @@ describe("WYSIWYG round trip: an edit inside a block rewrites only that block", 
       });
       view.dispatch(view.state.tr.delete(pos, pos + 1));
     });
-    await settle();
+    settle(ed);
     expect(ed.saved()).toBe(raw);
   });
 
