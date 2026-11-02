@@ -6390,3 +6390,40 @@ describe("autofix: fenced-code preservation", () => {
     expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
   });
 });
+
+// ─── 9. Autofix leaves a lone described image untouched ───────────────────────
+
+describe("autofix: lone described image", () => {
+  const images = [
+    "![A red bicycle](bike.png)",
+    '![Café terrace, at sunset](images/caf%C3%A9.png?size=2#view "Terrace (v2)")',
+    "![Chart *Q3* `revenue`](<my chart.png>)",
+    "![Logo][logo]\n\n[logo]: logo.svg",
+  ];
+
+  const rules = [
+    ruleMissingAltText,
+    ruleInvalidLinkTarget,
+    ruleNoTrailingSpaces,
+    ruleOrphanedHeading,
+  ];
+
+  it.each(images)("reports nothing and changes nothing for %j", (image) => {
+    for (const newline of ["\n", "\r\n"]) {
+      const doc = `# Gallery${newline}${newline}${image.replace(/\n/g, newline)}${newline}`;
+      const violations = lintDocument(doc, { rules });
+      expect(violations.filter((v) => v.ruleId === "missing-alt-text")).toEqual([]);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(doc);
+      expect(fixed).toContain(image.split("\n")[0]);
+      expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+    }
+  });
+
+  it("leaves described images in list items and blockquotes unchanged", () => {
+    const doc = "- ![One](a.png)\n- item ![Two](b.png) end\n\n> ![Three](c.png)\n";
+    const violations = lintDocument(doc, { rules: [ruleMissingAltText] });
+    expect(violations).toEqual([]);
+    expect(applyAllFixes(doc, violations)).toBe(doc);
+  });
+});
