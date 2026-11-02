@@ -93,6 +93,23 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(doc, { rules: [ruleInvalidLinkTarget] })).toHaveLength(0);
   });
 
+  it.each([
+    "https://example.com/guide?topic=lint#links",
+    "./guide.md",
+    "#section",
+    "mailto:team@example.com",
+  ])("control: autofix leaves a link with nonempty destination %j unchanged", (destination) => {
+    for (const nl of ["\n", "\r\n"]) {
+      const doc = `---${nl}title: Guide${nl}---${nl}${nl}Read [guide](${destination}) today.${nl}`;
+      const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
+
+      expect(violations).toEqual([]);
+      expect(applyAllFixes(doc, violations)).toBe(doc);
+      // The full default rule set must not rewrite the destination either.
+      expect(applyAllFixes(doc, lintDocument(doc))).toBe(doc);
+    }
+  });
+
   it("replaces a whitespace-only href with TODO while preserving the link text", () => {
     const doc =
       "---\ntitle: Guide\n---\n\nRead [café guide](   ) and [reference](./guide.md).\n";
