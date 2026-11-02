@@ -1850,6 +1850,57 @@ describe("rule:invalid-link-target", () => {
       expect(lintDocument(fixed, { rules })).toEqual([]);
     }
   });
+
+  it.each([
+    "",
+    " ",
+    "#",
+    "?",
+  ])("fixes an invalid link at the end of a line for href %j", (href) => {
+    const rules = [ruleInvalidLinkTarget];
+    const leading = "End of the section — see";
+    const link = `[draft](${href})`;
+
+    for (const newline of ["\n", "\r\n"]) {
+      const doc = `Intro paragraph.${newline}${leading} ${link}${newline}Outro paragraph.${newline}`;
+      const expectedLine = `${leading} [draft](TODO)`;
+      const expected = `Intro paragraph.${newline}${expectedLine}${newline}Outro paragraph.${newline}`;
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations).toHaveLength(1);
+      expect(violations[0].ruleId).toBe("invalid-link-target");
+      const { from, to } = violations[0].range!;
+      expect(doc.slice(from.offset, to.offset)).toBe(link);
+      expect(doc.slice(to.offset, to.offset + newline.length)).toBe(newline);
+      expect(violations[0].fix).not.toBeNull();
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      expect(fixed.split(newline)[1]).toBe(expectedLine);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+    }
+  });
+
+  it("fixes an invalid link at the end of the last line with no trailing newline", () => {
+    const leading = "Final note — see";
+    const doc = `Intro paragraph.\n\n${leading} [draft](?)`;
+    const expectedLine = `${leading} [draft](TODO)`;
+    const expected = `Intro paragraph.\n\n${expectedLine}`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("invalid-link-target");
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe("[draft](?)");
+    expect(to.offset).toBe(doc.length);
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.split("\n")[2]).toBe(expectedLine);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
 });
 
 // ─── 3. Rule: missing-alt-text ────────────────────────────────────────────────
