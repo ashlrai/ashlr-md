@@ -6603,4 +6603,21 @@ describe("rule:invalid-link-target CRLF document", () => {
     expect(fixed.replace(/\r\n/g, "")).not.toMatch(/[\r\n]/);
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
+
+  it.each([
+    ["empty", "[draft]()"],
+    ["whitespace", "[draft](   )"],
+    ["question mark", "[draft](?)"],
+  ])("sets the %s href to TODO at end of file without adding a final newline", (_name, link) => {
+    const doc = `# Title\n\nRead ${link}`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe("# Title\n\nRead [draft](TODO)");
+    expect(fixed.endsWith("\n")).toBe(false);
+    expect(applyFix(doc, violations[0])).toBe(fixed);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
 });
