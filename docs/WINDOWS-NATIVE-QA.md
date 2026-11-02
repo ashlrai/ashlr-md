@@ -56,3 +56,10 @@ always-run cleanup step, including after a partial download. The native worker
 never downloads a driver: it rechecks the retained digest, signature and version.
 An unsupported runtime fails closed. This does not establish the application's
 Authenticode reputation or relax SmartScreen, UAC, certificate or TLS settings.
+
+Signature verification allows up to 90 seconds within the unchanged two-minute
+preflight step. Fixed stage markers distinguish shell startup, trust-check entry
+and trust-check return. Diagnostics include only those markers, elapsed time,
+a recognized signature status (otherwise `unknown`), and signer/EKU match booleans;
+never raw PowerShell output or certificate contents. A timeout remains failure, not evidence of an invalid signature
+or permission to execute. Certificate/revocation checks are not disabled.

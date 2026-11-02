@@ -287,8 +287,35 @@ class Tests(unittest.TestCase):
                     with self.assertRaises(ValueError): w.verify_driver_signature(Path(t)/'msedgedriver.exe')
                 run.return_value=MagicMock(stdout=json.dumps(valid)); w.verify_driver_signature(Path(t)/'msedgedriver.exe')
                 self.assertNotIn('GH_TOKEN',run.call_args.kwargs['env'])
-                self.assertEqual(run.call_args.kwargs['timeout'],30)
+                self.assertEqual(run.call_args.kwargs['timeout'],90)
                 self.assertNotIn('-ExecutionPolicy',run.call_args.args[0])
+
+    def test_signature_rejection_logs_only_status_and_match_booleans(self):
+        with canonical_tempdir() as t:
+            output=io.StringIO()
+            result=MagicMock(stdout=json.dumps({'status':'private-status','subject':'private-subject','eku':['private-oid']}),stderr='qa-signature-returned')
+            with patch.dict(os.environ,{'SYSTEMROOT':t},clear=True), patch.object(w.subprocess,'run',return_value=result), patch('sys.stdout',output):
+                with self.assertRaises(ValueError): w.verify_driver_signature(Path(t)/'driver.exe')
+            self.assertIn('status=unknown; subject_matches=False; code_signing_EKU=False',output.getvalue())
+            self.assertNotIn('private',output.getvalue())
+
+    def test_signature_timeout_is_bounded_sanitized_and_cleanup_remains_possible(self):
+        with canonical_tempdir() as t:
+            root=Path(t)/w.DRIVER_STAGE; root.mkdir(); exe=root/'msedgedriver.exe'; exe.touch()
+            output=io.StringIO()
+            error=subprocess.TimeoutExpired('synthetic-private-command',90,stderr=b'qa-signature-start\nsynthetic-private-output')
+            with patch.dict(os.environ,{'SYSTEMROOT':t,'RUNNER_TEMP':t,'DRIVER_STAGE_PATH':str(root)},clear=True), patch.object(w.subprocess,'run',side_effect=error) as run, patch('sys.stdout',output):
+                with self.assertRaisesRegex(RuntimeError,'did not complete successfully') as caught: w.verify_driver_signature(exe)
+                self.assertEqual(run.call_args.kwargs['timeout'],90)
+                self.assertNotIn('synthetic-private',str(caught.exception))
+                w.cleanup()
+            self.assertFalse(root.exists())
+            self.assertIn('signature-started',output.getvalue())
+            self.assertNotIn('synthetic-private',output.getvalue())
+            for stderr,expected in [(None,'shell-startup'),('qa-signature-returned\nprivate','signature-returned')]:
+                output=io.StringIO()
+                with patch('sys.stdout',output): w.signature_diagnostic(stderr,time.monotonic())
+                self.assertIn(expected,output.getvalue()); self.assertNotIn('private',output.getvalue())
 
     def test_driver_cleanup_without_installer_stage(self):
         with canonical_tempdir() as t:
