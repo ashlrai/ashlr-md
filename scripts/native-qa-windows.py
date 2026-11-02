@@ -301,6 +301,56 @@ def uninstall(work):
     print('PASS: original installer uninstalled application and registration.')
 
 
+DOM_DIAGNOSTIC_SCRIPT = r"""
+return {
+  title: String(document.title || '').slice(0,128),
+  location: String(location.origin + location.pathname).slice(0,256),
+  readyState: document.readyState,
+  tauri: typeof window.__TAURI_INTERNALS__ !== 'undefined',
+  body: String(document.body?.innerText || document.body?.textContent || '').slice(0,512),
+  root: !!document.getElementById('root'),
+  articles: Math.min(document.querySelectorAll('article.reading-surface').length,100),
+  frames: Math.min(document.querySelectorAll('iframe').length,100)
+};
+"""
+
+
+def report_dom_state(session):
+    try:
+        value=qa.wd('POST',f'/session/{session}/execute/sync',{'script':DOM_DIAGNOSTIC_SCRIPT,'args':[]})
+        require(isinstance(value,dict),'invalid diagnostic response')
+        result={k:value[k][:limit] for k,limit in [('title',128),('location',256),('readyState',16),('body',512)] if isinstance(value.get(k),str)}
+        result.update({k:value[k] for k in ['tauri','root'] if isinstance(value.get(k),bool)})
+        result.update({k:min(max(value[k],0),100) for k in ['articles','frames'] if type(value.get(k)) is int})
+        print('Bounded synthetic window state:',json.dumps(result))
+    except Exception:
+        print('Synthetic window-state diagnostic unavailable')
+
+
+def remove_owned_tree(root):
+    def failure(function,path,error):
+        # Observe only a failed entry beneath our owned synthetic root. Never
+        # change attributes/ACLs or follow a junction to make cleanup pass.
+        try:
+            relative=Path(path).relative_to(root)
+            require('..' not in relative.parts, 'cleanup path escaped owned root')
+            parent=root
+            for part in relative.parts[:-1]:
+                parent=parent/part
+                ancestor=parent.lstat()
+                require(not stat.S_ISLNK(ancestor.st_mode) and not getattr(ancestor,'st_file_attributes',0)&0x400, 'cleanup diagnostic refuses linked ancestor')
+            info=Path(path).lstat()
+            attributes=getattr(info,'st_file_attributes',0)
+            print('Owned cleanup failure:',json.dumps({'relative':str(relative)[:256],
+                'readonly':bool(attributes&1),'reparse':bool(attributes&0x400),
+                'directory':stat.S_ISDIR(info.st_mode),'symlink':stat.S_ISLNK(info.st_mode),
+                'winerror':getattr(error,'winerror',None)}))
+        except Exception:
+            print('Owned cleanup attribute diagnostic unavailable')
+        raise error
+    shutil.rmtree(root,onexc=failure)
+
+
 def worker():
     enter_owned_job()
     work=prepared(); driver=driver_path(); no_existing_install()
@@ -331,6 +381,7 @@ def worker():
                     if qa.oracle(value): break
                     if time.monotonic()>=until:
                         print('Bounded synthetic DOM:',json.dumps({k:str(value.get(k,''))[:256] for k in ('heading','text')} if isinstance(value,dict) else {}))
+                        report_dom_state(session)
                         raise ValueError('native DOM fixture mismatch')
                     time.sleep(.3)
                 require(fixture.read_text(encoding='utf-8')==f'# {qa.HEADING}\n\nNative WebView Unicode: café 日本語.\n','fixture changed')
@@ -362,11 +413,11 @@ def cleanup():
     if os.environ.get('DRIVER_STAGE_PATH'):
         root=driver_stage()
         require(os.environ['DRIVER_STAGE_PATH']==str(root), 'unexpected driver cleanup path')
-        if root.exists(): shutil.rmtree(root)
+        if root.exists(): remove_owned_tree(root)
     if not os.environ.get('STAGE_PATH'): return
     work=selected()
     if (work/'install-attempted').exists(): run_worker('--uninstall-worker',90)
-    shutil.rmtree(work)
+    remove_owned_tree(work)
 
 
 def main():

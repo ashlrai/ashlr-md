@@ -317,6 +317,43 @@ class Tests(unittest.TestCase):
                 with patch('sys.stdout',output): w.signature_diagnostic(stderr,time.monotonic())
                 self.assertIn(expected,output.getvalue()); self.assertNotIn('private',output.getvalue())
 
+    def test_dom_diagnostics_are_bounded_readonly_and_do_not_change_oracle(self):
+        output=io.StringIO()
+        response={'title':'t'*300,'location':'l'*400,'body':'b'*900,'readyState':'complete','tauri':True,'root':False,'articles':1000,'frames':0,'extra':'not-printed'}
+        with patch.object(w.qa,'wd',return_value=response) as wd, patch('sys.stdout',output): w.report_dom_state('synthetic')
+        wd.assert_called_once_with('POST','/session/synthetic/execute/sync',{'script':w.DOM_DIAGNOSTIC_SCRIPT,'args':[]})
+        parsed=json.loads(output.getvalue().split(': ',1)[1])
+        self.assertEqual(len(parsed['body']),512); self.assertEqual(len(parsed['title']),128)
+        self.assertEqual(len(parsed['location']),256); self.assertEqual(parsed['articles'],100)
+        self.assertNotIn('extra',parsed); self.assertFalse(w.qa.oracle(response))
+        with patch.object(w.qa,'wd',side_effect=ValueError('private-diagnostic')), patch('sys.stdout',output): w.report_dom_state('synthetic')
+        self.assertNotIn('private-diagnostic',output.getvalue())
+
+    def test_failed_owned_cleanup_reports_attributes_without_mutation(self):
+        with canonical_tempdir() as t:
+            root=Path(t); child=root/'Programs'; child.mkdir()
+            info=MagicMock(st_file_attributes=1,st_mode=0o040700)
+            error=PermissionError('synthetic'); error.winerror=5
+            def fail(path,onexc): onexc(os.rmdir,str(child),error)
+            output=io.StringIO()
+            with patch.object(w.shutil,'rmtree',side_effect=fail), patch.object(w.Path,'lstat',return_value=info), patch.object(w.os,'chmod') as chmod, patch('sys.stdout',output):
+                with self.assertRaises(PermissionError): w.remove_owned_tree(root)
+                chmod.assert_not_called()
+            self.assertTrue(child.is_dir())
+            parsed=json.loads(output.getvalue().split(': ',1)[1])
+            self.assertEqual(parsed,{'relative':'Programs','readonly':True,'reparse':False,'directory':True,'symlink':False,'winerror':5})
+
+    def test_cleanup_diagnostic_refuses_outside_and_linked_ancestors(self):
+        with canonical_tempdir() as t:
+            root=Path(t); error=PermissionError('synthetic')
+            for target,info in [(root/'..'/'outside',None),(root/'link'/'Programs',MagicMock(st_mode=0o040700,st_file_attributes=0x400))]:
+                def fail(path,onexc): onexc(os.rmdir,str(target),error)
+                output=io.StringIO()
+                with patch.object(w.shutil,'rmtree',side_effect=fail), patch.object(w.Path,'lstat',return_value=info) as lstat, patch('sys.stdout',output):
+                    with self.assertRaises(PermissionError): w.remove_owned_tree(root)
+                self.assertEqual(lstat.call_count,0 if info is None else 1)
+                self.assertIn('diagnostic unavailable',output.getvalue())
+
     def test_driver_cleanup_without_installer_stage(self):
         with canonical_tempdir() as t:
             root=Path(t)/w.DRIVER_STAGE; root.mkdir(); (root/'partial').touch()

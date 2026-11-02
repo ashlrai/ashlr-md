@@ -57,3 +57,25 @@ it("does not accept welcome text, outside paragraphs, or wrong fixture content",
     host.remove();
   }
 });
+
+it("bounds the Windows diagnostic without changing synthetic document content", () => {
+  const source = readFileSync("scripts/native-qa-windows.py", "utf8");
+  const script = source.match(/DOM_DIAGNOSTIC_SCRIPT = r"""\n([\s\S]*?)\n"""/)?.[1];
+  if (!script) throw new Error("Missing Windows diagnostic script");
+  const inspect = new Function(script) as () => Record<string, unknown>;
+  const host = document.createElement("div");
+  host.innerHTML = '<article class="reading-surface"><h1>Wrong fixture</h1></article>';
+  document.body.append(host);
+  const before = document.body.innerHTML;
+  try {
+    const value = inspect();
+    expect(value.articles).toBe(1);
+    expect(String(value.body).length).toBeLessThanOrEqual(512);
+    expect(String(value.location)).not.toContain("?");
+    expect(value.readyState).toBe(document.readyState);
+    expect(document.body.innerHTML).toBe(before);
+    expect(observe().heading).toBe("Wrong fixture");
+  } finally {
+    host.remove();
+  }
+});
