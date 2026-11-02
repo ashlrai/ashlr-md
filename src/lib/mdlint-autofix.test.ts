@@ -2236,6 +2236,64 @@ describe("rule:invalid-link-target", () => {
       expect(applyAllFixes(expected, remaining)).toBe(expected);
     }
   });
+
+  it("replaces an invalid link href with TODO while preserving surrounding Unicode prose", () => {
+    // Rich Unicode: emoji, CJK, Cyrillic, Greek, combining marks, ZWJ sequences
+    const doc = [
+      "---",
+      "title: Résumés",
+      "---",
+      "",
+      "# Résumés 📝 概覽",
+      "",
+      "Préparez votre dossier [draft]() avant la présentation — bon appétit 🎉🎊.",
+      "",
+      "中文：这份草稿[link](?)需要修订。日本語：下準備を。",
+      "",
+      "Greek: προετοιμασία — Cyrillic: подготовка ☕‍🌱.",
+      "",
+      "End‍🔚 with a ZWJ emoji and diacritrics: naïve, over‍̄line.",
+      "",
+    ].join("\n");
+    const expected = [
+      "---",
+      "title: Résumés",
+      "---",
+      "",
+      "# Résumés 📝 概覽",
+      "",
+      "Préparez votre dossier [draft](TODO) avant la présentation — bon appétit 🎉🎊.",
+      "",
+      "中文：这份草稿[link](TODO)需要修订。日本語：下準備を。",
+      "",
+      "Greek: προετοιμασία — Cyrillic: подготовка ☕‍🌱.",
+      "",
+      "End‍🔚 with a ZWJ emoji and diacritrics: naïve, over‍̄line.",
+      "",
+    ].join("\n");
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(2);
+    expect(violations.every((v) => v.ruleId === "invalid-link-target")).toBe(true);
+    expect(violations.every((v) => v.fix !== null)).toBe(true);
+
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+
+    // Verify every paragraph/line not containing a fixed link is byte-identical.
+    const docLines = doc.split("\n");
+    const fixedLines = fixed.split("\n");
+    const viosByLine = violations.map((v) => v.range!.from.line);
+    for (let i = 0; i < docLines.length; i++) {
+      if (!viosByLine.includes(i + 1)) {
+        expect(fixedLines[i]).toBe(docLines[i]);
+      }
+    }
+
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
 });
 
 // ─── 3. Rule: missing-alt-text ────────────────────────────────────────────────
