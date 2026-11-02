@@ -155,6 +155,41 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    "\n",
+    "\r\n",
+  ])("mixed valid and invalid links: autofix changes only the invalid href and keeps every valid link (%j)", (nl) => {
+    const valid = [
+      "[docs](https://example.com/guide?topic=lint#links)",
+      "[local](./file.md)",
+      '[titled](./guide.md "Guide")',
+      "[angle](<./my guide.md>)",
+      "[anchor](#section)",
+      "[ref][guide]",
+    ];
+    const [v0, v1, v2, v3, v4, v5] = valid;
+    const before = `Start ${v0}, ${v1}, ${v2}.${nl}${nl}`;
+    const middle = `Then ${v3} and `;
+    const after = ` plus ${v4} and ${v5}.${nl}${nl}[guide]: https://example.com/guide${nl}`;
+    const doc = `${before}${middle}[broken label](   )${after}`;
+    const expected = `${before}${middle}[broken label](TODO)${after}`;
+
+    const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
+
+    // Only the invalid link is reported, and its range covers just that link.
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("invalid-link-target");
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe("[broken label](   )");
+
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    for (const link of valid) expect(fixed).toContain(link);
+    // The result is clean and stable under the link rule.
+    expect(lintDocument(expected, { rules: [ruleInvalidLinkTarget] })).toEqual([]);
+  });
+
+  it.each([
     "\t",
     "\t\t",
   ])("replaces a tab-only href %j with TODO while preserving the link text", (href) => {
