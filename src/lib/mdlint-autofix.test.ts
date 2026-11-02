@@ -659,6 +659,28 @@ describe("rule:invalid-link-target", () => {
     expect(applyAllFixes(fixed, remaining)).toBe(expected);
   });
 
+  it("preserves distinct Unicode normalization forms in neighboring invalid link labels", () => {
+    const doc = "Read [café]() and [cafe\u0301](#) beside [guide](./guide.md).\r\n";
+    const expected =
+      "Read [café](TODO) and [cafe\u0301](TODO) beside [guide](./guide.md).\r\n";
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "invalid-link-target",
+      "invalid-link-target",
+    ]);
+    expect(applyFix(doc, violations[0])).toBe(
+      "Read [café](TODO) and [cafe\u0301](#) beside [guide](./guide.md).\r\n",
+    );
+    expect(applyFix(doc, violations[1])).toBe(
+      "Read [café]() and [cafe\u0301](TODO) beside [guide](./guide.md).\r\n",
+    );
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(applyAllFixes(doc, [...violations].reverse())).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+
   it.each([
     "",
     " \t ",
