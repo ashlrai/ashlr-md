@@ -1,15 +1,17 @@
 name: CI
 
 # One required aggregate check: Check (Linux). Pull requests run fast
-# typecheck, Biome, crypto policy and pinned diff secret scans. Merge queue,
-# daily main and manual runs also require the full Linux and macOS suites
-# before the aggregate passes. Codecov uploads stay daily/manual only.
-# Main pushes run nothing: queued changes must pass their merge_group run.
+# typecheck, Biome, crypto policy and pinned diff secret scans; merge queue
+# stays fast too. Full Linux/macOS suites validate every post-merge main push
+# plus daily/manual runs, and their aggregate fails on any required failure.
+# Codecov uploads stay daily/manual only; full suites do not block merging.
 # Run scripts/ci-local.sh before pushing.
 on:
   pull_request:
     types: [opened, synchronize, reopened]
   merge_group:
+  push:
+    branches: [main]
   schedule:
     # Daily full suite at 04:23 ET (08:23 UTC), staggered from the other repos'
     # daily runs so the macOS job does not queue behind them (RQ-DAILY-15).
@@ -121,7 +123,7 @@ jobs:
 
   linux-full:
     name: Linux full suite
-    if: github.event_name == 'merge_group' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-22.04
     timeout-minutes: 20
     # Runs bun install and tests (third-party code), so no id-token here.
@@ -166,7 +168,7 @@ jobs:
           done
 
       - name: Keep coverage reports for the Codecov job
-        if: ${{ !cancelled() && github.event_name != 'merge_group' && (steps.unit.outcome == 'success' || steps.unit.outcome == 'failure') }}
+        if: ${{ !cancelled() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && (steps.unit.outcome == 'success' || steps.unit.outcome == 'failure') }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: coverage-reports
@@ -295,7 +297,7 @@ jobs:
 
   macos-full:
     name: macOS full suite
-    if: github.event_name == 'merge_group' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: macos-15
     timeout-minutes: 20
     steps:
@@ -360,7 +362,7 @@ jobs:
           perl .github/tests/secret-shape/scrub.pl --check --allow-fixtures < "${RUNNER_TEMP}/candidate.diff"
 
   # The one required check. Every event needs the fast job and the secret
-  # scan; queue, scheduled and dispatch runs need both full-suite jobs. Any
+  # scan; main push, scheduled and dispatch runs need both full-suite jobs. Any
   # needed job that is not success (failure, cancelled or skipped) fails it.
   gate:
     name: Check (Linux)
@@ -374,12 +376,17 @@ jobs:
         env:
           NEEDS: ${{ toJSON(needs) }}
           EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
         run: |
           set -euo pipefail
+          # Defense in depth for the main-only push trigger.
+          if [ "$EVENT" = "push" ] && [ "$REF" != "refs/heads/main" ]; then
+            echo "::error::unexpected non-main push"; exit 1
+          fi
           # Exact dependency keys: a missing or extra job fails closed.
           printf '%s' "$NEEDS" | jq -e --argjson exp "[\"fast\", \"linux-full\", \"macos-full\", \"secret-scan\", \"secret-shape\"]" '(keys | sort) == $exp' > /dev/null || { echo "::error::gate dependency inventory changed"; exit 1; }
           full=false
-          if [ "$EVENT" = "merge_group" ] || [ "$EVENT" = "schedule" ] || [ "$EVENT" = "workflow_dispatch" ]; then full=true; fi
+          if [ "$EVENT" = "push" ] || [ "$EVENT" = "schedule" ] || [ "$EVENT" = "workflow_dispatch" ]; then full=true; fi
           bad="$(printf '%s' "$NEEDS" | jq -r --argjson full "$full" 'to_entries[] | select(.value.result != "success") | select(($full | not) and (.key == "linux-full" or .key == "macos-full") and .value.result == "skipped" | not) | "\(.key)=\(.value.result)"')"
           if [ -n "$bad" ]; then echo "::error::Check (Linux): $bad"; exit 1; fi
           echo "Check (Linux) passed ($EVENT)"
