@@ -1,0 +1,51 @@
+name: Original MD 0.5 Linux native probe
+# Specifically approved manual original-artifact QA; not a release/promotion workflow.
+on:
+  workflow_dispatch:
+permissions: {}
+concurrency:
+  group: original-md050-native-probe
+  cancel-in-progress: false
+jobs:
+  linux-original:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read # Specifically approved cross-run original ZIP retrieval only.
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.14'
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
+        with:
+          toolchain: '1.99.1'
+      - name: Synthetic harness checks
+        run: python3 scripts/test-native-qa.py
+      - name: Install native driver and display dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          # Distribution security updates are retained; log exact system versions.
+          sudo apt-get install -y webkit2gtk-driver libwebkit2gtk-4.1-0 xvfb dbus-x11 libfuse2
+          dpkg-query -W webkit2gtk-driver libwebkit2gtk-4.1-0 xvfb dbus-x11 libfuse2
+          cargo install tauri-driver --version 2.1.0 --locked
+          cargo build --locked --release --manifest-path scripts/release-signature-check/Cargo.toml
+      - name: Prepare and verify original artifacts
+        id: prepare
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/native-qa.py --prepare
+      - name: Probe original native DOM without artifact token
+        env:
+          STAGE_PATH: ${{ steps.prepare.outputs.stage }}
+        run: dbus-run-session -- xvfb-run -a python3 scripts/native-qa.py --probe
+      - name: Remove owned qualification staging
+        if: always()
+        env:
+          STAGE_PATH: ${{ steps.prepare.outputs.stage }}
+        run: python3 scripts/native-qa.py --cleanup
+      # Intentionally no cache/upload, release changes, credentials or provider calls.
