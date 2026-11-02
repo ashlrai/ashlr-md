@@ -9035,6 +9035,77 @@ fn export_text_keeps_bracketed_prose_beside_inline_links() {
     }
 }
 
+/// A `[text]` beside a valid link keeps its brackets while the link reads
+/// its text — in a heading, a table row, next to a code span, and around
+/// destinations written each way CommonMark allows. A bracketed word the
+/// document defines is a reference, not prose, and reads only its text.
+#[test]
+fn export_text_keeps_prose_brackets_next_to_a_valid_link() {
+    for (markdown, expected) in [
+        // Undefined-label prose flanks a link inside a heading.
+        (
+            "## [Draft] read [the guide](/guide) [v2]\n",
+            "[Draft] read the guide [v2]",
+        ),
+        // A prose cell beside a link cell in one table row.
+        (
+            "| State | Ref |\n|---|---|\n| [draft] | [the spec](/spec) |\n",
+            "State\tRef\n[draft]\tthe spec",
+        ),
+        // The same word: prose keeps its brackets, the link reads its text.
+        (
+            "[guide] says see [guide](/guide) too.\n",
+            "[guide] says see guide too.",
+        ),
+        // A `<...>` destination with a space, between prose brackets.
+        (
+            "Note [rev] then [the spec](<https://example.com/a b>) [end].\n",
+            "Note [rev] then the spec [end].",
+        ),
+        // A code span keeps its literal `[x](u)`; only the real link reads.
+        (
+            "Keep [note] and `[x](u)`; read [the guide](/guide).\n",
+            "Keep [note] and [x](u); read the guide.",
+        ),
+        // An autolink reads its address next to prose brackets.
+        (
+            "Ping [ops] or <https://status.example.com> now.\n",
+            "Ping [ops] or https://status.example.com now.",
+        ),
+        // A defined label beside a link is a reference: its brackets go.
+        (
+            "Read [the guide](/guide)[ref] done.\n\n[ref]: /r\n",
+            "Read the guideref done.",
+        ),
+    ] {
+        let file_result = run_export_text_on(markdown);
+        assert_eq!(
+            file_result["text"].as_str().unwrap(),
+            expected,
+            "{markdown:?}"
+        );
+
+        let ipc = MockIpc::new().on_get(
+            "/content",
+            Ok(json!({ "path": "/docs/test.md", "content": markdown })),
+        );
+        let response = tool_export_text(id(2), &json!({}), &ipc);
+        assert!(response.error.is_none(), "{markdown:?}");
+        assert_eq!(
+            content_text(&response)["text"].as_str().unwrap(),
+            expected,
+            "{markdown:?}"
+        );
+    }
+
+    // export_metadata keeps the heading's raw markdown, link markup and all.
+    let metadata = run_export_metadata_on("## [Draft] read [the guide](/guide) [v2]\n");
+    assert_eq!(
+        metadata["headings"],
+        json!([{ "level": 2, "text": "[Draft] read [the guide](/guide) [v2]" }])
+    );
+}
+
 #[test]
 fn export_text_matches_prose_brackets_documentation() {
     let docs = include_str!("../../../../docs/mdopener-prose-brackets.md");
