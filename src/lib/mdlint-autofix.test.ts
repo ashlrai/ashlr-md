@@ -5179,3 +5179,47 @@ describe("invalid-link-target autofix: link label preservation", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+describe("link and image autofix: mixed-fix idempotence", () => {
+  const rules = [ruleInvalidLinkTarget, ruleMissingAltText];
+  const fixPass = (text: string) => applyAllFixes(text, lintDocument(text, { rules }));
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("applying link and image fixes twice equals applying them once with %j line endings", (nl) => {
+    const doc = [
+      "# Gallery",
+      "",
+      "![](a.png) beside [draft]() and ![ \t ](b.png?x=1#y) then [top](#).",
+      "Keep ![ok](c.png) and [guide](./guide.md); [search](?) ![](d.png)",
+      "",
+    ].join(nl);
+    const violations = lintDocument(doc, { rules });
+    expect(violations.map((violation) => violation.ruleId).sort()).toEqual([
+      "invalid-link-target",
+      "invalid-link-target",
+      "invalid-link-target",
+      "missing-alt-text",
+      "missing-alt-text",
+      "missing-alt-text",
+    ]);
+
+    const once = applyAllFixes(doc, violations);
+    expect(once).toBe(
+      [
+        "# Gallery",
+        "",
+        "![TODO: describe image](a.png) beside [draft](TODO) and ![TODO: describe image](b.png?x=1#y) then [top](TODO).",
+        "Keep ![ok](c.png) and [guide](./guide.md); [search](TODO) ![TODO: describe image](d.png)",
+        "",
+      ].join(nl),
+    );
+
+    // Second pass: re-lint and fix again — nothing may change.
+    expect(lintDocument(once, { rules })).toEqual([]);
+    expect(fixPass(once)).toBe(once);
+    // Whole pipeline run twice from the original matches a single run.
+    expect(fixPass(fixPass(doc))).toBe(once);
+  });
+});
