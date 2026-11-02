@@ -4,13 +4,11 @@
 
 # Ashlr MD
 
-### Markdown, finally beautiful.
+**The Markdown app agents can drive.**
 
-**An open-source, AI-native Markdown app for macOS, Windows, and Linux.** Double-click any `.md` and
-it's instantly beautiful: read it, edit it, export it, and understand it with
-free, private, **on-device AI** built in.
+Ashlr MD opens `.md` files on macOS, Windows, and Linux, and it speaks [MCP](https://modelcontextprotocol.io/). An agent can install the CLI, open a document, edit it, export it, and wait for a person to approve it.
 
-*Think Preview.app, but Markdown-aware, editable, and AI-native, and cross-platform.*
+People get a rendered page instead of raw syntax. Agents get `mdopen`, `mdopener-mcp`, and JSON on stdout.
 
 <!-- fresh:begin version-badge -->
 [![Release: 0.4.0](https://img.shields.io/badge/release-0.4.0-0969da.svg)](https://github.com/ashlrai/ashlr-md/releases/tag/v0.4.0)
@@ -18,397 +16,196 @@ free, private, **on-device AI** built in.
 
 [![CI](https://github.com/ashlrai/ashlr-md/actions/workflows/ci.yml/badge.svg)](https://github.com/ashlrai/ashlr-md/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-0969da.svg)](./LICENSE)
-[![Platform: macOS · Windows · Linux](https://img.shields.io/badge/platform-macOS%20%C2%B7%20Windows%20%C2%B7%20Linux-1a1a17.svg)](#)
+[![GitHub stars](https://img.shields.io/github/stars/ashlrai/ashlr-md?style=social)](https://github.com/ashlrai/ashlr-md/stargazers)
+[![Platform: macOS · Windows · Linux](https://img.shields.io/badge/platform-macOS%20%C2%B7%20Windows%20%C2%B7%20Linux-1a1a17.svg)](#download)
 [![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-24c8db.svg)](https://tauri.app)
 
-[**Website**](https://md.ashlr.ai) ·
-[Download](https://github.com/ashlrai/ashlr-md/releases/latest) ·
-[Contributing](./CONTRIBUTING.md) ·
-[Roadmap](./ROADMAP.md) ·
-[Plugs into Phantom](#how-ashlr-md-plugs-into-phantom) ·
-[Vision](./docs/VISION.md)
-
-<img src="./docs/og.png" width="820" alt="Ashlr MD: a beautiful Markdown plan with callouts and checkboxes, plus an on-device AI assistant" />
+[llms.txt](./llms.txt) ·
+[llms-full.txt](./llms-full.txt) ·
+[Examples](./docs/EXAMPLES.md) ·
+[Agent guide](./docs/AGENTS.md) ·
+[Website](https://md.ashlr.ai)
 
 </div>
 
----
+## Start
 
-## 30-second start
-
-1. Download the [latest release](https://github.com/ashlrai/ashlr-md/releases/latest) for your OS: `.dmg` (Apple Silicon), `.msi`/`-setup.exe` (Windows), `.deb`/`.rpm`/`.AppImage` (Linux).
-2. Double-click any `.md` file, or run `mdopen notes.md` after **Preferences → Command-line tool → Install mdopen** (the app's installers leave `mdopen` off your `PATH`; see [docs/AGENTS.md](./docs/AGENTS.md#install)).
-3. Ask the AI sidebar about it. On a Mac with Apple Silicon and macOS 26 or later, the built-in on-device model needs no account and no API key: turn on Apple Intelligence in System Settings, then restart Ashlr MD. On Windows and Linux, install [Ollama](https://ollama.com) for free local AI, or add an Anthropic API key in Preferences.
-
-## Connect your agent (MCP)
-
-Easiest: **Preferences → AI agents (MCP) → Connect to Claude Code / Cursor**. By hand, with the bundled `mdopener-mcp`:
+From a checkout, on macOS or Linux. One command builds the CLI and the MCP server, links both onto `PATH`, and registers Claude Code when `claude` is already installed.
 
 ```bash
-# Claude Code (macOS path shown; Linux: "/usr/lib/Ashlr MD/mdopener-mcp")
-claude mcp add --scope user ashlr-md "/Applications/Ashlr MD.app/Contents/Resources/mdopener-mcp"
-# Codex
-codex mcp add ashlr-md -- "/Applications/Ashlr MD.app/Contents/Resources/mdopener-mcp"
+SKIP_APP_BUILD=1 bash scripts/install.sh
 ```
 
-Cursor (`~/.cursor/mcp.json`):
+No checkout yet:
 
-```json
-{ "mcpServers": { "ashlr-md": { "command": "/Applications/Ashlr MD.app/Contents/Resources/mdopener-mcp" } } }
+```bash
+SKIP_APP_BUILD=1 bash <(curl -fsSL https://raw.githubusercontent.com/ashlrai/ashlr-md/main/scripts/install.sh)
 ```
 
-Windows path: `%LOCALAPPDATA%\Ashlr MD\mdopener-mcp.exe`. More in [docs/AGENTS.md](./docs/AGENTS.md).
-The Settings copy command targets a Unix shell on macOS/Linux and PowerShell on
-Windows; its quoting is not intended for Windows Command Prompt (`cmd.exe`).
+If the linker used `~/.local/bin` and your shell cannot find the commands yet: `export PATH="$HOME/.local/bin:$PATH"`.
 
+JSON, from the same machine. These commands exit on their own. They do not download a model and they do not write config.
 
-## Why
+```bash
+mdopener-mcp doctor --json
+mdopener-mcp setup --local --json
+mdopener-mcp --ashlr-handshake --json
+mdopener-mcp --export-tool-schema
+```
 
-Your AI agents write Markdown all day: `README.md`, `PLAN.md`, research dumps.
-On most systems those open as a wall of raw syntax (TextEdit, Notepad) or a blank
-page (Preview). No app owns the simple job of making them *look right* instantly,
-especially for non-technical people. Ashlr MD does exactly that, on every platform.
+Connect the server. Each command uses the `mdopener-mcp` that is on `PATH`.
+
+```bash
+claude mcp add --scope user ashlr-md "$(command -v mdopener-mcp)"
+codex mcp add ashlr-md -- "$(command -v mdopener-mcp)"
+python3 scripts/connect-cursor.py
+```
+
+Open a file in the desktop app, after the app itself is installed:
+
+```bash
+mdopen samples/agent-plan.md
+```
+
+More commands, including Windows: [docs/EXAMPLES.md](./docs/EXAMPLES.md). Every tool, in order: [docs/AGENTS.md](./docs/AGENTS.md).
+
+<img src="./docs/readme/hero.png" width="820" alt="Ashlr MD showing a rendered plan, an on-device agent panel, and an Approve button" />
+
+## How it works
+
+<img src="./docs/readme/how-it-works.png" width="820" alt="Install, connect an MCP client, open the file, return a JSON review verdict" />
+
+1. `scripts/install.sh` builds `mdopen` and `mdopener-mcp` and links them onto `PATH`.
+2. Claude Code, Cursor, or Codex launches `mdopener-mcp` over stdio.
+3. `open_file` is the tool that starts the desktop app. The other tools use the document that is already open, or read a Markdown file from disk.
+4. `request_review` waits for Approve, Request changes, or Dismiss. The agent gets that verdict as JSON.
+
+The server talks to the app on `127.0.0.1` with a token in `~/.mdopener/`. Full contract: [docs/AGENTS.md](./docs/AGENTS.md).
 
 ## Features
 
-- **Instant, beautiful rendering**: GFM, Shiki-highlighted code, Mermaid
-  diagrams, KaTeX math, GitHub-style callouts, tables, footnotes.
-- **Edit without the syntax**: Typora-style WYSIWYG (Milkdown) + a lossless
-  source mode (CodeMirror) + a clean Read view. Atomic save; external-change
-  detection with a conflict banner.
-- **Export anywhere**: one-click **PDF / DOCX / HTML**, fully offline, no Pandoc.
-- **⌘K command palette**: fuzzy, keyboard-first access to every action and your
-  recent files.
-- **Free, private, on-device AI**: summarize / explain / rewrite / translate.
-  On **macOS 26+ (Apple Silicon)**: zero-install via **Apple Foundation Models**
-  (macOS only). On **Windows & Linux** (and as a fallback on Mac): local
-  **Ollama** → your own cloud key → optional hosted. Nothing leaves your device
-  unless you opt in.
-- **AI superpowers**: select text to Explain / Summarize / Rewrite / Translate;
-  **inline AI rewrite in the editor (⌘I)** with Rewrite / Fix grammar / Make
-  concise / Expand; **"Explain changes"** when a file changes on disk; and
-  chat-with-document.
-- **Agent activity drawer (⌘B)**: watch the folder your AI agent writes to and
-  new Markdown files appear live; click to open instantly. The answer to "buried
-  in agent `.md` files."
-- **Outline navigation (⌘⇧O)**: an auto table-of-contents with scrollspy for
-  long docs.
-- **Tabs**: open several documents at once; the tab bar appears only when more
-  than one is open, so the single-file view stays clean. `⌘⇧]` / `⌘⇧[` to switch,
-  `⌘W` to close.
-- **Find & search**: find-in-document (`⌘F`) in both rendered and source views,
-  find-and-replace in source (`⌘⌥F`), and full-text **search across your recent &
-  watched files** (`⌘⇧F`).
-- **Split view & Zen mode**: edit with a live preview side-by-side (`⌘\`, synced
-  scrolling), or go distraction-free with **Zen mode** (`⌘⇧Z`, `Esc` to exit).
-- **Obsidian-compatible**: reads your vault natively, with `[[wikilinks]]` (with
-  `#heading` / `#^block` anchors and `|aliases`) that resolve vault-wide and open,
-  `![[embeds]]` and partial transclusion, sized `![[image.png|300]]` embeds,
-  `==highlights==`, hidden `%%comments%%`, and KaTeX math. Read-only **JSON
-  Canvas** (`.canvas`) viewing with pan/zoom, plus an **Open in Obsidian** command
-  to hand a note back. Never writes to your `.obsidian/` config. Details:
-  [**docs/OBSIDIAN.md**](./docs/OBSIDIAN.md).
-- **Reading polish**: word count & reading time, footnote hover previews,
-  a path breadcrumb, and copy-link-to-heading on hover.
-- **Secure by default**: malicious Markdown is sanitized (no script/HTML
-  injection), API keys live in the OS keychain (never plaintext), and a strict
-  CSP is enforced. See [SECURITY.md](./SECURITY.md).
-- **Agent-native review loop**: `mdopen file.md`, the `mdopener://` URL scheme,
-  and an **MCP server** so Claude Code / Codex / Cursor can open, read, edit, and
-  export the live doc; the **activity drawer (⌘B)** surfaces new agent `.md` files
-  the instant they land and **"Explain changes"** narrates each on-disk edit.
-  One-click MCP setup in Settings. Full guide: [**docs/AGENTS.md**](./docs/AGENTS.md).
-- **Phantom's Markdown viewer**: when Ashlr MD is installed, [Phantom](https://github.com/ashlrai/phantom)
-  hands its inbox and digest Markdown (`phm inbox show --open`, `phm digest --open`)
-  to `mdopen`. The broader "open any `.md`" opener is not on Phantom's `master` yet.
-  See [**How Ashlr MD plugs into Phantom**](#how-ashlr-md-plugs-into-phantom) and
-  [**docs/PHANTOM.md**](./docs/PHANTOM.md).
-- **Obsidian integration**: the [Open in Ashlr MD](./integrations/obsidian/)
-  plugin sends any vault note to Ashlr MD with one click (ribbon, command, and
-  right-click) via the `mdopener://` scheme.
-- **VS Code integration**: the [Open in Ashlr MD](./integrations/vscode/)
-  extension opens the active `.md` file in Ashlr MD from an editor title-bar
-  button (or the command palette) via the `mdopener://` scheme, with a `mdopen`
-  CLI fallback.
-- **Smart agent output**: callouts, interactive checkboxes that save back to the
-  file, and automatic plan / diff / multi-file detection with badges.
-- **Three themes**: Paper, Sepia, Midnight (light + dark), switch live.
-- **Native & instant**: built on [Tauri 2](https://tauri.app); a tiny native binary
-  on every OS, no Electron bloat. MIT, local-first, no telemetry.
+<img src="./docs/readme/features.png" width="820" alt="Rendered Markdown, exact edit, export to PDF Word and HTML, and a JSON review verdict" />
 
+- **Render.** GitHub Flavored Markdown, highlighted code, Mermaid, KaTeX, callouts, tables, and footnotes.
+- **Edit.** A WYSIWYG editor and a source editor. `edit_document` replaces one exact match. `save: true` writes the file.
+- **Export.** PDF, Word, HTML, and EPUB from the app. Call `open_file` with `"mode": "read"` before `export`.
+- **Review.** `request_review` blocks until a person decides. `get_user_annotations` reads the verdict and the task checkboxes later.
+- **Watch a folder.** The activity drawer (Command-B on macOS, Ctrl-B on Windows and Linux) lists new `.md` files as they appear.
+- **On-device AI.** Apple Foundation Models on macOS 26 or later (Apple Silicon), or Ollama. A cloud model runs only if you opt in. Rules: [docs/local-ai.md](./docs/local-ai.md).
+- **Obsidian, VS Code, and Raycast.** Each one opens the current note through `mdopener://`. Notes: [docs/OBSIDIAN.md](./docs/OBSIDIAN.md), [integrations/vscode](./integrations/vscode/), [integrations/raycast](./integrations/raycast/).
 
-## Custom AI endpoints
+## FAQ
 
-The AI sidebar, semantic search and the MCP sidecar read these environment variables at call time. Unset or blank means the defaults below, which are what the app always used.
+### What do I run first?
 
-| Variable | Default | Accepts |
-|---|---|---|
-| `ANTHROPIC_BASE_URL` | `https://api.anthropic.com` | an `https://` base URL, or `http://127.0.0.1` / `http://[::1]` with optional port; the app appends `/v1/messages` |
-| `OLLAMA_HOST` | `http://localhost:11434` (MCP sidecar: `http://127.0.0.1:11434`) | `host`, `host:port`, `:port` or a full URL |
+`SKIP_APP_BUILD=1 bash scripts/install.sh`, then `mdopener-mcp doctor --json`. The desktop app is a separate download: [docs/INSTALL.md](./docs/INSTALL.md).
 
-**Changed from #131:** `ANTHROPIC_BASE_URL` must be `https://` (any host), or plain `http://` only for the loopback addresses `127.0.0.1` and `[::1]`. `http://localhost`, plain http to any other host, other schemes, malformed URLs, a user name or password in the URL, a query and a fragment are refused when you send a message: the sidebar shows an error, no request is made and your API key is not sent. Anthropic requests do not follow redirects, so the key goes only to that host. The error never repeats the value.
+### Where is the tool list?
 
-Trailing slashes are trimmed. This lets a gateway such as a LiteLLM proxy or a Phantom proxy sit in front of Anthropic, or points the app at Ollama on another machine. Only the URL handling is covered by tests; the app has not been tested against a specific gateway. The MCP sidecar accepts an `https://` `OLLAMA_HOST` and applies the same rules as `ANTHROPIC_BASE_URL`: `https://` to any host, or plain `http://` only to `127.0.0.1` or `[::1]`. `:port` means `127.0.0.1:port`, and `0.0.0.0` or `[::]` mean the matching loopback address. Any other value (for example `gpu-box:11434` or `http://localhost:11434`) is refused: no request is made and the sidecar falls back to keyword search (a search that asked for `semantic: true` says why in its note). The sidecar does not follow redirects from Ollama. A desktop app launched from the Dock or Start menu may not see variables set in your shell profile.
+[docs/AGENTS.md](./docs/AGENTS.md), or `mdopener-mcp --export-tool-schema` for JSON.
 
-The installer also reports whether the optional Phantom CLI is installed and which version. It runs only `phantom --version` and never reads or reveals secret values. To run tools with Phantom placeholder keys and base URLs, start them with `phantom exec -- <cmd>`.
+### Does a model upload my files?
 
-### Local models (`localInference`)
+Apple's on-device model and a loopback Ollama stay on the machine. Cloud calls happen only after you add a key or turn on a hosted option. `"offline": true` in `~/.ashlr/config.json` refuses cloud calls. Details: [docs/local-ai.md](./docs/local-ai.md).
 
-**Behavior change for `OLLAMA_HOST`:** the app now accepts `OLLAMA_HOST` only for a loopback host (`127.0.0.1`, `[::1]` or `localhost`; `0.0.0.0` and `[::]` mean the matching loopback address). A remote Ollama such as `gpu-box:11434` is refused (AI and embeddings report an error, no request is made) unless `~/.ashlr/config.json` sets `"localInference": { ..., "allowRemote": true }` AND the URL is `https://`. Only the config file can allow remote, never an environment variable.
+### Which computers have a release build?
 
-To use a local OpenAI-compatible server (Ollama, oMLX, a LiteLLM proxy), add a `localInference` block to `~/.ashlr/config.json`. It uses the same shape as Phantom's (ashlrai/phantom#917):
+Apple Silicon Macs, Windows x64, and Linux x86_64. The current release is unsigned. On macOS, right-click the app and choose Open the first time. Windows may show a SmartScreen warning. There is no Homebrew, winget, or AUR package yet. Intel Macs build from source. Steps: [docs/INSTALL.md](./docs/INSTALL.md).
 
-```json
-"localInference": {
-  "provider": "ollama",
-  "baseUrl": "http://127.0.0.1:11434/v1",
-  "models": { "coder": "qwen3.8:27b" },
-  "allowRemote": false
-}
-```
+### How does Phantom open a file?
 
-- `provider` is `ollama` (default base URL `http://127.0.0.1:11434/v1`), `omlx` (`http://127.0.0.1:8000/v1`) or `openai-compat` (`baseUrl` required).
-- The model defaults to `qwen3.8:27b`. Other options from Phantom's `docs/LOCAL-INFERENCE.md`: `qwen3.6:27b`, `qwen3.6:35b`, `qwen3-coder:30b` (`ollama pull qwen3.8:27b`). Abliterated or uncensored models are refused.
-- The URL must be loopback (`127.0.0.1`, `[::1]` or `localhost`, written exactly). A remote URL needs `allowRemote: true` and `https://`. Refusals use closed codes (`remote-not-allowed`, `remote-requires-https`, `host-not-canonical`, ...) and never repeat the URL.
-- No key is ever sent to this endpoint: no Authorization or x-api-key header, not your Anthropic key, not a `phm_` placeholder. If a gateway needs a key, run it through `phantom exec --` so the gateway holds the key itself.
-- When the block is valid, the sidebar uses it before any other provider. An invalid block is ignored and never routes anywhere.
-- `mdopener-mcp doctor` checks that the server answers: one loopback-only GET of the model list, no key, 3 s timeout, redirects refused, at most 256 KiB read. It prints only a status (`reachable`, `unreachable`, `not-configured`, `config-invalid`, `remote-not-probed` or `bad-response`); `--json` for machines.
-- `mdopener-mcp setup --local` gets you from nothing to a working local server. It looks for Ollama on `127.0.0.1:11434` and oMLX on `127.0.0.1:8000` (the same probe as `doctor`: loopback only, no key, 3 s each), probes the `localInference` block when there is one, and prints the exact next steps: the model pull command (`ollama pull qwen3.8:27b`, or the configured model), the `localInference` block to add with `"offline": true`, and the `doctor` check. It downloads nothing and writes nothing: a model is several GB, so you run the pull yourself. Add `--json` for machines (`kind: ashlr.setup-local`, with `downloads: false` and `writes: false`). oMLX has no pull command; it loads models from its dashboard or the folder given to `omlx serve --model-dir`.
+[How Ashlr MD plugs into Phantom](#how-ashlr-md-plugs-into-phantom).
 
-### Offline mode
+## Star Ashlr MD
 
-Set `"offline": true` on the same `localInference` block when this machine must not call a cloud model or a model server on another host. The default is off: leaving the key out (or setting `false`) changes nothing.
+If an agent on your machine should open Markdown in a real window, star the repo so the next person can find it.
 
-```json
-"localInference": {
-  "provider": "ollama",
-  "offline": true
-}
-```
-
-While it is on:
-
-- Chat, embeddings, in-app search and `mdopener-mcp` talk only to loopback: `127.0.0.1`, `[::1]` and `localhost` (that name is pinned to loopback, with no DNS). `127.0.0.2`, `2130706433`, `localhost.evil.com` and a trailing dot are refused. A remote `baseUrl` or `OLLAMA_HOST` is refused even when `allowRemote` is true, and no environment variable can add a host.
-- Anthropic and the hosted Ashlr endpoint are not called at all, including through a loopback gateway. The error is `Offline mode (localInference.offline in ~/.ashlr/config.json): cloud AI is disabled. No request was sent.` There is no fallback to another cloud provider.
-- A loopback Ollama or `localInference` server still works. On-device Apple Foundation Models are unchanged. Requests still send no API key or OAuth token to a local URL, follow no redirects, and do not use a proxy for loopback.
-- A value that is present but not a boolean counts as offline (a typo cannot turn the guarantee off). The `localInference` block itself must still be a boolean or it is invalid and is not used.
-- `mdopener-mcp doctor` reports it: a second line, `doctor: offline [ok] verified`, when `offline` is on, the configured server is loopback and it answered the model-list probe, so no remote endpoint is in use and cloud AI is refused. `offline [warn] unverified` means `offline` is on but no loopback server answered (AI is unavailable until one does; `mdopener-mcp setup --local` says what to run). `offline [info] not enabled` means the flag is off. `doctor --json` adds the same as an `offline` check (`native_status` `verified`, `unverified` or `not-enabled`) to the `ashlr.doctor` envelope, after the `local-inference` check; `info` never raises the top-level status.
-
-## Platform support
-
-| Capability | macOS | Windows | Linux |
-|---|---|---|---|
-| Core (render · edit · export · themes) | ✅ | ✅ | ✅ |
-| Default `.md` handler | ✅ one-click (Launch Services) | ✅ registers association (opens Settings to confirm) | ✅ via `xdg-mime` |
-| Free local AI (zero-install) | ✅ Apple Foundation Models (macOS 26+, Apple Silicon) | Ollama (install separately) | Ollama (install separately) |
-| `mdopen` CLI & `mdopener://` deep link | ✅ | ✅ | ✅ |
-| MCP server | ✅ | ✅ | ✅ |
-| Command palette · activity drawer · inline AI · outline | ✅ | ✅ | ✅ |
-
-## Keyboard shortcuts
-
-Shown with ⌘ on macOS; use **Ctrl** on Windows & Linux.
-
-| Action | Shortcut |
-|---|---|
-| Command palette | `⌘K` |
-| AI assistant | `⌘L` |
-| Inline AI rewrite (in editor) | `⌘I` |
-| Cycle theme | `⌘⇧L` |
-| Open file | `⌘O` |
-| Save | `⌘S` |
-| Export | `⌘E` |
-| Copy as rich text | `⌘⇧C` |
-| Insert table | `⌘⇧T` |
-| Read / Edit / Source view | `⌘1` / `⌘2` / `⌘3` |
-| Find in document | `⌘F` |
-| Find & replace (source) | `⌘⌥F` |
-| Search across files | `⌘⇧F` |
-| Split preview | `⌘\` |
-| Zen mode | `⌘⇧Z` |
-| Next / Previous tab | `⌘⇧]` / `⌘⇧[` |
-| Close tab | `⌘W` |
-| Agent activity drawer | `⌘B` |
-| Outline | `⌘⇧O` |
-| Settings | `⌘,` |
-| Keyboard shortcuts (cheat sheet) | `⌘/` |
+[Star ashlrai/ashlr-md on GitHub](https://github.com/ashlrai/ashlr-md/stargazers)
 
 ## One-click agent setup
 
-Open **Preferences → AI agents (MCP)** and click **Connect to Claude Code**,
-**Connect to Cursor**, or **Connect to Codex**; no terminal required. The
-**Agent Activity drawer (⌘B)** is the recommended way to watch an agent's output folder and open new `.md` files the moment they appear. Full guide
-+ config snippets: [**docs/AGENTS.md**](./docs/AGENTS.md).
+Open the app, then Preferences, then AI agents (MCP). Click **Connect to Claude Code**, **Connect to Cursor**, or **Connect to Codex**. Each button registers this app's `mdopener-mcp`. The terminal commands that do the same job are in [Start](#start).
 
-MCP discovery metadata and offline validation: [docs/mcp-registry.md](./docs/mcp-registry.md).
+Discovery metadata: [docs/mcp-registry.md](./docs/mcp-registry.md).
 
-## Download & install
+## Download
 
-Downloads are on the [GitHub Releases page](https://github.com/ashlrai/ashlr-md/releases).
-Full, per-OS instructions live in [**docs/INSTALL.md**](./docs/INSTALL.md).
+Release builds are on the [latest release](https://github.com/ashlrai/ashlr-md/releases/latest). Per-OS steps are in [docs/INSTALL.md](./docs/INSTALL.md). The app includes an updater. The installers do not put `mdopen` on `PATH`. Use Preferences, Command-line tool, Install mdopen, or the [install script](#start) on macOS and Linux.
 
-| Platform | Download (latest release) |
+## How Ashlr MD plugs into Phantom
+
+[Phantom](https://phm.dev) hands Markdown to Ashlr MD (`phm inbox show <id> --open`, `phm digest --open`). It calls `mdopen` when Ashlr MD is installed, and prints in the terminal when it is not. On Phantom's `master` branch, that inbox and digest handoff is what is merged. The opener for any `.md`, and the `PHANTOM_ASHLR_MD=0` opt-out, are on Phantom's `feat/ashlr-md-opener` branch.
+
+Three hooks stay stable:
+
+| Hook | What Phantom does with it |
 |---|---|
-| macOS (Apple Silicon only) | `.dmg` (drag to `/Applications`) |
-| Windows (x64) | `.msi` or NSIS `-setup.exe` installer |
-| Linux (x86_64) | `.deb` · `.rpm` · `.AppImage` |
+| `mdopen` on `PATH` | Means Ashlr MD is installed. `mdopen` exits 0 only when a viewer accepted the file ([exit status](./docs/PHANTOM.md#mdopen-exit-status)) |
+| `mdopener://` | `mdopener://open?path=<url-encoded absolute path>` opens a file. Add `&mode=edit` for the editor |
+| `mdopener-mcp` | Agents call `open_file` so a person can review the document |
 
-Auto-update is built in on every platform. Intel Macs aren't covered by the
-current release; build from source (below).
+Under `phantom exec -- <cmd>`, provider keys arrive as `phm_` placeholders and `ANTHROPIC_BASE_URL` points at the session proxy. The sidebar uses the key saved in Settings unless `ASHLR_MD_ANTHROPIC_KEY_FROM_ENV=1`, which reads `ANTHROPIC_API_KEY` from the environment. A `phm_` placeholder is honored only when the base URL is that proxy. `mdopener-mcp` sends no Anthropic requests. Ashlr MD never resolves a `phm:` reference. Do not copy a key into Settings with `phantom reveal`.
 
-> **Note:** Release builds aren't code-signed yet. On macOS the app isn't
-> notarized, so right-click the app and choose **Open** the first time. On
-> Windows you may see a SmartScreen warning ("More info → Run anyway"). There
-> are no Homebrew, winget or AUR packages yet; use the release downloads. See
-> [docs/RELEASING.md](./docs/RELEASING.md).
+The full contract is in [docs/PHANTOM.md](./docs/PHANTOM.md). The URL rules are tested. The app has not been tested against a live `phantom exec` session.
 
-There's also a one-shot installer that builds from source, installs the `mdopen`
-CLI, and wires up Claude Code:
+Source: [ashlrai/phantom](https://github.com/ashlrai/phantom). Placeholders: [ashlrai/phantom-secrets](https://github.com/ashlrai/phantom-secrets).
+
+## Local models
+
+Chat can use Apple Foundation Models, Ollama, or a key you add in Preferences. URL rules, the `localInference` block, and offline mode: [docs/local-ai.md](./docs/local-ai.md). State-folder repairs: [docs/doctor-fix.md](./docs/doctor-fix.md).
 
 ```bash
-bash scripts/install.sh
+mdopener-mcp doctor --fix --json
 ```
-
-The full macOS source installer builds the Swift sidecars declared in the app's
-bundle configuration. It needs Xcode 26 / Swift 6.2+ with the macOS 26 SDK for
-`mdopener-afm`; a missing sidecar stops packaging with its build instructions.
-For the Rust CLI and MCP server only, use `SKIP_APP_BUILD=1 bash scripts/install.sh`;
-on Linux that is all the script installs (get the app from the release packages).
 
 ## Develop
 
-Prerequisites: [Rust](https://rustup.rs) and [Bun](https://bun.sh).
-On macOS, also install Xcode Command Line Tools (`xcode-select --install`).
-On Windows, install the [MSVC build tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/).
-On Linux, install `build-essential` (Debian/Ubuntu) or equivalent, plus the
-[Tauri Linux dependencies](https://tauri.app/start/prerequisites/#linux).
+Prerequisites: [Rust](https://rustup.rs) and [Bun](https://bun.sh). macOS also needs Xcode Command Line Tools (`xcode-select --install`). Windows needs the MSVC build tools. Linux needs a C toolchain and the [Tauri Linux packages](https://tauri.app/start/prerequisites/#linux).
 
 ```bash
 bun install
-bun run tauri dev        # hot-reloading desktop app
-bun run tauri dev -- -- file.md   # open a file on launch
+bun run tauri dev
+bun run typecheck
+bun run lint
+bun run test
+bun run check:doc-links
+python3 scripts/check-docs.py
+python3 scripts/test-mcp-setup.py
+python3 scripts/test-connect-cursor.py
+node --test scripts/check-readme-parity.test.mjs && node scripts/check-readme-parity.mjs
 ```
 
-Quality gates (all green in CI):
-
-```bash
-bun run typecheck        # tsc --noEmit
-bun run lint             # lint + format
-bun run test             # Vitest unit tests
-bun run check:doc-links  # every relative link in the repo's Markdown resolves
-cargo check --workspace --manifest-path src-tauri/Cargo.toml
-```
-
-`bun run check:doc-links` scans all Markdown in the repository (`README.md`, `docs/`,
-`integrations/`, `samples/`, ...) for relative links and `#anchors` that point
-nowhere; `--external` also probes remote URLs (needs the network):
-`node scripts/check-doc-links.mjs --external`.
-
-README command and path parity: `node --test scripts/check-readme-parity.test.mjs && node scripts/check-readme-parity.mjs`
-(add `--list` to the checker for its inventory). Installed paths, example documents,
-and references to other repositories are classified separately from repository paths.
-
-Source-only documentation drift check: `python3 scripts/check-docs.py`. It compares
-the tool table, CLI examples and frontend event inventory with the source.
-
-Source-only MCP setup checks (Python 3, Rust, and Bash; no installer or agent
-CLI execution): `python3 scripts/test-mcp-setup.py`.
-
-The on-device AI sidecar (optional, macOS 26+) builds separately:
+The optional on-device sidecar (macOS 26 or later):
 
 ```bash
 cd src-tauri/bins/mdopener-afm && ./build.sh
 ```
 
-## Architecture
-
 | Layer | What |
 |---|---|
-| `src/` | React 19 + TS frontend: renderer (remark/rehype + Shiki/Mermaid/KaTeX), Milkdown & CodeMirror editors, AI sidebar, export, Zustand stores |
-| `src-tauri/src/` | Rust core: file I/O, watcher, deep links, AI proxy (reqwest), loopback IPC, on-device AI bridge |
-| `src-tauri/bins/` | `mdopen` CLI · `mdopener-mcp` MCP server · `mdopener-afm` Swift on-device AI sidecar |
-| `landing/` | The marketing site (static, deploy-anywhere) |
+| `src/` | React 19 frontend: renderer, editors, AI sidebar, export |
+| `src-tauri/src/` | Rust core: files, watcher, deep links, AI proxy, loopback IPC |
+| `src-tauri/bins/` | `mdopen`, `mdopener-mcp`, and the Swift on-device sidecar |
+| `landing/` | The marketing site |
 
-See [`docs/VISION.md`](./docs/VISION.md) for the north star and
-[`docs/RELEASING.md`](./docs/RELEASING.md) for the release process.
+Product goal: [docs/VISION.md](./docs/VISION.md). Releases: [docs/RELEASING.md](./docs/RELEASING.md).
 
-## Repair with doctor --fix
+## Part of Ashlr
 
-`mdopener-mcp doctor --fix` previews repairs to Ashlr MD's state folder, `~/.mdopener`, and writes nothing (exit 0). `mdopener-mcp doctor --fix --apply` makes them. `mdopener-mcp doctor --apply` without `--fix` is refused with exit 2. Add `--json` for one `{ mode, plan, outcome }` object. This is in source (main, 0.4.1 unreleased) and not yet in a release.
+Each tool installs on its own.
 
-```console
-$ mdopener-mcp doctor --fix
-doctor --fix (dry run, nothing written):
-  would fix  make owner-only (0644 to 0600): ~/.mdopener/ipc-port
-  would fix  move aside a saved review that does not parse: ~/.mdopener/reviews/<file>.json
-Run `mdopener-mcp doctor --fix --apply` to make these changes (a file's contents are backed up before it is moved).
-  manual     ipc-token is mode 0644: other users may read the app's token. It is a secret, so doctor --fix never touches it; run: chmod 600 ~/.mdopener/ipc-token
-```
+- [Phantom](https://phm.dev) (`phm`), the agent workbench. Source: [ashlrai/phantom](https://github.com/ashlrai/phantom).
+- [Phantom Secrets](https://phm.dev/secrets) (`phantom`), `phm_` placeholders. Source: [ashlrai/phantom-secrets](https://github.com/ashlrai/phantom-secrets).
+- [Locus](https://github.com/ashlrai/locus) (`locus`), one account per agent session.
+- [Lexicon](https://lexicon.ashlr.ai) (`lexicon`), dictation corrections.
+- [Ashlr Stack](https://stack.ashlr.ai) (`stack`), service provisioning.
+- [ashlr-plugin](https://plugin.ashlr.ai/) (`ashlr-plugin`), token-efficiency tools.
 
-What it repairs: owner-only permissions (`~/.mdopener`, `sessions/` and `reviews/` to 0700; session files, saved reviews and `ipc-port` to 0600), reporting the previous mode, and a saved review that is oversized, does not parse, has another schema or sits under another file's name, which is backed up to `<file>.bak-<UTC stamp>` and removed. What stays manual: `ipc-token` permissions (it is the app's secret, so the tool never opens or changes it; run `chmod 600 ~/.mdopener/ipc-token` yourself), symlinks and special files, and MCP client registration (Preferences > AI agents). The `manual` line still prints after `--apply`. Unix only. Details: [docs/doctor-fix.md](./docs/doctor-fix.md). To repair every Ashlr tool at once, see [Repair everything](https://github.com/ashlrai/ashlr-stack/blob/main/docs/getting-started-ecosystem.md#repair-everything) in the Ashlr Stack guide.
-
-## How Ashlr MD plugs into Phantom
-
-[Phantom](https://phm.dev), the agent workbench, uses Ashlr MD as its Markdown
-viewer. When Phantom has Markdown to show a human (`phm inbox show <id> --open`,
-`phm digest --open`) it hands the file to `mdopen` when Ashlr MD is installed,
-and falls back to terminal output when it is not. On Phantom's `master` only the
-inbox/digest seam is merged; the "open any `.md`" opener for `phantom open` and
-the `PHANTOM_ASHLR_MD=0` opt-out live on Phantom's `feat/ashlr-md-opener` branch.
-
-Phantom relies on three stable hooks; changing them is a breaking change for
-Phantom, so they are kept stable:
-
-| Hook | What Phantom does with it |
-|---|---|
-| `mdopen` on `PATH` | Treated as "Ashlr MD is installed"; `mdopen <file.md>` exits `0` only when a viewer accepted the file ([exit-status contract](./docs/PHANTOM.md#mdopen-exit-status)) |
-| `mdopener://` URL scheme | `mdopener://open?path=<url-encoded absolute path>[&mode=edit]` deep link, declared in the desktop bundle |
-| `mdopener-mcp` | Agents running under Phantom call `open_file` to put a document in front of a human for review |
-
-Under `phantom exec -- <cmd>` the app and its sidecars run inside the
-[Phantom Secrets](https://github.com/ashlrai/phantom-secrets) boundary: provider
-keys arrive as `phm_` placeholders and `ANTHROPIC_BASE_URL` points at the
-session's loopback proxy, a shape the app's URL rules already accept. The AI
-sidebar uses the key saved in Settings by default; set
-`ASHLR_MD_ANTHROPIC_KEY_FROM_ENV=1` to take `ANTHROPIC_API_KEY` from the
-environment instead (a `phm_` placeholder is honored only when the base URL is
-the session proxy). `mdopener-mcp` sends no Anthropic requests and attaches no
-key, so it needs no placeholder. Ashlr MD never resolves a `phm:` reference;
-do not use `phantom reveal` to copy a key into Settings. The `localInference`
-block in `~/.ashlr/config.json` has the same shape as Phantom's, so one config
-serves both tools, and the installer reports `phantom --version` without ever
-reading or revealing a secret value.
-
-The full contract (`mdopen` exit statuses, `open_file` semantics, detection
-paths and the `phantom exec` variable table) lives in
-[**docs/PHANTOM.md**](./docs/PHANTOM.md). The URL handling is covered by tests;
-the app has not been tested against a live `phantom exec` session.
-
-## Part of the Ashlr ecosystem
-
-Ashlr MD is one of the open-source tools from [Ashlr.AI](https://ashlr.ai). Each
-one installs and runs on its own:
-
-- **[Phantom](https://phm.dev)** (`phm`): the agent workbench. Source:
-  [ashlrai/phantom](https://github.com/ashlrai/phantom).
-- **[Phantom Secrets](https://phm.dev/secrets)** (`phantom`): keeps real API keys
-  out of agent context with `phm_` placeholders. Source:
-  [ashlrai/phantom-secrets](https://github.com/ashlrai/phantom-secrets).
-- **[Locus](https://github.com/ashlrai/locus)** (`locus`): pins each agent session
-  to one account.
-- **[Lexicon](https://lexicon.ashlr.ai)** (`lexicon`): fixes the words dictation
-  gets wrong.
-- **[Ashlr Stack](https://stack.ashlr.ai)** (`stack`): provisions services and
-  stores their keys in Phantom Secrets.
-- **[ashlr-plugin](https://plugin.ashlr.ai/)** (`ashlr-plugin`): token-efficiency
-  tools for Claude Code and Codex.
-
-**Post-quantum readiness:** [docs/PQ-READINESS.md](./docs/PQ-READINESS.md) records what Ashlr MD does with cryptography today (no primitives implemented in the application source; dependencies such as `keyring`, `reqwest` and `tauri-plugin-updater` bring their own, not audited there) and what a migration would touch. It makes no claim that Ashlr MD is quantum-safe.
+Cryptography notes, with no quantum-safety claim: [docs/PQ-READINESS.md](./docs/PQ-READINESS.md).
 
 ## Contributing
 
-Contributions welcome! Please read [CONTRIBUTING.md](./CONTRIBUTING.md). The
-short version: local-first, no GPL in the bundle, and verify in the real app.
+See [CONTRIBUTING.md](./CONTRIBUTING.md). Local-first, no GPL in the bundle, and verify in the running app. Security reports: [SECURITY.md](./SECURITY.md). Roadmap: [ROADMAP.md](./ROADMAP.md).
 
 ## License
 
