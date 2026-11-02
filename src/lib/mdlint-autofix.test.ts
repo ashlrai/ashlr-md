@@ -7328,4 +7328,17 @@ describe("autofix: undescribed image with a nested relative path", () => {
     expect(fixed).toContain(`](${src})`);
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
+
+  it("produces the exact fixed document for an undescribed image at offset 0, keeping the following text", () => {
+    const doc = "![](<my chart.png> 'Q3')Next to it: café ☕ and [guide](./guide.md).\n\n## Notes\nLast line, no blank after.";
+    const expected =
+      "![TODO: describe image](<my chart.png> 'Q3')Next to it: café ☕ and [guide](./guide.md).\n\n## Notes\nLast line, no blank after.";
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    expect(violations[0].range?.from.offset).toBe(0);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
 });
