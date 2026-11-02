@@ -2614,17 +2614,39 @@ describe("rule:missing-alt-text", () => {
     expect(applyAllFixes(fixed, remaining)).toBe(expected);
   });
 
-  it("flags multiple images missing alt text", () => {
-    const doc = "![](a.png) text ![](b.png) more.\n";
+  it.each([
+    "\n",
+    "\r\n",
+  ])("fixes both images in a paragraph with %j line endings", (newline) => {
+    const first = "![](images/a.png?size=2#preview)";
+    const second = "![](../assets/b.svg)";
+    const fixedFirst = "![TODO: describe image](images/a.png?size=2#preview)";
+    const fixedSecond = "![TODO: describe image](../assets/b.svg)";
+    const doc = `Before ${first}, example \`${first}\`, and ${second} after.${newline}`;
+    const expected = `Before ${fixedFirst}, example \`${first}\`, and ${fixedSecond} after.${newline}`;
     const rules = [ruleMissingAltText];
     const violations = lintDocument(doc, { rules });
-    expect(violations).toHaveLength(2);
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+      "missing-alt-text",
+      "missing-alt-text",
+    ]);
+    expect(
+      violations.map(({ range }) => doc.slice(range!.from.offset, range!.to.offset)),
+    ).toEqual([first, second]);
     expect(violations.every((violation) => violation.fix !== null)).toBe(true);
-    const fixed = applyAllFixes(doc, violations);
-    expect(fixed).toBe(
-      "![TODO: describe image](a.png) text ![TODO: describe image](b.png) more.\n",
+    expect(applyFix(doc, violations[0])).toBe(
+      `Before ${fixedFirst}, example \`${first}\`, and ${second} after.${newline}`,
     );
-    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyFix(doc, violations[1])).toBe(
+      `Before ${first}, example \`${first}\`, and ${fixedSecond} after.${newline}`,
+    );
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(applyAllFixes(doc, [...violations].reverse())).toBe(expected);
+    const remaining = lintDocument(fixed, { rules });
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(fixed, remaining)).toBe(expected);
   });
 
   it("fixes every empty alt when image targets repeat across lines", () => {
