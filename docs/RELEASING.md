@@ -5,6 +5,28 @@ downstream distribution channels (Homebrew, winget, AUR).
 
 ---
 
+## Automatic releases
+
+Merge a version bump (the three version carriers in section 1 must agree) and
+`.github/workflows/auto-tag.yml` does the rest: once every required check on
+that exact `main` commit is green it creates `vX.Y.Z` with the ashlr-release
+GitHub App token, which starts `release.yml`. If no release run appears within
+about two minutes, it dispatches `release.yml` once. No manual step is needed.
+
+Manual paths, one command each:
+
+```bash
+gh workflow run auto-tag.yml -R ashlrai/ashlr-md              # tag current main if absent and green
+gh workflow run release.yml -R ashlrai/ashlr-md -f version=X.Y.Z   # build existing tag vX.Y.Z
+```
+
+`release.yml` stays build-only: assembling and publishing the GitHub Release
+(section 4) is still a separate maintainer step. The full-suite gate accepts a
+successful `ci.yml` run on the exact tag commit from either `workflow_dispatch`
+or the post-merge push to `main`.
+
+---
+
 ## 1. Pre-release Checklist
 
 Before tagging, complete every item:

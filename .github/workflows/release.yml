@@ -1,24 +1,99 @@
 name: Release
 
 # Triggers on any tag that starts with "v" (e.g. v0.1.0, v1.2.3-beta.1).
+# Also runs on workflow_dispatch (auto-tag.yml fallback and the manual path):
+#   gh workflow run release.yml -R ashlrai/ashlr-md -f version=X.Y.Z
+# The tag vX.Y.Z must already exist; the build checks out that tag's commit,
+# never the dispatch ref.
 on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build (X.Y.Z); tag vX.Y.Z must already exist"
+        required: true
+        type: string
 
 # Only one release can be in-flight at a time for a given tag.
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ inputs.version && format('v{0}', inputs.version) || github.ref_name }}
   cancel-in-progress: false
 
 permissions:
   contents: read
 
 jobs:
+  prepare:
+    # Resolve the tag to the commit that is built and gated. A tag push uses
+    # its own tag; a dispatch names the tag through the version input, which
+    # must be strict X.Y.Z and must already exist as vX.Y.Z.
+    name: Resolve release tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: read
+    outputs:
+      tag: ${{ steps.resolve.outputs.tag }}
+      sha: ${{ steps.resolve.outputs.sha }}
+    steps:
+      - name: Resolve tag to commit
+        id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+          REF_NAME: ${{ github.ref_name }}
+          EVENT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = workflow_dispatch ]; then
+            [[ "$INPUT_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::version must match X.Y.Z"; exit 1; }
+            tag="v${INPUT_VERSION}"
+          else
+            tag="$REF_NAME"
+          fi
+          sha="$(gh api "repos/${REPO}/commits/refs/tags/${tag}" --jq '.sha')" || { echo "::error::tag ${tag} does not exist"; exit 1; }
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::could not resolve ${tag}"; exit 1; }
+          if [ "$EVENT" = push ] && [ "$sha" != "$EVENT_SHA" ]; then
+            echo "::error::tag ${tag} resolves to ${sha}, not the pushed ${EVENT_SHA}"; exit 1
+          fi
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "sha=${sha}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ steps.resolve.outputs.sha }}
+          persist-credentials: false
+
+      - name: Require version carriers to equal the tag
+        env:
+          TAG: ${{ steps.resolve.outputs.tag }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, tomllib
+          want = os.environ["TAG"].removeprefix("v")
+          got = {
+              "package.json": json.load(open("package.json"))["version"],
+              "src-tauri/tauri.conf.json": json.load(open("src-tauri/tauri.conf.json"))["version"],
+              "src-tauri/Cargo.toml": tomllib.load(open("src-tauri/Cargo.toml", "rb"))["package"]["version"],
+          }
+          bad = {k: v for k, v in got.items() if v != want}
+          if bad:
+              raise SystemExit(f"::error::version does not match tag {want}: {bad}")
+          print("version carriers match", want)
+          PY
+
   full-suite-evidence:
     # Release gate: the full suite (macOS and Windows included) must have
-    # passed in a manual workflow_dispatch run of CI on this exact sha.
+    # passed in a CI run on this exact sha: either a manual workflow_dispatch
+    # run, or the post-merge push-to-main run, which executes the same
+    # linux-full and macos-full suites.
     name: Full suite green on release sha
+    needs: [prepare]
     runs-on: ubuntu-latest
     timeout-minutes: 3
     permissions:
@@ -28,13 +103,17 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
-          SHA: ${{ github.sha }}
+          SHA: ${{ needs.prepare.outputs.sha }}
           CI_WORKFLOW: ci.yml
         run: |
           set -euo pipefail
-          n="$(gh api "repos/${REPO}/actions/workflows/${CI_WORKFLOW}/runs?event=workflow_dispatch&head_sha=${SHA}&status=success&per_page=1" --jq '.total_count')"
-          if [ "${n:-0}" -lt 1 ]; then
-            echo "::error::No successful workflow_dispatch run of ${CI_WORKFLOW} on ${SHA}. Run 'gh workflow run ${CI_WORKFLOW} --ref <this ref>', wait for green, then release."
+          n=0
+          for event in workflow_dispatch push; do
+            c="$(gh api "repos/${REPO}/actions/workflows/${CI_WORKFLOW}/runs?event=${event}&head_sha=${SHA}&status=success&per_page=1" --jq '.total_count')"
+            n=$((n + ${c:-0}))
+          done
+          if [ "$n" -lt 1 ]; then
+            echo "::error::No successful workflow_dispatch or push run of ${CI_WORKFLOW} on ${SHA}. Wait for the push-to-main CI run to go green, or run 'gh workflow run ${CI_WORKFLOW} --ref <this ref>', then release."
             exit 1
           fi
           echo "full suite green on ${SHA} (${n} run(s))"
@@ -60,7 +139,7 @@ jobs:
   # macOS job still succeeds on forks without certificates.
   # ---------------------------------------------------------------------------
   release:
-    needs: [full-suite-evidence]
+    needs: [prepare, full-suite-evidence]
     name: Build & release (${{ matrix.platform }})
     permissions:
       contents: write   # Required to create / update the GitHub Release
@@ -119,6 +198,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          persist-credentials: false
 
       # ---- Toolchain setup -------------------------------------------------
 
