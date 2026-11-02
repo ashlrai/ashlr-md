@@ -3563,6 +3563,23 @@ describe("rule:missing-alt-text", () => {
   });
 
   it.each([
+    ["heading", "# Chart ![](a.png) overview\n"],
+    ["blockquote", "> Quote ![ ](a.png)\n> more ![](b.png)\n"],
+    ["table cell", "| Pic |\n| --- |\n| ![](a.png) |\n"],
+    ["adjacent images", "![](a.png)![\t](b.png) ![](c.png)\n"],
+  ])("re-linting and fixing an undescribed image in a %s changes nothing the second time", (_label, doc) => {
+    const rules = [ruleMissingAltText];
+    const fixOnce = (text: string) =>
+      applyAllFixes(text, lintDocument(text, { rules }));
+
+    const once = fixOnce(doc);
+    expect(once).not.toBe(doc);
+    expect(once).not.toMatch(/!\[\s*\]/);
+    expect(lintDocument(once, { rules })).toEqual([]);
+    expect(fixOnce(once)).toBe(once);
+  });
+
+  it.each([
     "\n",
     "\r\n",
   ])("is idempotent for undescribed images among code decoys, a described image and a remaining warning with %j line endings", (newline) => {
