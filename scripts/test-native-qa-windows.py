@@ -291,6 +291,81 @@ class Tests(unittest.TestCase):
                 with self.assertRaises(ValueError): w.pinned_driver('131.0.2903.86',True)
                 response.read.assert_not_called(); extract.assert_not_called()
 
+    def test_provision_primes_signature_caches_during_download(self):
+        with canonical_tempdir() as t:
+            bundled=Path(t)/'bundled'; bundled.mkdir(); (bundled/'msedgedriver.exe').touch()
+            output=Path(t)/'output'; output.touch()
+            response=MagicMock(status=200); response.geturl.return_value=w.DRIVER_URL; response.read.return_value=b'archive'
+            opener=MagicMock(); opener.open.return_value.__enter__.return_value=response
+            proc=MagicMock(); proc.poll.return_value=None
+            with patch.dict(os.environ,{'RUNNER_TEMP':t,'GITHUB_OUTPUT':str(output),'EDGEWEBDRIVER':str(bundled),'GH_TOKEN':'synthetic','SYSTEMROOT':t},clear=True), patch.object(w.urllib.request,'build_opener',return_value=opener), patch.object(w,'extract_driver'), patch.object(w,'hash_file',return_value=w.DRIVER_EXE_HASH), patch.object(w,'verify_driver_signature') as signature, patch.object(w.subprocess,'Popen',return_value=proc) as spawn:
+                with self.assertRaises(ValueError): w.pinned_driver('131.0.2903.86',True)
+                spawn.assert_not_called()
+            with patch.dict(os.environ,{'RUNNER_TEMP':t,'GITHUB_OUTPUT':str(output),'EDGEWEBDRIVER':str(bundled),'SYSTEMROOT':t},clear=True), patch.object(w.urllib.request,'build_opener',return_value=opener), patch.object(w,'extract_driver'), patch.object(w,'hash_file',return_value=w.DRIVER_EXE_HASH), patch.object(w,'verify_driver_signature') as signature, patch.object(w.subprocess,'Popen',return_value=proc) as spawn:
+                self.assertEqual(w.pinned_driver('131.0.2903.86',True),Path(t)/w.DRIVER_STAGE/'msedgedriver.exe')
+                spawn.assert_called_once()
+                call=spawn.call_args
+                command=call.args[0]
+                self.assertIn('-NonInteractive',command)
+                self.assertEqual(command[-1],'Get-AuthenticodeSignature -LiteralPath $env:QA_WARM_FILE | Out-Null')
+                self.assertEqual(call.kwargs['stdout'],subprocess.DEVNULL)
+                self.assertEqual(call.kwargs['stderr'],subprocess.DEVNULL)
+                env=call.kwargs['env']
+                self.assertEqual(env['QA_WARM_FILE'],str(bundled/'msedgedriver.exe'))
+                self.assertNotIn('QA_DRIVER_FILE',env)
+                self.assertNotIn('GH_TOKEN',env)
+                proc.terminate.assert_called_once_with()
+                proc.wait.assert_called_once_with(timeout=5)
+                signature.assert_called_once()
+
+    def test_warmup_absent_without_bundled_driver_and_reuse(self):
+        with canonical_tempdir() as t:
+            output=Path(t)/'output'; output.touch()
+            response=MagicMock(status=200); response.geturl.return_value=w.DRIVER_URL; response.read.return_value=b'archive'
+            opener=MagicMock(); opener.open.return_value.__enter__.return_value=response
+            with patch.dict(os.environ,{'RUNNER_TEMP':t,'GITHUB_OUTPUT':str(output),'EDGEWEBDRIVER':str(Path(t)/'absent')},clear=True), patch.object(w.urllib.request,'build_opener',return_value=opener), patch.object(w,'extract_driver'), patch.object(w,'hash_file',return_value=w.DRIVER_EXE_HASH), patch.object(w,'verify_driver_signature'), patch.object(w.subprocess,'Popen') as spawn:
+                w.pinned_driver('131.0.2903.86',True)
+                spawn.assert_not_called()
+            with patch.dict(os.environ,{'EDGEWEBDRIVER':t},clear=True), patch.object(w,'driver_stage',return_value=Path(t)), patch.object(w,'hash_file',return_value=w.DRIVER_EXE_HASH), patch.object(w,'verify_driver_signature'), patch.object(w.subprocess,'Popen') as spawn:
+                w.pinned_driver('131.0.2903.86')
+                spawn.assert_not_called()
+
+    def test_warmup_spawn_failure_never_blocks_provisioning(self):
+        with canonical_tempdir() as t:
+            bundled=Path(t)/'bundled'; bundled.mkdir(); (bundled/'msedgedriver.exe').touch()
+            output=Path(t)/'output'; output.touch()
+            response=MagicMock(status=200); response.geturl.return_value=w.DRIVER_URL; response.read.return_value=b'archive'
+            opener=MagicMock(); opener.open.return_value.__enter__.return_value=response
+            for error in (OSError('no shell'),ValueError('bad env')):
+                with patch.dict(os.environ,{'RUNNER_TEMP':t,'GITHUB_OUTPUT':str(output),'EDGEWEBDRIVER':str(bundled),'SYSTEMROOT':t},clear=True), patch.object(w.urllib.request,'build_opener',return_value=opener), patch.object(w,'extract_driver'), patch.object(w,'hash_file',return_value=w.DRIVER_EXE_HASH), patch.object(w,'verify_driver_signature') as signature, patch.object(w.subprocess,'Popen',side_effect=error):
+                    self.assertEqual(w.pinned_driver('131.0.2903.86',True),Path(t)/w.DRIVER_STAGE/'msedgedriver.exe')
+                    signature.assert_called_once()
+                (Path(t)/w.DRIVER_STAGE).rmdir()
+
+    def test_warmup_termination_is_bounded_and_idempotent(self):
+        proc=MagicMock(); proc.poll.return_value=0
+        w.end_signature_warmup(proc)
+        proc.terminate.assert_not_called(); proc.kill.assert_not_called()
+        w.end_signature_warmup(None)
+        proc=MagicMock(); proc.poll.return_value=None; proc.wait.side_effect=[subprocess.TimeoutExpired('warm',5),None]
+        w.end_signature_warmup(proc)
+        proc.terminate.assert_called_once_with(); proc.kill.assert_called_once_with()
+        self.assertEqual(proc.wait.call_count,2)
+        proc=MagicMock(); proc.poll.return_value=None; proc.terminate.side_effect=OSError('denied'); proc.wait.side_effect=[None]
+        w.end_signature_warmup(proc)
+        proc.kill.assert_called_once_with()
+
+    def test_warmup_terminated_when_download_fails(self):
+        with canonical_tempdir() as t:
+            bundled=Path(t)/'bundled'; bundled.mkdir(); (bundled/'msedgedriver.exe').touch()
+            output=Path(t)/'output'; output.touch()
+            opener=MagicMock(); opener.open.side_effect=OSError('network down')
+            proc=MagicMock(); proc.poll.return_value=None
+            with patch.dict(os.environ,{'RUNNER_TEMP':t,'GITHUB_OUTPUT':str(output),'EDGEWEBDRIVER':str(bundled),'SYSTEMROOT':t},clear=True), patch.object(w.urllib.request,'build_opener',return_value=opener), patch.object(w,'verify_driver_signature') as signature, patch.object(w.subprocess,'Popen',return_value=proc):
+                with self.assertRaises(OSError): w.pinned_driver('131.0.2903.86',True)
+                proc.terminate.assert_called_once_with()
+                signature.assert_not_called()
+
     def test_bad_pinned_signature_prevents_executable_version_call(self):
         import types
         with canonical_tempdir() as t:

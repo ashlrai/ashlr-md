@@ -63,6 +63,11 @@ and trust-check return. Diagnostics include only those markers, elapsed time,
 a recognized signature status (otherwise `unknown`), and signer/EKU match booleans;
 never raw PowerShell output or certificate contents. A timeout remains failure, not evidence of an invalid signature
 or permission to execute. Certificate/revocation checks are not disabled.
+While the pinned archive downloads, a best-effort `Get-AuthenticodeSignature`
+on the runner's bundled Microsoft driver runs concurrently with no captured
+output; it only warms cold machine CTL/chain caches so the pinned check is
+usually local, is never consulted, and is always terminated before provisioning
+returns. The pinned driver's own full verification and its bound are unchanged.
 
 ## Failure diagnostics
 
