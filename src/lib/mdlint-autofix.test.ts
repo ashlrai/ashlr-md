@@ -2236,6 +2236,68 @@ describe("rule:invalid-link-target", () => {
       expect(applyAllFixes(expected, remaining)).toBe(expected);
     }
   });
+
+  it.each([
+    ["", "#"],
+    ["?", " "],
+    [" \t ", ""],
+    ["#", "?"],
+  ])("inserts both placeholders for invalid links %j and %j on separate lines while line breaks stay unchanged", (firstHref, secondHref) => {
+    const rules = [ruleInvalidLinkTarget];
+    const first = `[first](${firstHref})`;
+    const second = `[second](${secondHref})`;
+    const middle = "A [guide](./guide.md) and a `[code](#)` example sit between them.";
+
+    for (const newline of ["\n", "\r\n"]) {
+      const firstLine = `Read ${first} before the break — café.`;
+      const fixedFirstLine = `Read [first](TODO) before the break — café.`;
+      const thirdLine = `Then ${second} after the break.`;
+      const fixedThirdLine = `Then [second](TODO) after the break.`;
+      for (const rest of [[], [""]]) {
+        const lines = [firstLine, middle, thirdLine, ...rest];
+        const doc = lines.join(newline);
+        const expected = [fixedFirstLine, middle, fixedThirdLine, ...rest].join(
+          newline,
+        );
+        const violations = lintDocument(doc, { rules });
+
+        expect(violations.map((violation) => violation.ruleId)).toEqual([
+          "invalid-link-target",
+          "invalid-link-target",
+        ]);
+        expect(
+          violations.map((violation) =>
+            doc.slice(violation.range!.from.offset, violation.range!.to.offset),
+          ),
+        ).toEqual([first, second]);
+        expect(violations[0].range?.from.line).toBe(1);
+        expect(violations[1].range?.from.line).toBe(3);
+        expect(violations.every((violation) => violation.fix !== null)).toBe(true);
+
+        // Each fix alone repairs only its own line's destination.
+        expect(applyFix(doc, violations[0])).toBe(
+          [fixedFirstLine, middle, thirdLine, ...rest].join(newline),
+        );
+        expect(applyFix(doc, violations[1])).toBe(
+          [firstLine, middle, fixedThirdLine, ...rest].join(newline),
+        );
+
+        for (const fixed of [
+          applyAllFixes(doc, violations),
+          applyAllFixes(doc, [...violations].reverse()),
+        ]) {
+          expect(fixed).toBe(expected);
+          // Both placeholders were inserted and every line break survives
+          // byte-identical: the same terminators in the same order.
+          expect(fixed.match(/\(TODO\)/g)).toHaveLength(2);
+          expect(fixed.match(/\r\n|\n/g)).toEqual(doc.match(/\r\n|\n/g));
+        }
+        const remaining = lintDocument(expected, { rules });
+        expect(remaining).toEqual([]);
+        expect(applyAllFixes(expected, remaining)).toBe(expected);
+      }
+    }
+  });
 });
 
 // ─── 3. Rule: missing-alt-text ────────────────────────────────────────────────
