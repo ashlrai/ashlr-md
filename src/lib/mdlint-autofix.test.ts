@@ -6003,6 +6003,38 @@ describe("edge cases", () => {
     expect(applyAllFixes(doc, violations)).toBe(doc);
   });
 
+  it.each([
+    "\n",
+    "\r\n",
+  ])("preserves a clean document with ordinary prose and no links or images with line ending %j", (nl) => {
+    clearLintHistory();
+    const doc = [
+      "---",
+      "title: Guide",
+      "---",
+      "",
+      "# Guide",
+      "",
+      "This is a paragraph of ordinary prose.",
+      "",
+      "## Getting Started",
+      "",
+      "Here are some notes about the project. Nothing fancy.",
+      "",
+      "- First item",
+      "- Second item",
+      "- Third item",
+      "",
+      "More content with **bold** and *italic* text.",
+      "",
+    ].join(nl);
+    const violations = lintDocument(doc);
+    expect(violations).toEqual([]);
+    expect(applyAllFixes(doc, violations)).toBe(doc);
+    expect(fixAllViolations(doc, violations)).toBe(doc);
+    expect(getLintHistory()).toEqual([]);
+  });
+
   it("trailing-space fix handles multi-line doc correctly", () => {
     const doc = "line one   \nline two   \nline three\n";
     const violations = lintDocument(doc, { rules: [ruleNoTrailingSpaces] });
