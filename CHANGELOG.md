@@ -15,6 +15,29 @@ Released 2026-06-06. [Release notes and downloads](https://github.com/ashlrai/as
 ## [0.6.0] — 2026-11-02
 
 ### Added
+- **Agent-first README, `llms.txt` and `llms-full.txt`.** The README now leads
+  with one install command (`SKIP_APP_BUILD=1 bash scripts/install.sh`, which
+  also links `mdopener-mcp` onto `PATH`), the `--json` CLI and copy-paste MCP
+  setup for Claude Code, Codex and Cursor (`scripts/connect-cursor.py`).
+  `llms.txt` is the index and `llms-full.txt` the manual in one file.
+  `docs/EXAMPLES.md` holds every copy-paste command, including Windows.
+  `scripts/check-readme-parity.mjs` and `scripts/check-docs.py` keep the README
+  and `docs/AGENTS.md` in step with `tool_registry()` and the CLI `HELP`
+  text, and `bun run check:doc-links` fails on a relative link or `#anchor` in
+  the repository's Markdown that points nowhere.
+- **Automatic semantic re-indexing (opt-in).** The `autoEmbedIndex` setting
+  (Preferences, the embeddings section: "Keep the semantic index fresh
+  automatically", off by default) re-indexes changed files in the watched
+  folder, and the library at startup, on this device. It only updates the
+  search index.
+- **Manual native qualification of the original 0.5 build** (not a release
+  step, nothing is published or promoted). `native-qa.yml` runs a bounded Linux
+  AppImage/WebView smoke and `native-qa-windows.yml` installs the original
+  signed Windows NSIS build and opens a document. Both are `workflow_dispatch`
+  only, hold `contents: read` and `actions: read` and no other permission, and
+  retrieve the original Actions artifacts after provenance and digest checks.
+  The probe step runs without a token. Scope and limits:
+  `docs/NATIVE-QA-PROPOSAL.md` and `docs/WINDOWS-NATIVE-QA.md`.
 - **`mdopener-mcp setup --local [--json]`** finds Ollama (`127.0.0.1:11434`)
   and oMLX (`127.0.0.1:8000`) with the same loopback-only, key-free probe as
   `doctor`, probes the configured `localInference` block when there is one,
@@ -96,6 +119,21 @@ Released 2026-06-06. [Release notes and downloads](https://github.com/ashlrai/as
   `localInference.allowRemote: true` for a non-loopback (https) host.
 
 ### Changed
+- **CI: a fast pull request lane and a merge queue.** `Check (Linux)` is the
+  one required aggregate check. Pull requests and merge queue candidates run
+  typecheck, Biome, the crypto policy check, the CI gate tests and pinned
+  diff secret scans. The full Linux and macOS suites (frontend, `cargo test
+  --workspace`, release assembly validator tests) run on every push to `main`
+  and daily at 04:23 ET, and their aggregate fails on any required failure.
+  Codecov uploads are daily or manual only. A scheduled run that fails opens a
+  FIX-MAIN issue (`fix-main.yml`); nothing is reverted.
+  `scripts/ci-local.sh` runs the gates for your change before you push, scoped
+  by `scripts/ci/select.mjs`.
+- **CI hardening.** Every third-party GitHub Action is pinned to a commit SHA,
+  workflow default permissions are read-only, and CODEOWNERS covers the
+  workflows and the files that make keyed or network requests (growth-only).
+  CodeQL, OpenSSF Scorecard, Renovate, CodeRabbit and Socket
+  are configured and stay off the pull request path.
 - **`OLLAMA_HOST` is loopback-gated in the app.** A non-loopback Ollama now
   needs `localInference.allowRemote: true` in `~/.ashlr/config.json` and an
   https URL; otherwise no request is made.
