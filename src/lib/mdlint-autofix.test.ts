@@ -2793,6 +2793,28 @@ describe("rule:missing-alt-text", () => {
     expect(applyAllFixes(fixed, remaining)).toBe(expected);
   });
 
+  it.each([
+    ["", ""],
+    ["\n", ""],
+    ["\n\n", ""],
+    ["\r\n", "\r\n"],
+    ["\n", "  "],
+  ])("inserts only the placeholder for an undescribed image that ends the document (trailing %j, leading %j)", (tail, lead) => {
+    const doc = `# End\n\nBody café.\n\n${lead}![](end.png "Last")${tail}`;
+    const expected = `# End\n\nBody café.\n\n${lead}![TODO: describe image](end.png "Last")${tail}`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // Only the placeholder was added: nothing else changed, and the trailing
+    // line endings survive exactly.
+    expect(fixed.length - doc.length).toBe("TODO: describe image".length);
+    expect(fixed.endsWith(tail)).toBe(true);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
   it("preserves a CRLF image line in a document with mixed line endings", () => {
     const doc =
       "Gallery introduction.\n\nSee ![](images/chart.png) for details.\r\n" +
