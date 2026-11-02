@@ -1,13 +1,11 @@
 name: CI
 
-# One fast required check on pull_request and merge_group: Check (Linux)
-# aggregates typecheck, Biome, the crypto policy check, the JS dependency
-# audit and a pinned diff secret scan (well under 3 min). The full suite
-# (unit tests with coverage, frontend build, Rust check/clippy/tests and
-# cargo audit on Linux, Rust check/clippy on macOS) runs daily at 04:23 ET
-# on main and on workflow_dispatch; a red scheduled run files a P0 FIX-MAIN
-# issue (fix-main.yml). Main pushes run nothing: every commit on main already
-# passed its merge_group run. Run scripts/ci-local.sh before pushing.
+# One required aggregate check: Check (Linux). Pull requests run fast
+# typecheck, Biome, crypto policy and pinned diff secret scans. Merge queue,
+# daily main and manual runs also require the full Linux and macOS suites
+# before the aggregate passes. Codecov uploads stay daily/manual only.
+# Main pushes run nothing: queued changes must pass their merge_group run.
+# Run scripts/ci-local.sh before pushing.
 on:
   pull_request:
     types: [opened, synchronize, reopened]
@@ -58,6 +56,9 @@ jobs:
 
       - name: Lint (Biome)
         run: bunx biome check src
+
+      - name: CI gate regression tests
+        run: node --test scripts/ci/gate.test.mjs
 
       # Tier-1 security check, pre-merge on every PR and queue run.
       - name: Crypto policy check
@@ -120,11 +121,11 @@ jobs:
 
   linux-full:
     name: Linux full suite
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'merge_group' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-22.04
     timeout-minutes: 20
     # Runs bun install and tests (third-party code), so no id-token here.
-    # The Codecov OIDC uploads live in the merge_group-only codecov job.
+    # The Codecov OIDC uploads live in the daily/manual-only codecov job.
     permissions:
       contents: read
     steps:
@@ -153,9 +154,8 @@ jobs:
       - name: Lint (Biome)
         run: bunx biome check src
 
-      # Same tests as before. merge_group calls vitest directly (no `--`
-      # forwarding) to add lcov and JUnit, so the suite still runs once, and
-      # fails if either report is missing. Other events stay on bun run test.
+      # Run the suite once with lcov and JUnit on every full-suite event;
+      # fail if either report is missing.
       - name: Unit tests
         id: unit
         run: |
@@ -166,7 +166,7 @@ jobs:
           done
 
       - name: Keep coverage reports for the Codecov job
-        if: ${{ !cancelled() && (steps.unit.outcome == 'success' || steps.unit.outcome == 'failure') }}
+        if: ${{ !cancelled() && github.event_name != 'merge_group' && (steps.unit.outcome == 'success' || steps.unit.outcome == 'failure') }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: coverage-reports
@@ -295,7 +295,7 @@ jobs:
 
   macos-full:
     name: macOS full suite
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'merge_group' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: macos-15
     timeout-minutes: 20
     steps:
@@ -360,7 +360,7 @@ jobs:
           perl .github/tests/secret-shape/scrub.pl --check --allow-fixtures < "${RUNNER_TEMP}/candidate.diff"
 
   # The one required check. Every event needs the fast job and the secret
-  # scan; scheduled and dispatch runs also need both full-suite jobs. Any
+  # scan; queue, scheduled and dispatch runs need both full-suite jobs. Any
   # needed job that is not success (failure, cancelled or skipped) fails it.
   gate:
     name: Check (Linux)
@@ -379,7 +379,7 @@ jobs:
           # Exact dependency keys: a missing or extra job fails closed.
           printf '%s' "$NEEDS" | jq -e --argjson exp "[\"fast\", \"linux-full\", \"macos-full\", \"secret-scan\", \"secret-shape\"]" '(keys | sort) == $exp' > /dev/null || { echo "::error::gate dependency inventory changed"; exit 1; }
           full=false
-          if [ "$EVENT" = "schedule" ] || [ "$EVENT" = "workflow_dispatch" ]; then full=true; fi
+          if [ "$EVENT" = "merge_group" ] || [ "$EVENT" = "schedule" ] || [ "$EVENT" = "workflow_dispatch" ]; then full=true; fi
           bad="$(printf '%s' "$NEEDS" | jq -r --argjson full "$full" 'to_entries[] | select(.value.result != "success") | select(($full | not) and (.key == "linux-full" or .key == "macos-full") and .value.result == "skipped" | not) | "\(.key)=\(.value.result)"')"
           if [ -n "$bad" ]; then echo "::error::Check (Linux): $bad"; exit 1; fi
           echo "Check (Linux) passed ($EVENT)"
