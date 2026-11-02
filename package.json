@@ -6,6 +6,7 @@
   "scripts": {
     "check:crypto": "node --test scripts/check-crypto.test.mjs && node scripts/check-crypto.mjs",
     "check:doc-links": "node --test scripts/check-doc-links.test.mjs && node scripts/check-doc-links.mjs",
+    "check:workflow-bash": "node --test scripts/ci/workflow-bash.test.mjs && node scripts/ci/workflow-bash.mjs",
     "resolve-conflicts": "node scripts/resolve-conflicts.mjs",
     "test:conflicts": "node --test scripts/resolve-conflicts.test.mjs",
     "test:select": "node --test scripts/ci/select.test.mjs",

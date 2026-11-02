@@ -62,6 +62,12 @@ jobs:
       - name: CI gate regression tests
         run: node --test scripts/ci/gate.test.mjs
 
+      # bash -n every bash/sh run block in .github/workflows; catches syntax
+      # errors (e.g. an unclosed quote) before merge, which Actions only
+      # surfaces at run time on the runner.
+      - name: Workflow run-block syntax
+        run: bun run check:workflow-bash
+
       # Tier-1 security check, pre-merge on every PR and queue run.
       - name: Crypto policy check
         run: bun run check:crypto

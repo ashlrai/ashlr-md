@@ -71,7 +71,7 @@ jobs:
             b=$(gh api -H 'Accept: application/vnd.github.raw' "repos/$REPO/contents/src-tauri/tauri.conf.json?ref=$1" | python3 -c 'import sys,json; print(json.load(sys.stdin)["version"])') || return 1
             c=$(gh api -H 'Accept: application/vnd.github.raw' "repos/$REPO/contents/src-tauri/Cargo.toml?ref=$1" | python3 -c 'import sys,tomllib; print(tomllib.loads(sys.stdin.read())["package"]["version"])') || return 1
             if [ "$a" != "$b" ] || [ "$a" != "$c" ]; then echo "::error::version carriers disagree" >&2; return 1; fi
-            echo "$a
+            echo "$a"
           }
           parent=$(gh api "repos/$REPO/commits/$SHA" -q '.parents[0].sha')
           new=$(read_version "$SHA")
