@@ -43,6 +43,7 @@ bunx biome check src     # lint + format
 bun run test             # Vitest unit tests
 bun run check:crypto     # classical-only crypto policy
 bun run check:doc-links  # relative links in the repo's Markdown resolve
+bun run check:workflow-bash  # bash -n every bash/sh run block in .github/workflows
 python3 scripts/check-docs.py  # docs/AGENTS.md matches tool_registry() and the CLI HELP
 node --test scripts/check-readme-parity.test.mjs && node scripts/check-readme-parity.mjs
 cargo check --workspace --manifest-path src-tauri/Cargo.toml
