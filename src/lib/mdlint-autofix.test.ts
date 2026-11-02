@@ -2065,6 +2065,19 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 
+  it("repairs a final invalid link with all built-in rules without adding a trailing newline", () => {
+    const prefix = "---\ntitle: Guide\n---\n\n# Guide\n\nSee [docs](./guide.md) and ";
+    const doc = `${prefix}[draft]()`;
+    const violations = lintDocument(doc);
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(`${prefix}[draft](TODO)`);
+    expect(fixed.endsWith("\n")).toBe(false);
+    expect(lintDocument(fixed)).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed))).toBe(fixed);
+  });
+
   it.each([
     "",
     " ",
