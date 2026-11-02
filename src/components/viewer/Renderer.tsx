@@ -8,18 +8,12 @@ import {
   type RefObject,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
-import ReactMarkdown, { type Components } from "react-markdown";
-import rehypeKatex from "rehype-katex";
-import rehypeRaw from "rehype-raw";
-import rehypeSanitize from "rehype-sanitize";
-import rehypeSlug from "rehype-slug";
-import remarkFrontmatter from "remark-frontmatter";
-import remarkGfm from "remark-gfm";
-import remarkMath from "remark-math";
+import type { Components } from "react-markdown";
 import {
   useRemoteImagesAllowed,
   useRemoteImagesStore,
@@ -38,20 +32,14 @@ import {
 } from "../../lib/docLinks";
 import { smoothScrollBehavior } from "../../lib/motion";
 import type { OtOperation } from "../../lib/ot";
-import { rehypeSourceLines } from "../../lib/rehype-source-lines";
-import { rehypeTaskLines } from "../../lib/rehype-task-lines";
-import { remarkBlockIds } from "../../lib/remark-block-ids";
-import { type CalloutType, remarkCallouts } from "../../lib/remark-callouts";
-import { remarkComments } from "../../lib/remark-comments";
-import { remarkHighlights } from "../../lib/remark-highlights";
-import { remarkWikilinks } from "../../lib/remark-wikilinks";
+import type { CalloutType } from "../../lib/remark-callouts";
 import {
   builtInKindRegistry,
   type KindRegistry,
 } from "../../lib/renderers/kind-registry";
 import { PlanStatusRenderer } from "../../lib/renderers/plan-status-renderer";
 import { detectReviewDoc } from "../../lib/reviewDoc";
-import { SANITIZE_SCHEMA } from "../../lib/sanitizeSchema";
+import { IncrementalMarkdown } from "../../render/incremental";
 import { useDocumentStore } from "../../store/documentStore";
 import { toast } from "../../store/toastStore";
 import "../../styles/callouts.css";
@@ -581,6 +569,14 @@ export const Renderer = memo(function Renderer({
   content,
   kindRegistry,
 }: RendererProps) {
+  const source = useRef(content);
+  useLayoutEffect(() => {
+    source.current = content;
+  }, [content]);
+  const editable = useDocumentStore((s) => s.content === content);
+  const taskSource = useMemo(() => ({ source, editable }), [editable]);
+  const [markdown] = useState(() => new IncrementalMarkdown(components));
+  const rendered = useMemo(() => markdown.render(content), [markdown, content]);
   const info = useMemo(() => {
     const detected = detectDocKind(content);
     if (!kindRegistry && builtInKindRegistry.render(content).renderer === "plain")
@@ -633,38 +629,8 @@ export const Renderer = memo(function Renderer({
       {info.kind === "plan" && <PlanStatusRenderer content={content} />}
       {hasBadges && <OtChangeBadgeLayer ops={pendingOps} />}
       {!embedded && <RemoteImagesBanner rootRef={rootRef} />}
-      <TaskSourceContext.Provider value={content}>
-        <ReactMarkdown
-          remarkPlugins={[
-            remarkFrontmatter,
-            remarkGfm,
-            // Obsidian text syntax: strip %%comments%% first, then ==highlights==,
-            // before wikilinks/math claim their delimiters.
-            remarkComments,
-            remarkHighlights,
-            remarkWikilinks,
-            remarkMath,
-            remarkCallouts,
-            // Obsidian `^block` ids anchor their block (not shown as text).
-            remarkBlockIds,
-          ]}
-          // Order matters: raw HTML is parsed, then sanitized, THEN KaTeX renders
-          // (its trusted styled output bypasses the sanitizer), then headings get
-          // slug ids. See SANITIZE_SCHEMA for the rationale. Task checkboxes
-          // get their source line after the sanitizer, so raw HTML cannot set it,
-          // and so do the top-level blocks (a search hit scrolls to its line).
-          rehypePlugins={[
-            rehypeRaw,
-            [rehypeSanitize, SANITIZE_SCHEMA],
-            rehypeTaskLines,
-            rehypeSourceLines,
-            rehypeKatex,
-            rehypeSlug,
-          ]}
-          components={components}
-        >
-          {content}
-        </ReactMarkdown>
+      <TaskSourceContext.Provider value={taskSource}>
+        {rendered}
       </TaskSourceContext.Provider>
     </div>
   );

@@ -20,7 +20,8 @@
     "fresh:sync": "node scripts/freshness/sync.mjs",
     "fresh:check": "node scripts/freshness/check.mjs",
     "test:freshness": "node --test scripts/freshness/freshness.test.mjs",
-    "test:dispatch": "node --test scripts/ci/validate-dispatch.test.mjs"
+    "test:dispatch": "node --test scripts/ci/validate-dispatch.test.mjs",
+    "bench:render": "NODE_ENV=production vitest run --config bench/vitest.config.ts"
   },
   "dependencies": {
     "@codemirror/commands": "^6.10.3",
@@ -28,6 +29,8 @@
     "@codemirror/state": "^6.6.0",
     "@codemirror/theme-one-dark": "^6.1.3",
     "@codemirror/view": "^6.43.0",
+    "@lezer/common": "^1.5.4",
+    "@lezer/markdown": "^1.8.1",
     "@milkdown/crepe": "7.21.2",
     "@milkdown/kit": "7.21.2",
     "@milkdown/react": "7.21.2",
@@ -40,7 +43,10 @@
     "dompurify": "^3.4.8",
     "epub-gen-memory": "^1.1.2",
     "github-slugger": "^2.0.0",
+    "hast-util-to-jsx-runtime": "^2.3.6",
+    "hast-util-to-string": "^3.0.1",
     "html-to-docx": "^1.8.0",
+    "html-url-attributes": "^3.0.1",
     "katex": "^0.17.0",
     "mermaid": "^11.15.0",
     "react": "^19.1.0",
@@ -53,7 +59,10 @@
     "remark-frontmatter": "^5.0.0",
     "remark-gfm": "^4.0.1",
     "remark-math": "^6.0.0",
+    "remark-parse": "^11.0.0",
+    "remark-rehype": "^11.1.2",
     "shiki": "^4.2.0",
+    "unified": "^11.0.5",
     "unist-util-visit": "^5.1.0",
     "zustand": "^5.0.14"
   },
