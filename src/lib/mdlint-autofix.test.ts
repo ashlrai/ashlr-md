@@ -6155,3 +6155,30 @@ describe("invalid-link-target autofix: idempotence", () => {
     expect(lintDocument(once, { rules: [ruleInvalidLinkTarget] })).toEqual([]);
   });
 });
+
+describe("rule:missing-alt-text two undescribed images", () => {
+  it.each([
+    ["\n", "\n\n"],
+    ["\r\n", "\r\n\r\n"],
+  ])("gives both images a placeholder and keeps both sources (%j line endings)", (newline, gap) => {
+    const first = '![](assets/one%20a.png?v=1#top "One")';
+    const second = "![   ](./assets/two.svg)";
+    const doc = `Intro.${gap}${first} and ${second}${newline}`;
+    const expected =
+      `Intro.${gap}![TODO: describe image](assets/one%20a.png?v=1#top "One") and ` +
+      `![TODO: describe image](./assets/two.svg)${newline}`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+      "missing-alt-text",
+      "missing-alt-text",
+    ]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain('(assets/one%20a.png?v=1#top "One")');
+    expect(fixed).toContain("(./assets/two.svg)");
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+});
