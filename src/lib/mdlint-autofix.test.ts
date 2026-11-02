@@ -2215,6 +2215,44 @@ describe("rule:missing-alt-text", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 
+  it.each([
+    "\n",
+    "\r\n",
+  ])("fixes missing image alt text in a blockquote with %j line endings", (newline) => {
+    const source = "../images/chart%20one.png?size=2#preview";
+    const image = `![](${source})`;
+    const doc = [
+      "Before the quote.",
+      "",
+      `> See ${image} for details.`,
+      "> More context.",
+      "",
+      "After the quote.",
+      "",
+    ].join(newline);
+    const expected = [
+      "Before the quote.",
+      "",
+      `> See ![TODO: describe image](${source}) for details.`,
+      "> More context.",
+      "",
+      "After the quote.",
+      "",
+    ].join(newline);
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("missing-alt-text");
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(image);
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
   it("autofixes missing alt text while preserving a relative image source exactly", () => {
     const doc = "Before ![](../assets/./chart%20one.png?size=2#preview) after.\r\n";
     const expected =
