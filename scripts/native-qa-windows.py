@@ -182,16 +182,39 @@ def driver_stage():
     return safe_path(stage().parent / DRIVER_STAGE)
 
 
+def signature_diagnostic(stderr, started):
+    # Report only our fixed markers, never raw shell/certificate/environment text.
+    if isinstance(stderr,bytes): stderr=stderr.decode('utf-8',errors='replace')
+    markers=stderr.splitlines() if isinstance(stderr,str) else []
+    phase='signature-returned' if 'qa-signature-returned' in markers else ('signature-started' if 'qa-signature-start' in markers else 'shell-startup')
+    print(f'Driver trust phase: {phase}; elapsed {time.monotonic()-started:.1f}s',flush=True)
+
+
 def verify_driver_signature(driver):
     # Fixed script and literal environment input, never shell-interpolated paths.
-    script = "$s=Get-AuthenticodeSignature -LiteralPath $env:QA_DRIVER_FILE; @{status=$s.Status.ToString(); subject=$s.SignerCertificate.Subject; eku=@($s.SignerCertificate.EnhancedKeyUsageList | ForEach-Object {$_.ObjectId})} | ConvertTo-Json -Compress"
+    script = "[Console]::Error.WriteLine('qa-signature-start'); $s=Get-AuthenticodeSignature -LiteralPath $env:QA_DRIVER_FILE; [Console]::Error.WriteLine('qa-signature-returned'); @{status=$s.Status.ToString(); subject=$s.SignerCertificate.Subject; eku=@($s.SignerCertificate.EnhancedKeyUsageList | ForEach-Object {$_.ObjectId})} | ConvertTo-Json -Compress"
     env = {k:v for k,v in os.environ.items() if k.upper() in {'SYSTEMROOT','WINDIR','PATH','TEMP','TMP'}}
     env['QA_DRIVER_FILE'] = str(driver)
     shell = safe_path(Path(os.environ['SYSTEMROOT'])/'System32/WindowsPowerShell/v1.0/powershell.exe')
-    result = subprocess.run([str(shell),'-NoLogo','-NoProfile','-NonInteractive','-Command',script],env=env,capture_output=True,text=True,timeout=30,check=True)
+    started=time.monotonic()
+    print('Checking pinned driver Microsoft Authenticode (90s limit)',flush=True)
+    try:
+        result = subprocess.run([str(shell),'-NoLogo','-NoProfile','-NonInteractive','-Command',script],env=env,capture_output=True,text=True,timeout=90,check=True)
+    except (subprocess.TimeoutExpired,subprocess.CalledProcessError) as error:
+        signature_diagnostic(getattr(error,'stderr',None),started)
+        raise RuntimeError('driver signature verification did not complete successfully') from None
+    signature_diagnostic(result.stderr,started)
     require(len(result.stdout)<=8192, 'signature response too large')
     value=json.loads(result.stdout)
-    require(value.get('status')=='Valid' and value.get('subject')==MICROSOFT_SUBJECT and '1.3.6.1.5.5.7.3.3' in value.get('eku',[]), 'valid Microsoft code-signing signature required')
+    require(isinstance(value,dict), 'invalid signature response shape')
+    status=value.get('status')
+    known={'Valid','UnknownError','NotSigned','HashMismatch','NotTrusted','NotSupportedFileFormat','Incompatible'}
+    status=status if isinstance(status,str) and status in known else 'unknown'
+    subject_matches=value.get('subject')==MICROSOFT_SUBJECT
+    eku=value.get('eku',[])
+    code_signing=isinstance(eku,list) and '1.3.6.1.5.5.7.3.3' in eku
+    print(f'Driver trust result: status={status}; subject_matches={subject_matches}; code_signing_EKU={code_signing}',flush=True)
+    require(status=='Valid' and subject_matches and code_signing, 'valid Microsoft code-signing signature required')
 
 
 def extract_driver(data, destination):
