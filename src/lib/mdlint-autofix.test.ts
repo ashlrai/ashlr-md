@@ -2514,6 +2514,32 @@ describe("rule:missing-alt-text", () => {
     expect(violations[0].fix).not.toBeNull();
   });
 
+  it.each([
+    "\t",
+    " \t ",
+    "　",
+  ])("inserts the placeholder for whitespace-only description %j while preserving the destination", (alt) => {
+    const source = '../assets/caf%C3%A9%20chart.png?size=2&lang=fr#view "Café chart"';
+    const image = `![${alt}](${source})`;
+    const doc = `Before café: ${image} after.\r\n`;
+    const expected = `Before café: ![TODO: describe image](${source}) after.\r\n`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "missing-alt-text",
+    ]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(image);
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    const remaining = lintDocument(fixed, { rules });
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(fixed, remaining)).toBe(expected);
+  });
+
   it("autofix inserts a TODO placeholder", () => {
     const doc = "See ![](diagram.png) for context.\n";
     const violations = lintDocument(doc, { rules: [ruleMissingAltText] });
