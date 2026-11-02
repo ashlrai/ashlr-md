@@ -2767,6 +2767,37 @@ describe("rule:missing-alt-text", () => {
   it.each([
     "\n",
     "\r\n",
+  ])("fixes images that start list items, nested or ordered, keeping markers and source (line endings %j)", (nl) => {
+    const doc = [
+      "- ![](a.png)",
+      '  - ![ ](b.png?x=1#y "B") caption',
+      "1. ![](c.png)",
+      "- [x] ![Described](d.png)",
+      "",
+    ].join(nl);
+    const expected = [
+      "- ![TODO: describe image](a.png)",
+      '  - ![TODO: describe image](b.png?x=1#y "B") caption',
+      "1. ![TODO: describe image](c.png)",
+      "- [x] ![Described](d.png)",
+      "",
+    ].join(nl);
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+      "missing-alt-text",
+      "missing-alt-text",
+      "missing-alt-text",
+    ]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
+    "\n",
+    "\r\n",
   ])("fixes an image at the start while preserving following text with %j line endings", (newline) => {
     const image = "![](images/chart.png?view=full#data)";
     const following = ` — café chart.${newline}${newline}Keep this paragraph. ☕${newline}`;
