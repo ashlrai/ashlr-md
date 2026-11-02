@@ -158,8 +158,14 @@ class (64 restricted ASCII characters), enabled flag, WindowPattern availability
 and modal boolean. It never records titles, text, paths, handles or other processes.
 Fixed query/inspect/select/wait stages and provider-error/not-found/ambiguous/
 count-overflow/ownership reasons distinguish provider limitations from absence.
-Malformed or oversized observations are not printed. Existing dialog identity,
-filename and confirmation predicates are unchanged; observation cannot authorize
+A transient provider exception inside one poll retries within the unchanged
+25-second deadline instead of ending the poll early; the fixed count-overflow,
+ownership and ambiguity violations still abort immediately. Every failure also
+emits one allowlisted `qa-uia-detail:` throw-reason marker, so input, filename
+and confirmation phases report which fixed check failed; provider exception
+text never matches the allowlist and is never printed. Malformed or oversized
+observations are not printed. Existing dialog identity, filename and
+confirmation predicates are unchanged; observation cannot authorize
 input. If this attempt establishes no supported reliable dialog identity, retain
 the failed CLI and blocked UI qualification instead of repeatedly relaxing selectors.
 

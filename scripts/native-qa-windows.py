@@ -598,6 +598,18 @@ def check_uia():
     print('UIA built-in assemblies available; native dialog not yet qualified.')
 
 
+UIA_PHASES=re.compile(r'(?m)^qa-uia-failed:(assemblies|inputs|dialog|filename|confirm)$')
+UIA_DETAIL=re.compile(r'(?m)^qa-uia-detail:([a-z][a-z-]{0,31})$')
+UIA_DETAIL_KINDS={'pid','fixture','ready','image','window-count','unexpected-owner','ambiguous-dialog','dialog-unavailable','edit-count','ambiguous-filename','readonly','readback','ambiguous-open'}
+
+
+def uia_failure(stderr):
+    # Only the helper's fixed markers; the allowlisted reason never carries provider text.
+    phases=UIA_PHASES.findall(stderr)
+    details=[d for d in UIA_DETAIL.findall(stderr) if d in UIA_DETAIL_KINDS]
+    return (phases[-1] if phases else None, details[-1] if details else None)
+
+
 def dialog_observation(stderr):
     # Only the fixed diagnostic schema; malformed provider data is never printed.
     lines=[line[len('qa-uia-windows:'):] for line in stderr.splitlines() if line.startswith('qa-uia-windows:')]
@@ -636,9 +648,9 @@ def real_open_file(session, app, fixture, work):
         out,err=proc.communicate(timeout=max(.1,60-(time.monotonic()-started)))
         require(len(out)<=8192 and len(err)<=8192,'UIA helper output exceeded limit')
         if proc.returncode!=0:
-            phases=re.findall(r'(?m)^qa-uia-failed:(assemblies|inputs|dialog|filename|confirm)$',err)
-            print('UIA dialog unavailable phase:',phases[-1] if phases else 'unknown')
-            if phases and phases[-1]=='dialog':
+            phase,detail=uia_failure(err)
+            print('UIA dialog unavailable phase:',(phase or 'unknown')+(f' ({detail})' if detail else ''))
+            if phase=='dialog':
                 try: print('Owned UIA window observation:',json.dumps(dialog_observation(err)))
                 except (ValueError,TypeError): print('Owned UIA window observation unavailable')
         require(proc.returncode==0 and out.strip()=='qa-uia-open-invoked','native Open dialog failed')

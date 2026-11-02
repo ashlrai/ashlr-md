@@ -27,41 +27,50 @@ try {
     $pidCondition = [Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::ProcessIdProperty, $targetPid)
     $windowCondition = [Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::ControlTypeProperty, [Windows.Automation.ControlType]::Window)
     $condition = [Windows.Automation.AndCondition]::new($pidCondition, $windowCondition)
+    $fixedViolations = @('window-count','unexpected-owner','ambiguous-dialog')
     $dialog = $null
     while ([DateTime]::UtcNow -lt $deadline) {
         # Immediate desktop children only; never traverse unrelated desktop subtrees.
-        $observation = @{stage='query'; count=0; overflow=$false; windows=@()}
-        $windows = [Windows.Automation.AutomationElement]::RootElement.FindAll([Windows.Automation.TreeScope]::Children, $condition)
-        $observation.count = [Math]::Min(8, $windows.Count)
-        $observation.overflow = $windows.Count -gt 8
-        if ($windows.Count -gt 8) { $dialogReason='count-overflow'; throw 'window-count' }
-        $candidates = @()
-        foreach ($window in $windows) {
-            $observation.stage = 'inspect'
-            if ($window.Current.ProcessId -ne $targetPid) { $dialogReason='ownership'; throw 'unexpected-owner' }
-            # Read only class/pattern flags, never Name, text, paths or desktop descendants.
-            $class = $window.Current.ClassName
-            if ($null -eq $class -or $class -cnotmatch '^[A-Za-z0-9_#.: -]{1,64}$') { $class = 'unknown' }
-            $modal = $null
-            $available = $false
-            try {
-                $readPattern = $null
-                $available = $window.TryGetCurrentPattern([Windows.Automation.WindowPattern]::Pattern, [ref]$readPattern)
-                if ($available) { $modal = [bool]$readPattern.Current.IsModal }
-            } catch { $available = $false; $modal = $null }
-            $observation.windows += @{class=$class; pattern=[bool]$available; modal=$modal; enabled=[bool]$window.Current.IsEnabled}
-            $observation.stage = 'select'
-            # The Common Item Dialog is an owned, enabled #32770 but does not always report
-            # WindowPattern.IsModal, so modality is observed (above), not required. Ownership,
-            # class and enabled state plus the single-candidate rule keep selection exact.
-            if ($window.Current.ClassName -ceq '#32770' -and $window.Current.IsEnabled) { $candidates += $window }
+        try {
+            $observation = @{stage='query'; count=0; overflow=$false; windows=@()}
+            $windows = [Windows.Automation.AutomationElement]::RootElement.FindAll([Windows.Automation.TreeScope]::Children, $condition)
+            $observation.count = [Math]::Min(8, $windows.Count)
+            $observation.overflow = $windows.Count -gt 8
+            if ($windows.Count -gt 8) { $dialogReason='count-overflow'; throw 'window-count' }
+            $candidates = @()
+            foreach ($window in $windows) {
+                $observation.stage = 'inspect'
+                if ($window.Current.ProcessId -ne $targetPid) { $dialogReason='ownership'; throw 'unexpected-owner' }
+                # Read only class/pattern flags, never Name, text, paths or desktop descendants.
+                $class = $window.Current.ClassName
+                if ($null -eq $class -or $class -cnotmatch '^[A-Za-z0-9_#.: -]{1,64}$') { $class = 'unknown' }
+                $modal = $null
+                $available = $false
+                try {
+                    $readPattern = $null
+                    $available = $window.TryGetCurrentPattern([Windows.Automation.WindowPattern]::Pattern, [ref]$readPattern)
+                    if ($available) { $modal = [bool]$readPattern.Current.IsModal }
+                } catch { $available = $false; $modal = $null }
+                $observation.windows += @{class=$class; pattern=[bool]$available; modal=$modal; enabled=[bool]$window.Current.IsEnabled}
+                $observation.stage = 'select'
+                # The Common Item Dialog is an owned, enabled #32770 but does not always report
+                # WindowPattern.IsModal, so modality is observed (above), not required. Ownership,
+                # class and enabled state plus the single-candidate rule keep selection exact.
+                if ($window.Current.ClassName -ceq '#32770' -and $window.Current.IsEnabled) { $candidates += $window }
+            }
+            if ($candidates.Count -gt 1) { $dialogReason='ambiguous'; throw 'ambiguous-dialog' }
+            if ($candidates.Count -eq 1) { $dialog = $candidates[0]; break }
+            $observation.stage = 'wait'
+            $dialogReason='not-found'
+        } catch {
+            # Fixed violations abort immediately; a transient provider exception retries
+            # inside the same bounded deadline instead of ending the poll early.
+            if ($fixedViolations -contains $_.Exception.Message) { throw }
+            $dialogReason='provider-error'
         }
-        if ($candidates.Count -gt 1) { $dialogReason='ambiguous'; throw 'ambiguous-dialog' }
-        if ($candidates.Count -eq 1) { $dialog = $candidates[0]; break }
-        $observation.stage = 'wait'
         Start-Sleep -Milliseconds 200
     }
-    if ($null -eq $dialog) { $dialogReason='not-found'; throw 'dialog-unavailable' }
+    if ($null -eq $dialog) { throw 'dialog-unavailable' }
     if ($dialog.Current.ProcessId -ne $targetPid) { $dialogReason='ownership'; throw 'dialog-unavailable' }
     $phase = 'filename'
     $editCondition = [Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::ControlTypeProperty, [Windows.Automation.ControlType]::Edit)
@@ -89,8 +98,10 @@ try {
     $invoke.Invoke()
     [Console]::WriteLine('qa-uia-open-invoked')
 } catch {
-    # Fixed phase only, never provider errors, dialog text, paths or process data.
+    # Fixed phase and allowlisted throw reasons only, never provider errors, dialog text, paths or process data.
     if ($phase -eq 'dialog') { $observation['reason']=$dialogReason; [Console]::Error.WriteLine('qa-uia-windows:' + ($observation | ConvertTo-Json -Compress -Depth 4)) }
+    $detailReasons = @('pid','fixture','ready','image','window-count','unexpected-owner','ambiguous-dialog','dialog-unavailable','edit-count','ambiguous-filename','readonly','readback','ambiguous-open')
+    if ($detailReasons -contains $_.Exception.Message) { [Console]::Error.WriteLine('qa-uia-detail:' + $_.Exception.Message) }
     [Console]::Error.WriteLine('qa-uia-failed:' + $phase)
     exit 1
 }

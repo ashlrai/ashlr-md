@@ -5,6 +5,7 @@ import io
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tempfile
@@ -169,8 +170,23 @@ class Tests(unittest.TestCase):
         self.assertIn('$value.SetValue($fixture)',script); self.assertIn('$invoke.Invoke()',script)
         for forbidden in ['SendKeys','SendInput','ExecutionPolicy','__TAURI','Get-CimInstance']:
             self.assertNotIn(forbidden,script)
+        self.assertIn('qa-uia-detail:',script)
+        self.assertIn('$fixedViolations -contains $_.Exception.Message',script)
+        emitted=set(re.findall(r"'([a-z-]+)'",re.search(r'\$detailReasons = @\(([^)]*)\)',script).group(1)))
+        self.assertEqual(emitted,w.UIA_DETAIL_KINDS)
         self.assertIn("'CLI startup fixture result:'",SCRIPT.read_text())
         self.assertIn('CLI startup remains failed.',SCRIPT.read_text())
+
+    def test_uia_failure_label_uses_only_fixed_markers(self):
+        for stderr,expected in [('qa-uia-failed:filename\nqa-uia-detail:readonly\n',('filename','readonly')),
+                                ('qa-uia-detail:dialog-unavailable\nqa-uia-failed:dialog\n',('dialog','dialog-unavailable')),
+                                ('qa-uia-failed:dialog\n',('dialog',None)),
+                                ('qa-uia-detail:pid\n',(None,'pid')),
+                                ('',(None,None)),
+                                ('qa-uia-detail:secret-provider-text\nqa-uia-failed:confirm\n',('confirm',None)),
+                                ('qa-uia-detail:PID\nqa-uia-failed:inputs\n',('inputs',None)),
+                                ('qa-uia-detail:'+'x'*40+'\nqa-uia-failed:inputs\n',('inputs',None))]:
+            self.assertEqual(w.uia_failure(stderr),expected)
 
     @unittest.skipUnless(os.name=='nt','requires actual Windows temporary paths')
     def test_windows_path_spelling_diagnostic_and_strict_production_root(self):
