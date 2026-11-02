@@ -1625,6 +1625,29 @@ describe("rule:invalid-link-target", () => {
 
 describe("rule:missing-alt-text", () => {
   it.each([
+    "\n",
+    "\r\n",
+  ])("fixes an image at the start while preserving following text with %j line endings", (newline) => {
+    const image = "![](images/chart.png?view=full#data)";
+    const following = ` — café chart.${newline}${newline}Keep this paragraph. ☕${newline}`;
+    const doc = image + following;
+    const expected = `![TODO: describe image](images/chart.png?view=full#data)${following}`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    expect(violations[0].range?.from.offset).toBe(0);
+    expect(violations[0].range?.to.offset).toBe(image.length);
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    const remaining = lintDocument(fixed, { rules });
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(fixed, remaining)).toBe(expected);
+  });
+
+  it.each([
     ["", "(", "),"],
     [" \t ", "“", "”;"],
     ["", "[", "]!?"],
