@@ -1,12 +1,45 @@
 # Ashlr MD
 
-> An open-source, AI-native Markdown app for macOS, Windows, and Linux.
+> Open-source Markdown app for macOS, Windows, and Linux. Agents install one command, call a CLI that prints JSON, and drive the live document over MCP.
 
-## Docs
+Ashlr MD is a desktop app plus `mdopen` and the `mdopener-mcp` server. People read and edit `.md` files. Agents open, edit, export, and request a human review.
 
-- [README](https://github.com/ashlrai/ashlr-md/blob/main/README.md): Features, setup, development, and architecture.
-- [Agent guide](https://github.com/ashlrai/ashlr-md/blob/main/docs/AGENTS.md): Connect and use AI agents with Ashlr MD.
-- [Installation](https://github.com/ashlrai/ashlr-md/blob/main/docs/INSTALL.md): Per-OS installation instructions.
-- [Obsidian](https://github.com/ashlrai/ashlr-md/blob/main/docs/OBSIDIAN.md): Obsidian compatibility details.
-- [Phantom](https://github.com/ashlrai/ashlr-md/blob/main/docs/PHANTOM.md): How Ashlr MD plugs into Phantom.
-- [Contributing](https://github.com/ashlrai/ashlr-md/blob/main/CONTRIBUTING.md): Contribution guidance.
+The install command, from a checkout on macOS or Linux:
+
+```bash
+SKIP_APP_BUILD=1 bash scripts/install.sh
+```
+
+Then:
+
+```bash
+mdopener-mcp doctor --json
+mdopener-mcp setup --local --json
+mdopener-mcp --ashlr-handshake --json
+claude mcp add --scope user ashlr-md "$(command -v mdopener-mcp)"
+codex mcp add ashlr-md -- "$(command -v mdopener-mcp)"
+python3 scripts/connect-cursor.py
+```
+
+## Start
+
+- [README](https://github.com/ashlrai/ashlr-md/blob/main/README.md): what it is, the install command, the JSON commands, and the MCP snippets
+- [Copy-paste examples](https://github.com/ashlrai/ashlr-md/blob/main/docs/EXAMPLES.md): every command, including Windows
+- [Full agent guide](https://github.com/ashlrai/ashlr-md/blob/main/llms-full.txt): the same material in one file
+- [MCP tool contract](https://github.com/ashlrai/ashlr-md/blob/main/docs/AGENTS.md): every tool, in server order
+- [Install a release](https://github.com/ashlrai/ashlr-md/blob/main/docs/INSTALL.md): macOS, Windows, and Linux downloads
+
+## CLI
+
+- [doctor --fix](https://github.com/ashlrai/ashlr-md/blob/main/docs/doctor-fix.md): `mdopener-mcp doctor --fix --json` previews repairs and writes nothing
+- [Handshake](https://github.com/ashlrai/ashlr-md/blob/main/docs/ashlr-handshake.md): `mdopener-mcp --ashlr-handshake --json`
+- [Local AI](https://github.com/ashlrai/ashlr-md/blob/main/docs/local-ai.md): `localInference`, offline mode, and base URL rules
+- [Phantom](https://github.com/ashlrai/ashlr-md/blob/main/docs/PHANTOM.md): how Phantom calls `mdopen`
+
+## Optional
+
+- [Docs index](https://github.com/ashlrai/ashlr-md/blob/main/docs/README.md): the rest of the guides
+- [Vision](https://github.com/ashlrai/ashlr-md/blob/main/docs/VISION.md): the product goal
+- [Security](https://github.com/ashlrai/ashlr-md/blob/main/SECURITY.md): threat model
+- [Obsidian](https://github.com/ashlrai/ashlr-md/blob/main/docs/OBSIDIAN.md): vault notes, wikilinks, and the Open in Ashlr MD plugin
+- [Contributing](https://github.com/ashlrai/ashlr-md/blob/main/CONTRIBUTING.md): how to send a change

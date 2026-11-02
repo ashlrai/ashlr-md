@@ -16,6 +16,31 @@ Markdown into Ashlr MD the moment your agent writes it.
 
 ---
 
+## Copy-paste
+
+Runnable commands, with no placeholders, are in [EXAMPLES.md](./EXAMPLES.md).
+The index for agents is [llms.txt](../llms.txt). The one-file manual is
+[llms-full.txt](../llms-full.txt). From the repository root:
+
+```bash
+SKIP_APP_BUILD=1 bash scripts/install.sh
+mdopener-mcp doctor --json
+mdopener-mcp setup --local --json
+mdopener-mcp --ashlr-handshake --json
+claude mcp add --scope user ashlr-md "$(command -v mdopener-mcp)"
+codex mcp add ashlr-md -- "$(command -v mdopener-mcp)"
+python3 scripts/connect-cursor.py
+```
+
+The install script links `mdopen` and `mdopener-mcp` onto `PATH` (`/usr/local/bin`,
+or `~/.local/bin` when that directory is not writable). It registers Claude
+Code when `claude` is already installed. `doctor` and `setup --local` print
+JSON with `--json`, download nothing, and write nothing. Add `--apply` only
+when you want `doctor --fix` to make the repairs
+([doctor-fix.md](./doctor-fix.md)).
+
+---
+
 ## What the integration is
 
 There are two cooperating pieces:
@@ -274,9 +299,8 @@ Square brackets indicate optional arguments; omit the brackets when running a
 command. `--export-tool-schema` prints the tool names and input schemas as
 JSON, then exits. `doctor` checks local inference and offline status. `doctor
 --fix` previews state repairs; add `--apply` to write them. `setup --local`
-prints local model setup steps and downloads and writes nothing. See the
-README's [repair guide](../README.md#repair-with-doctor---fix) for repair
-boundaries.
+prints local model setup steps and downloads and writes nothing. Repair
+boundaries: [doctor-fix.md](./doctor-fix.md).
 
 The offline schema export sorts tools by name and preserves complete input
 schemas, including property descriptions, for companion-client compatibility.

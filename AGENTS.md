@@ -15,6 +15,15 @@ Synced from the Ashlr Fleet Constitution v3.0 (Nov 1, 2026). This overrides any 
 - Mason only for passwords, 2FA, device approvals and payments (no new spending without him). Nothing private made public.
 - Hold list (Mason's own holds): phantom #197 #878 #743 #725 #738 #744 #693 #1228; phantom-secrets #140 #197 #375 #168 #418 #136; ashlr-plugin #152 #157.
 
+## Read this first
+
+Agents are first-class users of Ashlr MD.
+
+1. [llms.txt](llms.txt) is the index. [llms-full.txt](llms-full.txt) is the manual in one file.
+2. [README.md](README.md) leads with the install command, the `--json` CLI, and the MCP snippets for Claude Code, Cursor, and Codex.
+3. [docs/EXAMPLES.md](docs/EXAMPLES.md) is every copy-paste command, including Windows.
+4. [docs/AGENTS.md](docs/AGENTS.md) is the tool contract. Names and order come from `tool_registry()`.
+
 ## Agents may
 - Create branches, commit, and open pull requests.
 - Turn on GitHub auto-merge (`phm improve --auto-merge` / `gh pr merge --auto`). Merge to main and ship to production on your own, with no human approval or manual merge; fix main forward. Never use an admin override.
