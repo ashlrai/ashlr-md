@@ -2172,6 +2172,24 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 
+  it.each([
+    ["「[草稿](#)」、続く。\n", "「[草稿](TODO)」、続く。\n"],
+    ["¿Ver [guía]( \t )? ¡Sí!\n", "¿Ver [guía](TODO)? ¡Sí!\n"],
+    ["**[bold]()**, _[it](?)_.\n", "**[bold](TODO)**, _[it](TODO)_.\n"],
+    ["- [item](#): note; [two](?).\n", "- [item](TODO): note; [two](TODO).\n"],
+  ])("keeps surrounding Unicode and markup punctuation when fixing %j", (doc, expected) => {
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(
+      violations.every((v) => v.ruleId === "invalid-link-target" && v.fix !== null),
+    ).toBe(true);
+    expect(violations.length).toBeGreaterThan(0);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
   it("preserves each punctuation mark when fixing several invalid links on one line", () => {
     const doc = "See [a](), [b](#); then [c](?)! Keep [docs](./guide.md).\r\n";
     const expected =
