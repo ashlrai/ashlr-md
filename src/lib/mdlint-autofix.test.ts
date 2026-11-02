@@ -7308,3 +7308,24 @@ describe("autofix: mixed valid and invalid links", () => {
     expect(lintDocument(fixed)).toEqual([]);
   });
 });
+
+// ─── Undescribed image with a directory in its relative path ─────────────────
+
+describe("autofix: undescribed image with a nested relative path", () => {
+  it.each([
+    "docs/img/screens/overview.png",
+    "./docs/img/overview.png",
+    "../assets/img/overview.svg",
+  ])("inserts the placeholder and keeps the path %j", (src) => {
+    const doc = `# Guide\n\nSee ![](${src}) for details.\n`;
+    const expected = `# Guide\n\nSee ![TODO: describe image](${src}) for details.\n`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain(`](${src})`);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
