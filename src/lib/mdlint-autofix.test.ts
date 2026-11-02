@@ -4005,6 +4005,30 @@ describe("LinterToast violation history", () => {
   it.each([
     true,
     false,
+  ])("Fix all preserves an adjacent described image with the same source (described first: %s)", (describedFirst) => {
+    const described = "![A sleeping cat](images/cat.jpg)";
+    const empty = "![](images/cat.jpg)";
+    const repaired = "![TODO: describe image](images/cat.jpg)";
+    const doc = describedFirst ? described + empty : empty + described;
+    const expected = describedFirst ? described + repaired : repaired + described;
+    const rules = BUILTIN_RULES.filter((rule) =>
+      LINTER_DEFAULT_ENABLED_RULES.includes(rule.id),
+    );
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(empty);
+    expect(violations[0].fix).not.toBeNull();
+    const fixed = fixAllViolations(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(getLintHistory().map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+  });
+
+  it.each([
+    true,
+    false,
   ])("Fix all preserves a described image when an empty-alt image is on another line (described first: %s)", (describedFirst) => {
     const described = "![A café at sunset](images/cafe.jpg?size=2#preview)";
     const empty = "![](images/chart.png?view=full#data)";
