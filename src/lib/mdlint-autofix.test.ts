@@ -369,6 +369,28 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    [
+      "empty",
+      "[start]() then more text.\n\n## Next\n\n- item [ok](./a.md)\n",
+      "[start](TODO) then more text.\n\n## Next\n\n- item [ok](./a.md)\n",
+    ],
+    [
+      "spaces",
+      "[start](  )\nSecond line stays.\n",
+      "[start](TODO)\nSecond line stays.\n",
+    ],
+    ["no trailing text", "[start]()", "[start](TODO)"],
+  ])("produces the exact fixed document for an invalid link at the very start (%s)", (_name, doc, expected) => {
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].range?.from.offset).toBe(0);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+
+  it.each([
     "",
     "#",
     "?",
