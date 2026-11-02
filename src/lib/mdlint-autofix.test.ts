@@ -1035,6 +1035,28 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 
+  it.each([
+    "\n",
+    "\r\n",
+  ])("replaces a destination that is whitespace across line breaks with TODO (%j)", (nl) => {
+    const rules = [ruleInvalidLinkTarget];
+    const doc = `Intro café.${nl}Read [draft](${nl}  \t${nl}) now.${nl}Then [guide](./guide.md).${nl}`;
+    const expected = `Intro café.${nl}Read [draft](TODO) now.${nl}Then [guide](./guide.md).${nl}`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(`[draft](${nl}  \t${nl})`);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+
+  it("does not treat a quoted title after whitespace as an empty destination", () => {
+    const doc = 'See [a](   "title") here.\n';
+    expect(lintDocument(doc, { rules: [ruleInvalidLinkTarget] })).toEqual([]);
+  });
+
   it("preserves a bracketed year in prose while fixing links on either side", () => {
     const doc = "See [draft]() for the report from [2024], then [notes](#).\n";
     const expected =
