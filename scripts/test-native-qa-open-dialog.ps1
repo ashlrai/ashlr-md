@@ -4,7 +4,7 @@ $ErrorActionPreference = 'Stop'
 # Execute the real source's candidate-selection block without a desktop/provider.
 # The legacy name is accepted only so this test proves the original source fails.
 $source = [IO.File]::ReadAllText($ScriptPath)
-$block = [regex]::Match($source, '(?s)        \$(?:matches|candidates) = @\(\).*?        \$observation.stage = ''wait''')
+$block = [regex]::Match($source, '(?s)            \$(?:matches|candidates) = @\(\).*?            \$observation.stage = ''wait''')
 if (-not $block.Success) { throw 'selection source block not found' }
 $probe = [scriptblock]::Create('while ($true) {' + $block.Value + '; break }')
 # A minimal provider stand-in exercises PowerShell semantics, not real UIA support.
