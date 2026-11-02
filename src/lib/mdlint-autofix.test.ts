@@ -1477,6 +1477,103 @@ describe("rule:invalid-link-target", () => {
     expect(applyAllFixes(doc, [...violations].reverse())).toBe(expected);
     expect(lintDocument(expected, { rules })).toEqual([]);
   });
+
+  it.each([
+    "",
+    " \t ",
+    "#",
+    "?",
+  ])("fixes an invalid link touching a valid link on each side for destination %j", (destination) => {
+    const before = '[start](./start.md "Start")';
+    const after = "[end](https://example.com/end?on=1#links)";
+    const link = `[mid](${destination})`;
+    const doc = `${before}${link}${after}`;
+    const expected = `${before}[mid](TODO)${after}`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("invalid-link-target");
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(link);
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    const remaining = lintDocument(fixed, { rules });
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(fixed, remaining)).toBe(expected);
+  });
+
+  it.each([
+    ["[](#)", "[](./guide.md)[](#)", "[](./guide.md)[](TODO)"],
+    ["[](#)", "[](#)[](./guide.md)", "[](TODO)[](./guide.md)"],
+    ["[](?)", "[](./guide.md) [](?)", "[](./guide.md) [](TODO)"],
+    ["[]( )", "[]( ) [](./guide.md)", "[](TODO) [](./guide.md)"],
+  ])("fixes only the empty-label link %s in %s", (link, links, expectedLinks) => {
+    const doc = `See ${links} next.\n`;
+    const expected = `See ${expectedLinks} next.\n`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("invalid-link-target");
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(link);
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
+    "## Read [guide](./guide.md) and [draft](#) next",
+    "> Read [guide](./guide.md) and [draft](#) next",
+    "- Read [guide](./guide.md) and [draft](#) next",
+  ])("fixes the invalid link beside a valid link in %j", (line) => {
+    const doc = `${line}\n\nDone.\n`;
+    const expected = `${line.replace("[draft](#)", "[draft](TODO)")}\n\nDone.\n`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("invalid-link-target");
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe("[draft](#)");
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
+    "[mail](mailto:docs@example.com)",
+    "[todo list](./TODO.md)",
+    "[root](/docs/guide.md)",
+  ])("preserves the valid link %s beside a repaired link in either order", (valid) => {
+    const invalid = "[draft](#)";
+    const repaired = "[draft](TODO)";
+    const rules = [ruleInvalidLinkTarget];
+
+    for (const validFirst of [true, false]) {
+      const doc = `See ${validFirst ? valid : invalid} ${validFirst ? invalid : valid}.\n`;
+      const expected = `See ${validFirst ? valid : repaired} ${validFirst ? repaired : valid}.\n`;
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations).toHaveLength(1);
+      expect(violations[0].ruleId).toBe("invalid-link-target");
+      const { from, to } = violations[0].range!;
+      expect(doc.slice(from.offset, to.offset)).toBe(invalid);
+      expect(violations[0].fix).not.toBeNull();
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      expect(fixed).toContain(valid);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+    }
+  });
 });
 
 // ─── 3. Rule: missing-alt-text ────────────────────────────────────────────────
