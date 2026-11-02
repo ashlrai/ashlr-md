@@ -1769,18 +1769,24 @@ describe("rule:missing-alt-text", () => {
   });
 
   it.each([
-    "",
-    "\n",
-    "\r\n",
-  ])("fixes an image at the end of a document with ending %j", (ending) => {
-    const doc = `# Gallery\n\nA café view.\n\n![](images/view.png?size=2#preview)${ending}`;
-    const expected = `# Gallery\n\nA café view.\n\n![TODO: describe image](images/view.png?size=2#preview)${ending}`;
+    ["", "\n", ""],
+    ["", "\n", "\n"],
+    ["", "\n", "\r\n"],
+    [" \t ", "\r\n", ""],
+    [" \t ", "\r\n", "\r\n"],
+  ])("fixes alt text %j at the end of a document with %j lines and ending %j", (alt, newline, ending) => {
+    const prefix = ["# Gallery", "", "A café view.", "", "See: "].join(newline);
+    const image = `![${alt}](images/view.png?size=2#preview)`;
+    const doc = `${prefix}${image}${ending}`;
+    const expected = `${prefix}![TODO: describe image](images/view.png?size=2#preview)${ending}`;
     const rules = [ruleMissingAltText];
     const violations = lintDocument(doc, { rules });
 
     expect(violations.map((violation) => violation.ruleId)).toEqual([
       "missing-alt-text",
     ]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(image);
     expect(violations[0].fix).not.toBeNull();
     expect(applyFix(doc, violations[0])).toBe(expected);
     const fixed = applyAllFixes(doc, violations);
