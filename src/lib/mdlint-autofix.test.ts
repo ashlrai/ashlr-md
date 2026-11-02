@@ -2140,6 +2140,43 @@ describe("rule:missing-alt-text", () => {
     expect(applyAllFixes(fixed, remaining)).toBe(expected);
   });
 
+  it.each([
+    ["", "\n"],
+    [" \t ", "\r\n"],
+  ])("fixes an undescribed image mid-line on a final line without a trailing newline (alt %j, line endings %j)", (alt, newline) => {
+    const image = `![${alt}](images/chart.png?view=full#data "Chart")`;
+    const repaired = `![TODO: describe image](images/chart.png?view=full#data "Chart")`;
+    // Earlier line breaks use `newline`; the last line has no line ending, and
+    // the code span's image must stay untouched.
+    const doc = [
+      "# Report",
+      "",
+      "Keep [guide](./guide.md) and `![](decoy.png)` as code.",
+      `See ${image} for the summary.`,
+    ].join(newline);
+    const expected = [
+      "# Report",
+      "",
+      "Keep [guide](./guide.md) and `![](decoy.png)` as code.",
+      `See ${repaired} for the summary.`,
+    ].join(newline);
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(image);
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.endsWith("\n")).toBe(false);
+    expect(fixed.length - doc.length).toBe("TODO: describe image".length - alt.length);
+    const remaining = lintDocument(fixed, { rules });
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(fixed, remaining)).toBe(expected);
+  });
+
   it("preserves a CRLF image line in a document with mixed line endings", () => {
     const doc =
       "Gallery introduction.\n\nSee ![](images/chart.png) for details.\r\n" +
