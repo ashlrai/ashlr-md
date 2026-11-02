@@ -6211,3 +6211,15 @@ describe("rule:missing-alt-text two undescribed images", () => {
     expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
   });
 });
+
+describe("autofix: empty document", () => {
+  it("returns an empty document without throwing, across all built-in rules", () => {
+    const violations = lintDocument("", { rules: BUILTIN_RULES });
+    expect(() => applyAllFixes("", violations)).not.toThrow();
+    expect(applyAllFixes("", violations)).toBe("");
+  });
+
+  it("returns an empty document when given no violations", () => {
+    expect(applyAllFixes("", [])).toBe("");
+  });
+});
