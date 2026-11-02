@@ -6301,3 +6301,22 @@ describe("autofix: empty document", () => {
     expect(applyAllFixes("", [])).toBe("");
   });
 });
+
+describe("rule:missing-alt-text whitespace across line breaks", () => {
+  it.each([
+    "\n",
+    "\r\n",
+  ])("inserts the placeholder when the description is only a line break (%j) and preserves the image source", (nl) => {
+    const source = 'images/chart.png?size=2#preview "Chart"';
+    const doc = `Before ![ ${nl} ](${source}) after.${nl}`;
+    const expected = `Before ![TODO: describe image](${source}) after.${nl}`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+});
