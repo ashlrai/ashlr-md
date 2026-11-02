@@ -133,6 +133,34 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    "\n",
+    "\r\n",
+  ])("fixes an invalid link in a blockquote while preserving surrounding text with %j line endings", (newline) => {
+    const doc = [
+      "Before the quote.",
+      "",
+      "> Opening line.",
+      "> Read [draft]() before publishing.",
+      "> Closing line.",
+      "",
+      "After the quote.",
+      "",
+    ].join(newline);
+    const expected = doc.replace("[draft]()", "[draft](TODO)");
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "invalid-link-target",
+    ]);
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
     "",
     " ",
     "#",
