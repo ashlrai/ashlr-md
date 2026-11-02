@@ -16165,3 +16165,51 @@ fn an_ipc_connection_gives_up_after_the_connect_timeout() {
     );
     drop(held);
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// Bracketed prose — brackets and adjacent punctuation survive unchanged
+// ════════════════════════════════════════════════════════════════════════════
+
+/// Prose where brackets touch punctuation: `[x],` `(see [1]).` `{a}:` `<b>;`
+/// plus a link, a task item, a footnote and an unbalanced bracket.
+const BRACKETED_PROSE: &str = "Results [1], [2]; see (cf. [3]).\n\
+    He said: \"[sic]\" — then {a}: <b>; ok? [yes!] [x]...\n\
+    - [ ] todo [a](http://x.y/z_(w)).\n\
+    Note[^1], \\[escaped\\] and [unbalanced.\n";
+
+fn posted_body(ipc: &MockIpc, path: &str) -> Value {
+    ipc.calls()
+        .into_iter()
+        .find(|(m, p, _)| m == "POST" && p == path)
+        .and_then(|c| c.2)
+        .expect("no POST recorded")
+}
+
+#[test]
+fn bracketed_prose_survives_set_content_and_get_content() {
+    let ipc = MockIpc::new()
+        .on_post("/content", Ok(json!({ "ok": true })))
+        .on_get(
+            "/content",
+            Ok(json!({ "path": "/tmp/a.md", "content": BRACKETED_PROSE })),
+        );
+    let resp = tool_set_content(id(1), &json!({ "content": BRACKETED_PROSE }), &ipc);
+    assert!(resp.error.is_none() && !is_error(&resp));
+    assert_eq!(posted_body(&ipc, "/content")["content"], BRACKETED_PROSE);
+
+    let resp = tool_get_content(id(2), &ipc);
+    assert!(!is_error(&resp));
+    assert_eq!(content_text(&resp)["content"], BRACKETED_PROSE);
+}
+
+#[test]
+fn bracketed_prose_survives_edit_document_find_and_replace() {
+    let ipc = MockIpc::new().on_post("/edit", Ok(json!({ "ok": true, "replacements": 1 })));
+    let find = "see (cf. [3]).";
+    let replace = "see [3], (cf. [4]);";
+    let resp = tool_edit_document(id(1), &json!({ "find": find, "replace": replace }), &ipc);
+    assert!(resp.error.is_none() && !is_error(&resp));
+    let body = posted_body(&ipc, "/edit");
+    assert_eq!(body["find"], find);
+    assert_eq!(body["replace"], replace);
+}
