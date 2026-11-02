@@ -110,6 +110,28 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(expected)).toEqual([]);
   });
 
+  it.each([
+    "\n",
+    "\r\n",
+  ])("is idempotent: applying the invalid-link autofix twice equals applying it once (%j)", (nl) => {
+    const rules = [ruleInvalidLinkTarget];
+    const doc = [
+      "Read [a]() and [b](   ) and [c](#) and [d](?) here.",
+      "Keep [ok](./guide.md) and `[code]()`.",
+    ].join(nl);
+    const violations = lintDocument(doc, { rules });
+    expect(violations.length).toBeGreaterThan(0);
+
+    const once = applyAllFixes(doc, violations);
+    expect(once).not.toBe(doc);
+    const secondViolations = lintDocument(once, { rules });
+    expect(secondViolations).toEqual([]);
+    const twice = applyAllFixes(once, secondViolations);
+    expect(twice).toBe(once);
+    // Re-applying the stale first-pass violations must not corrupt the text either.
+    expect(lintDocument(twice, { rules })).toEqual([]);
+  });
+
   it("fixes an invalid link immediately before a CRLF line ending", () => {
     const doc = "Opening.\r\nRead [draft]()\r\nNext line.\r\n";
     const expected = "Opening.\r\nRead [draft](TODO)\r\nNext line.\r\n";
