@@ -248,6 +248,44 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(twice, { rules })).toEqual([]);
   });
 
+  it.each([
+    "\n",
+    "\r\n",
+  ])("is idempotent for invalid links in a full document with frontmatter and every default rule (%j)", (nl) => {
+    const rules = [ruleInvalidLinkTarget];
+    const doc = [
+      "---",
+      "title: Guide",
+      "---",
+      "",
+      'Read [café *guide*]( ) and [ref [nested]](#) then [ok](./guide.md "Title").',
+      "",
+      "- item [x](?)",
+      "- item [y](<./a b.md>)",
+      "",
+    ].join(nl);
+
+    // Fix-all converges: a second pass over the first result changes nothing.
+    const once = applyAllFixes(doc, lintDocument(doc, { rules }));
+    expect(once).not.toBe(doc);
+    expect(lintDocument(once, { rules })).toEqual([]);
+    expect(applyAllFixes(once, lintDocument(once, { rules }))).toBe(once);
+
+    // Running the full default rule set twice also reaches a fixed point.
+    const fullOnce = applyAllFixes(doc, lintDocument(doc));
+    const fullTwice = applyAllFixes(fullOnce, lintDocument(fullOnce));
+    expect(fullTwice).toBe(fullOnce);
+
+    // Fixing one violation at a time (re-linting between fixes) ends at the same text.
+    let stepwise = doc;
+    for (let i = 0; i < 10; i++) {
+      const [first] = lintDocument(stepwise, { rules });
+      if (!first) break;
+      stepwise = applyFix(stepwise, first);
+    }
+    expect(stepwise).toBe(once);
+  });
+
   it("fixes an invalid link immediately before a CRLF line ending", () => {
     const doc = "Opening.\r\nRead [draft]()\r\nNext line.\r\n";
     const expected = "Opening.\r\nRead [draft](TODO)\r\nNext line.\r\n";
