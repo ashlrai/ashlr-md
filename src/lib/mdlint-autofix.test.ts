@@ -3700,6 +3700,35 @@ describe("chained violations and multi-line fixes", () => {
     expect(twice).toBe(`![TODO: describe image](TODO) is a diagram.\n\n${prose}\n`);
     expect(lintDocument(twice, { rules })).toEqual([]);
   });
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("leaves a complete document with a valid link and a described image unchanged with %j line endings", (newline) => {
+    const link =
+      '[café guide](https://example.com/guide?view=full#links "Guide title")';
+    const image = "![A café chart ☕](images/chart.png?size=2&theme=dark#preview)";
+    const rules = BUILTIN_RULES.filter((rule) =>
+      LINTER_DEFAULT_ENABLED_RULES.includes(rule.id),
+    );
+
+    for (const imageFirst of [false, true]) {
+      const doc = [
+        "# Café guide",
+        "",
+        `Read ${imageFirst ? image : link} and ${imageFirst ? link : image} for context.`,
+        "",
+        "Closing prose keeps  spacing and a tab:\t☕.",
+        "",
+      ].join(newline);
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations).toEqual([]);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(doc);
+      expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(doc);
+    }
+  });
 });
 
 // ─── 5. Violation history helpers ────────────────────────────────────────────
