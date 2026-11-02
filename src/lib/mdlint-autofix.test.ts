@@ -6969,6 +6969,60 @@ describe("rule:missing-alt-text unicode image sources", () => {
   });
 });
 
+describe("autofix: undescribed image surrounded by Unicode text", () => {
+  it.each([
+    ["emoji modifiers & flags", "Hello 👋🏿 see ![](photo.png) then 🇯🇵 end"],
+    ["combining characters", "cafe\u0301 ![](diagram.png) nice"],
+    ["CJK run", "前文 ![](chart.png) 後文"],
+    ["fullwidth ASCII", "Ｆｕｌｌｗｉｄｔｈ ![](image.png) Ｔｅｘｔ"],
+    ["mixed scripts", "مرحبا ![](view.png) こんにちは"],
+    ["surrounding punctuation", "— ![](icon.png) —"],
+    ["zero-width joiner", "👨‍👩‍👧‍👦 ![](family.png) done"],
+  ])("fixes and preserves surrounding text in %s context", (_name, line) => {
+    for (const newline of ["\n", "\r\n"]) {
+      const doc = `# Title${newline}${newline}${line}.${newline}`;
+      const expected = doc
+        .replace("![](photo.png)", "![TODO: describe image](photo.png)")
+        .replace("![](diagram.png)", "![TODO: describe image](diagram.png)")
+        .replace("![](chart.png)", "![TODO: describe image](chart.png)")
+        .replace("![](image.png)", "![TODO: describe image](image.png)")
+        .replace("![](view.png)", "![TODO: describe image](view.png)")
+        .replace("![](icon.png)", "![TODO: describe image](icon.png)")
+        .replace("![](family.png)", "![TODO: describe image](family.png)");
+
+      const rules = [ruleMissingAltText];
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations).toHaveLength(1);
+      expect(violations[0].ruleId).toBe("missing-alt-text");
+
+      // Extract the text before and after the image in the original doc
+      const image = line.match(/!\[\]\([^)]+\)/)![0];
+      const parts = line.split(image);
+      const before = parts[0];
+      const after = parts[1];
+
+      const fixed = applyAllFixes(doc, violations);
+
+      // Surrounding text must be preserved exactly
+      expect(fixed).toContain(before);
+      expect(fixed).toContain(after);
+
+      // The placeholder must be inserted
+      expect(fixed).toContain("![TODO: describe image]");
+
+      // Exact expected output
+      expect(fixed).toBe(expected);
+
+      // Clean after fix
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+
+      // Idempotent
+      expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+    }
+  });
+});
+
 describe("rule:invalid-link-target CRLF document", () => {
   it.each([
     "",
