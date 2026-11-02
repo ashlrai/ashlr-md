@@ -2657,6 +2657,38 @@ describe("rule:invalid-link-target", () => {
     expect(fixed).toContain("[hash]");
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
+
+  it("fixes an invalid link at document end without adding unrelated text", () => {
+    const doc = [
+      "# Installation Guide",
+      "",
+      "Follow the [setup docs](./setup.md) for initial configuration.",
+      "",
+      "## Configuration",
+      "",
+      "Edit the config file and restart the service.",
+      "",
+      "For more help see [support](#).",
+    ].join("\n");
+    const expected = [
+      "# Installation Guide",
+      "",
+      "Follow the [setup docs](./setup.md) for initial configuration.",
+      "",
+      "## Configuration",
+      "",
+      "Edit the config file and restart the service.",
+      "",
+      "For more help see [support](TODO).",
+    ].join("\n");
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("invalid-link-target");
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
 });
 
 // ─── 3. Rule: missing-alt-text ────────────────────────────────────────────────
