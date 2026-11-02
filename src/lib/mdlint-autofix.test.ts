@@ -2210,6 +2210,30 @@ describe("rule:missing-alt-text", () => {
     expect(applyAllFixes(fixed, remaining)).toBe(expected);
   });
 
+  it("preserves literal and percent-encoded Unicode filenames independently", () => {
+    const doc =
+      "😀 ![](images/café-星.png) beside ![](images/caf%C3%A9-%E6%98%9F.png)\r\n";
+    const expected =
+      "😀 ![TODO: describe image](images/café-星.png) beside ![TODO: describe image](images/caf%C3%A9-%E6%98%9F.png)\r\n";
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "missing-alt-text",
+      "missing-alt-text",
+    ]);
+    expect(violations.every((violation) => violation.fix !== null)).toBe(true);
+    expect(applyFix(doc, violations[0])).toBe(
+      "😀 ![TODO: describe image](images/café-星.png) beside ![](images/caf%C3%A9-%E6%98%9F.png)\r\n",
+    );
+    expect(applyFix(doc, violations[1])).toBe(
+      "😀 ![](images/café-星.png) beside ![TODO: describe image](images/caf%C3%A9-%E6%98%9F.png)\r\n",
+    );
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(applyAllFixes(doc, [...violations].reverse())).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+
   it.each([
     // Composed (NFC) accents with a CJK directory, query and fragment.
     "galerie/café-大学.png?größe=2#vorschau",
