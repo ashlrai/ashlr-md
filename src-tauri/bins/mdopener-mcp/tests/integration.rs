@@ -9204,7 +9204,7 @@ fn bracketed_prose_example_table_matches_outputs() {
         assert_eq!(actual, expected, "{}: {input:?}", cells[0]);
         count += 1;
     }
-    assert_eq!(count, 65, "all table examples must be checked");
+    assert_eq!(count, 74, "all table examples must be checked");
 }
 
 #[test]
@@ -9371,6 +9371,49 @@ fn export_text_keeps_multiple_undefined_numbered_references() {
         result["text"].as_str().unwrap(),
         "Evidence [1], [23][24], and [1] supports the claim; see [42]."
     );
+}
+
+/// A `[1]` standing alone — as a paragraph of its own, on its own line in
+/// a blockquote or list item, or as the document's only text — sits exactly
+/// where a `[1]:` reference definition's label would, yet with no such
+/// definition it is prose the page shows verbatim and keeps both brackets.
+/// A defined `[1]:` still resolves it, as CommonMark reads it.
+#[test]
+fn export_text_keeps_a_standalone_numeric_citation() {
+    let cases = [
+        // The whole document is a standalone `[1]`.
+        ("[1]\n", "[1]"),
+        // A standalone `[1]` paragraph opens, separates, and closes prose.
+        ("[1]\n\nThe finding holds.\n", "[1]\n\nThe finding holds."),
+        (
+            "Claim [1].\n\n[1]\n\nDetails follow.\n",
+            "Claim [1].\n\n[1]\n\nDetails follow.",
+        ),
+        ("The finding holds.\n\n[1]\n", "The finding holds.\n\n[1]"),
+        // Standalone citation numbers share a line of their own.
+        ("Summary.\n\n[1] [2] [3]\n", "Summary.\n\n[1] [2] [3]"),
+        // A standalone `[1]` inside a blockquote and a list item.
+        ("> [1]\n", "[1]"),
+        ("- [1]\n", "[1]"),
+        // A standalone `[1]` resolves only when `[1]:` is defined.
+        ("[1]\n\n[1]: /u\n", "1"),
+    ];
+    for (markdown, expected) in cases {
+        let result = run_export_text_on(markdown);
+        assert_eq!(result["text"].as_str().unwrap(), expected, "{markdown:?}");
+        assert_eq!(
+            result["char_count"].as_u64().unwrap() as usize,
+            expected.chars().count(),
+            "{markdown:?}"
+        );
+        assert_eq!(
+            result["word_count"].as_u64().unwrap() as usize,
+            count_words(expected),
+            "{markdown:?}"
+        );
+    }
+    // With no document around the line, no `[1]:` reference is defined.
+    assert_eq!(mdopener_mcp::strip_inline_markdown("[1]"), "[1]");
 }
 
 #[test]
