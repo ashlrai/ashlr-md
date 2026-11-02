@@ -76,17 +76,28 @@ Microsoft documents as application arguments when launching WebView2. Original
 721b source buffers CLI paths at setup and drains them after frontend mount.
 These contracts do not prove the cause of the observed empty heading/paragraph.
 Cleanup errors report only the failed owned relative path and file-type,
-read-only/reparse flags. The observed exact synthetic Start Menu Programs directory
-may have only its DOS read-only bit cleared after a WinError 5 from directory
+read-only/reparse flags. Only the finite synthetic directory chain from `home`
+through `AppData/Roaming/Microsoft/Windows/Start Menu/Programs` may have its DOS
+read-only bit cleared after a WinError 5 from directory
 removal, then that removal is retried once. Other attributes are preserved,
 reparse paths and linked ancestors are rejected, and any subsequent failure is
 propagated. No ACL or security-policy change is performed. This narrowly scoped
-retry tests whether the observed read-only metadata caused the removal failure.
+retry successfully removed Programs in run 41401789608; its parent Start Menu
+then exhibited the same error. No arbitrary sibling, root itself, file or other
+error is eligible for this retry.
 
 Before creating a WebDriver session, the probe verifies that the original installer
-left no running instance of the exact installed executable. Afterwards, a bounded
-read-only process query selects that same executable, verifies membership in the
-probe's owned Windows Job Object, and parses its command line with the Windows API.
+left no running instance of the exact installed executable inside its owned job.
+This mandatory guard uses `QueryInformationJobObject` (complete list, maximum 256)
+and `QueryFullProcessImageNameW` with limited-query handles, not PowerShell/CIM.
+Windows case-insensitive image comparison is applied only to the qualified installed
+path; handles are closed and incomplete/failed inspection remains a failure.
+Before artifact preparation, a token-free optional CIM self-query checks availability
+with the unchanged 20-second budget. Only timeout/exit/launch/shape failure classes
+are reported, never captured output. Unavailable argv diagnostics do not block the
+original DOM scenario. If available, the later query selects one verified owned PID,
+rechecks identity/job membership after querying, and parses its command line with
+the Windows API. No unsupported remote-memory/PEB inspection is used.
 Only the argument count and exact/prefixed/quoted synthetic-fixture match booleans
 are printed. Raw arguments, process environment and unrelated processes are never
 logged. A missing or ambiguous observation is reported as unavailable, not proof
