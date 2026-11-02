@@ -93,6 +93,20 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(doc, { rules: [ruleInvalidLinkTarget] })).toHaveLength(0);
   });
 
+  it("fixes an invalid link immediately before a CRLF line ending", () => {
+    const doc = "Opening.\r\nRead [draft]()\r\nNext line.\r\n";
+    const expected = "Opening.\r\nRead [draft](TODO)\r\nNext line.\r\n";
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("invalid-link-target");
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+
   it.each([
     "",
     "#",
