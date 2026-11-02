@@ -4946,6 +4946,24 @@ describe("edge cases", () => {
     expect(applyAllFixes(doc, violations)).toBe(doc);
   });
 
+  it("returns identical text when link and image fixes run on valid links and described images", () => {
+    const doc = [
+      "# Guide",
+      "",
+      "See [the docs](https://example.com/docs) and [setup](./setup.md#start).",
+      "",
+      "![Architecture diagram](images/arch.png)",
+      '![Logo](https://example.com/logo.svg "Company logo")',
+      "",
+    ].join("\n");
+    const violations = lintDocument(doc, {
+      rules: [ruleInvalidLinkTarget, ruleMissingAltText],
+    });
+
+    expect(violations).toEqual([]);
+    expect(applyAllFixes(doc, violations)).toBe(doc);
+  });
+
   it("preserves a clean document through two autofix passes", () => {
     const doc =
       "---\ntitle: Guide\n---\n\nOrdinary prose with café and  internal spacing.\n\n" +
