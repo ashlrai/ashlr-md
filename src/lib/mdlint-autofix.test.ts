@@ -2860,6 +2860,24 @@ describe("rule:missing-alt-text", () => {
   it.each([
     "\n",
     "\r\n",
+  ])("leaves a described image and its surrounding text unchanged (line endings %j)", (nl) => {
+    const doc = [
+      "# Gallery",
+      "",
+      'Before café ![A *bar* chart](images/chart.png?view=full#data "Chart") after.  ',
+      "Next [guide](./guide.md) and `![](decoy.png)` stay.",
+      "",
+    ].join(nl);
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toEqual([]);
+    expect(applyAllFixes(doc, violations)).toBe(doc);
+  });
+
+  it.each([
+    "\n",
+    "\r\n",
   ])("inserts a placeholder in both undescribed images repeated on one line and keeps their sources (line endings %j)", (nl) => {
     const first = '![](a.png?x=1#y "A")';
     const second = "![](b.png)";
