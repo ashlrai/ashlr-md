@@ -178,6 +178,36 @@ class Tests(unittest.TestCase):
                 with patch.dict(sys.modules,{'winreg':fake}), patch.dict(os.environ,{'EDGEWEBDRIVER':t}), patch.object(w,'reg_value',return_value=runtime), patch.object(w.subprocess,'run',return_value=MagicMock(stdout='Microsoft Edge WebDriver '+driver)):
                     with self.assertRaises(ValueError): w.driver_path()
 
+    def test_driver_mismatch_reports_only_validated_versions(self):
+        import types
+        fake=types.SimpleNamespace(HKEY_LOCAL_MACHINE=1)
+        with canonical_tempdir() as t:
+            (Path(t)/'msedgedriver.exe').touch()
+            for raw,expected in [
+                ('Microsoft Edge WebDriver 156.0.9999.5', 'WebView2 156.0.1234.5; Edge driver 156.0.9999.5\n'),
+                ('malformed synthetic-private-output', ''),
+            ]:
+                output=io.StringIO()
+                with patch.dict(sys.modules,{'winreg':fake}), patch.dict(os.environ,{'EDGEWEBDRIVER':t}), patch.object(w,'reg_value',return_value='156.0.1234.5'), patch.object(w.subprocess,'run',return_value=MagicMock(stdout=raw)), patch('sys.stdout',output):
+                    with self.assertRaises(ValueError): w.driver_path()
+                self.assertEqual(output.getvalue(),expected)
+                self.assertNotIn('synthetic-private-output',output.getvalue())
+
+    def test_check_driver_phase_cannot_prepare_or_install(self):
+        for failure in [None,ValueError('mismatch')]:
+            with patch.object(w.os,'name','nt'), patch.object(w.sys,'argv',['native-qa-windows.py','--check-driver']), patch.object(w,'driver_path',side_effect=failure) as driver, patch.object(w,'prepare') as prepare, patch.object(w,'prepared') as prepared, patch.object(w,'worker') as worker, patch.object(w,'run_worker') as run_worker, patch.object(w.subprocess,'run') as run:
+                if failure:
+                    with self.assertRaisesRegex(ValueError,'mismatch'): w.main()
+                else: w.main()
+                driver.assert_called_once_with()
+                for untouched in [prepare,prepared,worker,run_worker,run]: untouched.assert_not_called()
+        workflow=(SCRIPT.parents[1]/'.github/workflows/native-qa-windows.yml').read_text()
+        check=workflow.index('      - name: Check installed WebView2')
+        build=workflow.index('      - name: Install pinned driver')
+        prepare=workflow.index('      - name: Prepare and verify original artifacts')
+        self.assertLess(check,build); self.assertLess(build,prepare)
+        self.assertEqual(workflow[check:build], '      - name: Check installed WebView2 and Edge driver compatibility\n        run: python scripts/native-qa-windows.py --check-driver\n')
+
     def test_preexisting_install_refused_before_installer(self):
         import types
         fake=types.SimpleNamespace(HKEY_CURRENT_USER=1,HKEY_LOCAL_MACHINE=2,KEY_READ=1,KEY_WOW64_64KEY=2,OpenKey=MagicMock())

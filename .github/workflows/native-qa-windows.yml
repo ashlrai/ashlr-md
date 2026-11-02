@@ -25,6 +25,8 @@ jobs:
           toolchain: '1.99.1'
       - name: Synthetic Windows harness and descendant cleanup checks
         run: python scripts/test-native-qa-windows.py
+      - name: Check installed WebView2 and Edge driver compatibility
+        run: python scripts/native-qa-windows.py --check-driver
       - name: Install pinned driver and build locked signature verifier
         run: |
           cargo install tauri-driver --version 2.1.0 --locked
