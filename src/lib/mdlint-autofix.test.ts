@@ -7143,3 +7143,44 @@ describe("missing-alt-text autofix: idempotence for linked and angle-bracket ima
     expect(fixPass(fixPass(doc))).toBe(once);
   });
 });
+
+describe("autofix: no-findings document", () => {
+  const prose = [
+    "---",
+    "title: Field notes",
+    "---",
+    "",
+    "# Field notes",
+    "",
+    "Ordinary prose, with punctuation; a [good link](https://example.com) and",
+    "a described image: ![A red barn](barn.png).",
+    "",
+    "## Details",
+    "",
+    "Unicode stays put: café, naïve, 日本語, 🎉.",
+    "",
+  ];
+
+  it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+  ])("leaves clean %s prose unchanged byte for byte", (_label, nl) => {
+    const doc = prose.join(nl);
+    const defaultRules = BUILTIN_RULES.filter((rule) =>
+      LINTER_DEFAULT_ENABLED_RULES.includes(rule.id),
+    );
+    for (const rules of [BUILTIN_RULES, defaultRules]) {
+      const violations = lintDocument(doc, { rules });
+      expect(violations).toEqual([]);
+      expect(applyAllFixes(doc, violations)).toBe(doc);
+    }
+  });
+
+  it("fixAllViolations returns clean prose as-is and records no history", () => {
+    const doc = prose.join("\n");
+    clearLintHistory();
+    const violations = lintDocument(doc, { rules: BUILTIN_RULES });
+    expect(fixAllViolations(doc, violations)).toBe(doc);
+    expect(getLintHistory()).toEqual([]);
+  });
+});
