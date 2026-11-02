@@ -61,7 +61,7 @@ class Tests(unittest.TestCase):
                 if path=='/session': return {'sessionId':'synthetic-1'}
                 if path.endswith('/execute/sync'): return {'heading':qa.HEADING,'text':'Native WebView Unicode: café 日本語.'}
                 return {}
-            with patch.object(qa.subprocess,'Popen',return_value=proc), patch.object(qa,'wd',side_effect=driver), patch.object(qa,'stop_group') as cleanup, patch.object(qa.signal,'signal'), patch.object(qa.signal,'alarm'), patch('builtins.print'):
+            with patch.object(qa,'validate_probe_paths'), patch.object(qa.subprocess,'Popen',return_value=proc), patch.object(qa,'wd',side_effect=driver), patch.object(qa,'stop_group') as cleanup, patch.object(qa.signal,'signal'), patch.object(qa.signal,'alarm'), patch('builtins.print'):
                 qa.probe(root,app)
                 cleanup.assert_called_once_with(proc)
             self.assertTrue(any(m=='DELETE' for m,_,_ in calls))
@@ -75,7 +75,7 @@ class Tests(unittest.TestCase):
             def driver(method,path,payload=None):
                 if path=='/session': raise TimeoutError('synthetic session timeout')
                 return {}
-            with patch.object(qa.subprocess,'Popen',return_value=proc), patch.object(qa,'wd',side_effect=driver), patch.object(qa,'stop_group') as cleanup, patch.object(qa.signal,'signal'), patch.object(qa.signal,'alarm'), patch('builtins.print'):
+            with patch.object(qa,'validate_probe_paths'), patch.object(qa.subprocess,'Popen',return_value=proc), patch.object(qa,'wd',side_effect=driver), patch.object(qa,'stop_group') as cleanup, patch.object(qa.signal,'signal'), patch.object(qa.signal,'alarm'), patch('builtins.print'):
                 with self.assertRaises(TimeoutError): qa.probe(root,app)
                 cleanup.assert_called_once_with(proc)
 
@@ -90,7 +90,7 @@ class Tests(unittest.TestCase):
                 if path=='/session': return {'sessionId':'synthetic-1'}
                 if path.endswith('/execute/sync'): raise TimeoutError('synthetic DOM deadline')
                 return {}
-            with patch.object(qa.subprocess,'Popen',return_value=proc), patch.object(qa,'wd',side_effect=driver), patch.object(qa,'stop_group') as cleanup, patch.object(qa.signal,'signal'), patch.object(qa.signal,'alarm'), patch('builtins.print'):
+            with patch.object(qa,'validate_probe_paths'), patch.object(qa.subprocess,'Popen',return_value=proc), patch.object(qa,'wd',side_effect=driver), patch.object(qa,'stop_group') as cleanup, patch.object(qa.signal,'signal'), patch.object(qa.signal,'alarm'), patch('builtins.print'):
                 with self.assertRaises(TimeoutError): qa.probe(root,app)
                 cleanup.assert_called_once_with(proc)
             self.assertIn(('DELETE','/session/synthetic-1'),calls)
@@ -105,9 +105,75 @@ class Tests(unittest.TestCase):
                 if path=='/session': return {'sessionId':'synthetic-1'}
                 if path.endswith('/execute/sync'): return {'heading':qa.HEADING,'text':'Native WebView Unicode: café 日本語.'}
                 return {}
-            with patch.object(qa.subprocess,'Popen',return_value=proc), patch.object(qa,'wd',side_effect=driver), patch.object(qa,'stop_group') as cleanup, patch.object(qa.signal,'signal'), patch.object(qa.signal,'alarm'), patch('builtins.print'):
+            with patch.object(qa,'validate_probe_paths'), patch.object(qa.subprocess,'Popen',return_value=proc), patch.object(qa,'wd',side_effect=driver), patch.object(qa,'stop_group') as cleanup, patch.object(qa.signal,'signal'), patch.object(qa.signal,'alarm'), patch('builtins.print'):
                 with self.assertRaises(KeyError): qa.probe(root,app)
                 cleanup.assert_called_once_with(proc)
+
+    def test_probe_paths_reject_before_writes_or_launch(self):
+        import hashlib, os
+        with tempfile.TemporaryDirectory() as t:
+            root=Path(t); app=root/qa.APP; app.write_bytes(b'synthetic')
+            with patch.object(qa,'APP_HASH',hashlib.sha256(b'synthetic').hexdigest()):
+                qa.validate_probe_paths(root,app)
+                for work, binary in ((Path('.'),app),(root,root/'other')):
+                    with self.assertRaises(ValueError): qa.validate_probe_paths(work,binary)
+                root.chmod(0o755)
+                with self.assertRaises(ValueError): qa.validate_probe_paths(root,app)
+                root.chmod(0o700)
+                for name in ('native-smoke.md','driver.log'):
+                    collision=root/name; collision.symlink_to(root/'absent')
+                    with patch.object(qa,'app_env') as env, patch.object(qa.subprocess,'Popen') as launch:
+                        with self.assertRaises(ValueError): qa.probe(root,app)
+                        env.assert_not_called(); launch.assert_not_called()
+                    collision.unlink()
+                app.unlink(); app.symlink_to(root/'absent')
+                with self.assertRaises(ValueError): qa.validate_probe_paths(root,app)
+
+    def test_child_bad_hash_rejected(self):
+        with tempfile.TemporaryDirectory() as t:
+            root=Path(t); app=root/qa.APP; app.write_bytes(b'tampered')
+            with patch.object(qa,'app_env') as env:
+                with self.assertRaisesRegex(ValueError,'digest'): qa.probe(root,app)
+                env.assert_not_called()
+
+    def test_wd_route_rejected_before_network(self):
+        for method,path in [('GET','/session/x'),('POST','/session/../execute/sync'),('POST','/session/é/execute/sync'),('DELETE','/session/x?evil=1'),('PUT','/session'),('POST','https://example.com'),('POST','/session/x/execute/sync/extra')]:
+            with patch.object(qa.urllib.request,'Request') as request:
+                with self.assertRaises(ValueError): qa.wd(method,path)
+                request.assert_not_called()
+        for method,path in [('GET','/status'),('POST','/session'),('DELETE','/session/a-b'),('POST','/session/a-b/execute/sync')]:
+            self.assertTrue(qa.wd_route(method,path))
+        self.assertFalse(qa.session_id('é'))
+        self.assertFalse(qa.session_id('x'*129))
+        self.assertTrue(qa.session_id('a-b-123'))
+
+    def test_symlink_work_root_rejected(self):
+        with tempfile.TemporaryDirectory() as t:
+            root=Path(t); link=root/'link'; link.symlink_to(root,target_is_directory=True)
+            with self.assertRaises(ValueError): qa.validate_probe_paths(link,link/qa.APP)
+
+    def test_late_fixture_symlink_is_not_followed(self):
+        with tempfile.TemporaryDirectory() as t:
+            root=Path(t); app=root/qa.APP; app.write_bytes(b'synthetic')
+            sentinel=root/'sentinel'; sentinel.write_text('unchanged')
+            def late_collision(_):
+                (root/'native-smoke.md').symlink_to(sentinel)
+                return {}
+            with patch.object(qa,'validate_probe_paths'), patch.object(qa,'app_env',side_effect=late_collision), patch.object(qa.subprocess,'Popen') as launch, patch.object(qa.signal,'signal'), patch.object(qa.signal,'alarm'):
+                with self.assertRaises(FileExistsError): qa.probe(root,app)
+                launch.assert_not_called()
+            self.assertEqual(sentinel.read_text(),'unchanged')
+
+    def test_wd_redirect_handler_refuses_redirects(self):
+        from unittest.mock import Mock
+        response=Mock(); response.__enter__=Mock(return_value=response); response.__exit__=Mock(return_value=False)
+        response.read.return_value=b'{"value": {}}'
+        opener=Mock(); opener.open.return_value=response
+        with patch.object(qa.urllib.request,'build_opener',return_value=opener) as build:
+            qa.wd('GET','/status')
+            handlers=build.call_args.args
+            redirect=next(h() for h in handlers if isinstance(h,type) and issubclass(h,qa.urllib.request.HTTPRedirectHandler))
+            self.assertIsNone(redirect.redirect_request(None,None,None,None,None,'https://example.com'))
 
     def test_no_arbitrary_cli_inputs(self):
         with patch.object(qa.sys,'argv',['qa','arbitrary']):

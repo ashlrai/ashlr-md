@@ -4,6 +4,8 @@ import hashlib
 import importlib.util
 import json
 import os
+import re
+import stat
 from pathlib import Path
 import signal
 import subprocess
@@ -105,11 +107,27 @@ def app_env(work):
     return env
 
 
+def session_id(value):
+    return isinstance(value, str) and re.fullmatch(r'[A-Za-z0-9-]{1,128}', value) is not None
+
+
+def wd_route(method, path):
+    if (method, path) in (('GET', '/status'), ('POST', '/session')):
+        return True
+    match = re.fullmatch(r'/session/([A-Za-z0-9-]{1,128})(/execute/sync)?', path) if isinstance(path, str) else None
+    return bool(match and ((method == 'DELETE' and match[2] is None) or (method == 'POST' and match[2] == '/execute/sync')))
+
+
 def wd(method, path, payload=None):
+    require(wd_route(method, path), 'unsupported WebDriver method/route')
     body = None if payload is None else json.dumps(payload).encode()
     request = urllib.request.Request('http://127.0.0.1:4444' + path, data=body,
                                      headers={'Content-Type':'application/json'}, method=method)
-    with plain_opener().open(request, timeout=10) as response:
+    class NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, *args, **kwargs):
+            return None
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect)
+    with opener.open(request, timeout=10) as response:
         value = json.load(response)['value']
     require(not isinstance(value, dict) or 'error' not in value, 'WebDriver command failed')
     return value
@@ -136,17 +154,31 @@ def stop_group(proc):
     proc.wait(timeout=5)
 
 
+def validate_probe_paths(work, app):
+    # Trusted same-UID checkout/ancestors remain a precondition, not a TOCTOU sandbox.
+    require(work.is_absolute() and work.resolve() == work, 'work must be absolute without symlink components')
+    info = work.lstat()
+    require(stat.S_ISDIR(info.st_mode) and info.st_uid == os.getuid() and stat.S_IMODE(info.st_mode) == 0o700, 'work must be an owned private directory')
+    require(app == work / APP, 'unexpected app location/name')
+    info = app.lstat()
+    require(stat.S_ISREG(info.st_mode) and info.st_uid == os.getuid(), 'app must be an owned regular file')
+    require(info.st_size <= 128 * 1024**2 and hashlib.sha256(app.read_bytes()).hexdigest() == APP_HASH, 'child app digest mismatch')
+    require(not any(os.path.lexists(work / name) for name in ('native-smoke.md', 'driver.log')), 'probe output collision')
+
+
 def probe(work, app):
+    validate_probe_paths(work, app)
     def deadline(*_):
         raise TimeoutError('120-second native probe deadline')
     signal.signal(signal.SIGALRM, deadline)
     signal.alarm(120)
     env = app_env(work)
     fixture = work / 'native-smoke.md'
-    fixture.write_text(f'# {HEADING}\n\nNative WebView Unicode: café 日本語.\n', encoding='utf-8')
+    with fixture.open('x', encoding='utf-8') as output:
+        output.write(f'# {HEADING}\n\nNative WebView Unicode: café 日本語.\n')
     app.chmod(0o700)
     session = None
-    with (work / 'driver.log').open('wb') as log:
+    with (work / 'driver.log').open('xb') as log:
         proc = subprocess.Popen(['tauri-driver', '--port', '4444'], env=env, stdout=log, stderr=log, start_new_session=True)
         try:
             until = time.monotonic() + 20
@@ -160,7 +192,7 @@ def probe(work, app):
                     time.sleep(0.2)
             value = wd('POST', '/session', {'capabilities': {'alwaysMatch': {'tauri:options': {'application': str(app), 'args': [str(fixture)]}}}})
             session = value['sessionId']
-            require(isinstance(session, str) and bool(session) and all(c.isalnum() or c == '-' for c in session), 'invalid session id')
+            require(session_id(session), 'invalid session id')
             until = time.monotonic() + 60
             while True:
                 value = wd('POST', f'/session/{session}/execute/sync', {'script': 'return {heading: document.querySelector("h1")?.textContent, text: [...document.querySelectorAll("p")].map(x => x.textContent).find(x => x === "Native WebView Unicode: café 日本語.")};', 'args': []})
