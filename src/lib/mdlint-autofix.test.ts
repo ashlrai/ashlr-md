@@ -883,6 +883,24 @@ describe("rule:invalid-link-target", () => {
     expect(applyAllFixes(fixed, remaining)).toBe(expected);
   });
 
+  it.each([
+    "Привет, мир",
+    "Καλημέρα κόσμε",
+    "नमस्ते दुनिया",
+    "สวัสดีชาวโลก",
+    "한국어 안내서 🇰🇷",
+  ])("keeps the %j label while replacing an empty href under the default rules", (label) => {
+    const doc = `---\ntitle: Guide\n---\n\nSee [${label}]() for details.\n`;
+    const expected = `---\ntitle: Guide\n---\n\nSee [${label}](TODO) for details.\n`;
+    const violations = lintDocument(doc);
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "invalid-link-target",
+    ]);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected)).toEqual([]);
+  });
+
   it("preserves distinct Unicode normalization forms in neighboring invalid link labels", () => {
     const doc = "Read [café]() and [cafe\u0301](#) beside [guide](./guide.md).\r\n";
     const expected =
