@@ -9396,6 +9396,28 @@ fn export_text_keeps_bracketed_prose_at_the_start_and_end_of_a_paragraph() {
 }
 
 #[test]
+fn export_text_preserves_sic_at_the_start_of_a_paragraph_from_both_sources() {
+    let markdown = "An introductory paragraph.\n\n\
+        [sic] The quotation retains its original spelling.\n\n\
+        [sic] Another note cites [the source][source].\n\n\
+        [source]: /source\n";
+    let expected = "An introductory paragraph.\n\n\
+        [sic] The quotation retains its original spelling.\n\n\
+        [sic] Another note cites the source.";
+
+    let file_result = run_export_text_on(markdown);
+    assert_eq!(file_result["text"].as_str().unwrap(), expected);
+
+    let ipc = MockIpc::new().on_get(
+        "/content",
+        Ok(json!({ "path": "/docs/test.md", "content": markdown })),
+    );
+    let response = tool_export_text(id(2), &json!({}), &ipc);
+    assert!(response.error.is_none());
+    assert_eq!(content_text(&response)["text"].as_str().unwrap(), expected);
+}
+
+#[test]
 fn export_text_keeps_bracketed_sic_in_surrounding_prose() {
     let markdown = "The report says the result was 'definately [sic] confirmed' by [the authors](https://example.com).\n";
     let result = run_export_text_on(markdown);
