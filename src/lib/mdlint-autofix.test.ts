@@ -3948,6 +3948,22 @@ describe("rule:missing-alt-text", () => {
     expect(lintDocument(expected, { rules })).toHaveLength(0);
   });
 
+  it.each([
+    "\n",
+    "\r\n",
+  ])("autofixes whitespace-only alt text that spans a line break (%j) and keeps the source on its own line", (nl) => {
+    const doc = `Intro café.${nl}See ![ ${nl} ](images/chart.png?size=2#preview "Chart") now.${nl}`;
+    const expected = `Intro café.${nl}See ![TODO: describe image](images/chart.png?size=2#preview "Chart") now.${nl}`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+
   it("autofixes an image while preserving its source and surrounding prose", () => {
     const source = "../images/chart%20one.png?size=2&view=full#preview";
     const doc =
