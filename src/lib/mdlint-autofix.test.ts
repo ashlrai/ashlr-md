@@ -1354,6 +1354,26 @@ describe("rule:invalid-link-target", () => {
 
   it.each([
     "",
+    " \t ",
+    "#",
+    "?",
+  ])("fixes a single-line link with destination %j without adding a newline", (destination) => {
+    const doc = `[draft](${destination})`;
+    const expected = "[draft](TODO)";
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.endsWith("\n")).toBe(false);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
+    "",
     "#",
     "?",
   ])("fixes the final link with destination %j while preserving an earlier code example", (destination) => {
