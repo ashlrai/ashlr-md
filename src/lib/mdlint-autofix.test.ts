@@ -6832,6 +6832,20 @@ describe("autofix: empty document", () => {
     expect(applyAllFixes("", [])).toBe("");
   });
 
+  it("adds no placeholders and is idempotent under every rule set", () => {
+    const defaultRules = BUILTIN_RULES.filter((rule) =>
+      LINTER_DEFAULT_ENABLED_RULES.includes(rule.id),
+    );
+    for (const rules of [BUILTIN_RULES, defaultRules]) {
+      const violations = lintDocument("", { rules });
+      expect(violations).toEqual([]);
+      const fixed = applyAllFixes("", violations);
+      expect(fixed).toBe("");
+      expect(fixed).not.toContain("TODO");
+      expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe("");
+    }
+  });
+
   it("fixAllViolations returns an empty document and records no history", () => {
     clearLintHistory();
     const violations = lintDocument("", { rules: BUILTIN_RULES });
