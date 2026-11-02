@@ -6284,3 +6284,66 @@ describe("autofix: empty document", () => {
     expect(applyAllFixes("", [])).toBe("");
   });
 });
+
+describe("autofix: fenced-code preservation", () => {
+  it.each([
+    ["```", "\n"],
+    ["~~~", "\r\n"],
+  ])("image-like text inside a %s fenced code block remains unchanged by autofix (%j line endings)", (fence, newline) => {
+    // Document has real violations in prose AND image-like text inside a code fence.
+    // Autofix must fix the prose violations but leave the code-fenced content intact.
+    const codeBlock = [
+      `${fence}markdown`,
+      `[draft]() and ![](diagram.png) are just examples.`,
+      `![  ](photo.jpg) and [broken](#) too.`,
+      fence,
+    ].join(newline);
+
+    const doc = [
+      `Here is a real broken link: [fixme]() and ![](real.png).`,
+      "",
+      codeBlock,
+      "",
+      `After the block, another [bad](?) link and ![ ](also.png).`,
+      "",
+    ].join(newline);
+
+    const rules = [ruleInvalidLinkTarget, ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    // 4 violations in prose only: 2 invalid links + 2 images with empty alt.
+    // Image-like syntax inside the fenced code block is NOT flagged.
+    expect(violations.length).toBe(4);
+    expect(violations.map((v) => v.ruleId).sort()).toEqual([
+      "invalid-link-target",
+      "invalid-link-target",
+      "missing-alt-text",
+      "missing-alt-text",
+    ]);
+
+    // Apply fixes
+    const fixed = applyAllFixes(doc, violations);
+
+    // The prose lines should be fixed
+    expect(fixed).toContain("[fixme](TODO)");
+    expect(fixed).toContain("![TODO: describe image](real.png)");
+    expect(fixed).toContain("[bad](TODO)");
+    expect(fixed).toContain("![TODO: describe image](also.png)");
+
+    // The fenced code block must be preserved EXACTLY — no image-like text modified
+    expect(fixed).toContain(
+      [
+        `${fence}markdown`,
+        `[draft]() and ![](diagram.png) are just examples.`,
+        `![  ](photo.jpg) and [broken](#) too.`,
+        fence,
+      ].join(newline),
+    );
+
+    // Re-lint the fixed document — should be clean
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+
+    // Idempotence: fixing again must not change anything
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+});
