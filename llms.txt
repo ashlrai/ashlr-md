@@ -1,0 +1,42 @@
+# Ashlr MD
+
+> Ashlr MD is an open-source (MIT), local-first Markdown app for macOS, Windows and Linux that renders, edits and exports `.md` files, and lets AI coding agents drive it over MCP.
+
+## Product and plans
+
+- [README](README.md): project overview, install paths and how to connect an agent over MCP.
+- [Vision](docs/VISION.md): the north-star goal and what "finished" means for the app.
+- [Roadmap](ROADMAP.md): planned milestones and the build-run-verify loop used to ship them.
+- [Changelog](CHANGELOG.md): release-by-release record of user-visible changes.
+- [Install guide](docs/INSTALL.md): per-OS installation steps, including the `mdopen` command-line tool.
+
+## Agent integration
+
+- [Agent guide](docs/AGENTS.md): the MCP server (`mdopener-mcp`) tools, the `mdopen` CLI and the auto-open hook.
+- [Phantom integration](docs/PHANTOM.md): how Phantom hands Markdown to Ashlr MD for viewing, and what has merged so far.
+- [MCP discovery metadata](docs/mcp-registry.md): how `server.json` describes the `mdopener-mcp` server for registry discovery.
+- [Agent contribution rules](AGENTS.md): the standing rules coding agents follow when changing this repository.
+
+## Editor and app integrations
+
+- [Obsidian compatibility](docs/OBSIDIAN.md): a compatibility layer (not a reimplementation) listing what is supported and what is not yet.
+- [VS Code extension](integrations/vscode/README.md): opens the current Markdown file in Ashlr MD via the `mdopener://` scheme.
+- [Obsidian plugin](integrations/obsidian/README.md): opens the current note in Ashlr MD via the `mdopener://` scheme.
+- [Raycast extension](integrations/raycast/README.md): lists recent Spotlight-indexed Markdown files and opens one in Ashlr MD.
+
+## Contributing and security
+
+- [Contributing](CONTRIBUTING.md): prerequisites, the develop loop and the checks to run before a pull request.
+- [Security policy](SECURITY.md): how to report a vulnerability and the project's threat model.
+- [Release process](docs/RELEASING.md): the pre-release checklist and how tags are cut.
+- [Post-quantum readiness](docs/PQ-READINESS.md): what the app does with cryptography today and what a post-quantum migration would touch.
+
+## Samples
+
+- [Showcase](samples/showcase.md): a single document exercising the supported Markdown features.
+- [Agent plan sample](samples/agent-plan.md): an example implementation plan as an agent would write it.
+
+## Optional
+
+- [Landing page readme](landing/README.md): how to preview and deploy the public landing page.
+- [Original MD 0.5 Linux probe](docs/NATIVE-QA-PROPOSAL.md): a bounded, manual, read-only Linux qualification of a pinned release artifact.
