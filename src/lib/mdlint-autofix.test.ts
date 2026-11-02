@@ -4649,6 +4649,45 @@ describe("rule:missing-alt-text", () => {
     expect(fixed).toContain("images/hero.png");
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
+
+  it.each([
+    ["", "\n"],
+    [" \t ", "\r\n"],
+  ])(
+    "preserves a relative source path with nested directories when fixing an undescribed image (alt %j, line endings %j)",
+    (alt, newline) => {
+      const source = "images/2024/q1/chart.png?v=1";
+      const image = `![${alt}](${source})`;
+      const repaired = `![TODO: describe image](${source})`;
+      const doc = [
+        "# Quarterly Report",
+        "",
+        "Financial overview for Q1.",
+        `See ${image} for the breakdown.`,
+      ].join(newline) + newline;
+      const expected = [
+        "# Quarterly Report",
+        "",
+        "Financial overview for Q1.",
+        `See ${repaired} for the breakdown.`,
+      ].join(newline) + newline;
+      const rules = [ruleMissingAltText];
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations).toHaveLength(1);
+      expect(violations[0].ruleId).toBe("missing-alt-text");
+      // The nested source path must survive the fix byte-for-byte.
+      expect(violations[0].message).toBe(`Image is missing alt text: ${source}`);
+      expect(violations[0].fix).not.toBeNull();
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      // Source with nested directories is preserved intact.
+      expect(fixed).toContain(`](${source})`);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+    },
+  );
+
 });
 
 // ─── 4. Chained violations + multi-fix application ───────────────────────────
