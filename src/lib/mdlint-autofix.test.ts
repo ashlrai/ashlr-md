@@ -1146,6 +1146,29 @@ describe("rule:invalid-link-target", () => {
 
   it.each([
     "",
+    "#",
+    "?",
+  ])("fixes the final link with destination %j while preserving an earlier code example", (destination) => {
+    const link = `[draft](${destination})`;
+    const prefix = `# Guide ☕\r\n\r\nExample: \`${link}\`\r\nKeep [docs](./guide.md).\r\n\r\nRead `;
+    const doc = `${prefix}${link}`;
+    const expected = `${prefix}[draft](TODO)`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("invalid-link-target");
+    expect(violations[0].range?.from.offset).toBe(prefix.length);
+    expect(violations[0].range?.to.offset).toBe(doc.length);
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
+    "",
     " \t ",
     "#",
     "?",
