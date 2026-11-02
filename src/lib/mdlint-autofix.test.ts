@@ -266,6 +266,29 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    true,
+    false,
+  ])("fixes an invalid link beside an image missing alt text (image first: %s)", (imageFirst) => {
+    const link = "[draft](?)";
+    const image = "![](images/chart.png?view=full#data)";
+    const repairedLink = "[draft](TODO)";
+    const repairedImage = "![TODO: describe image](images/chart.png?view=full#data)";
+    const doc = `Before café: ${imageFirst ? image + link : link + image}  after.\r\n`;
+    const expected = `Before café: ${imageFirst ? repairedImage + repairedLink : repairedLink + repairedImage}  after.\r\n`;
+    const rules = [ruleInvalidLinkTarget, ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((violation) => violation.ruleId).sort()).toEqual([
+      "invalid-link-target",
+      "missing-alt-text",
+    ]);
+    expect(violations.every((violation) => violation.fix !== null)).toBe(true);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
     "\n",
     "\r\n",
   ])("preserves an absolute URL and surrounding text when fixing another link with %j line endings", (newline) => {
