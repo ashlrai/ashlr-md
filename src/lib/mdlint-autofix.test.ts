@@ -4857,6 +4857,66 @@ describe("chained violations and multi-line fixes", () => {
       expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(doc);
     }
   });
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("keeps a valid link byte-for-byte unchanged while fixes on either side rewrite the document (%j line endings)", (newline) => {
+    const link = '[the guide](./guide.md?topic=lint#links "Guide title")';
+    const lines = [
+      "---",
+      "title: Guide",
+      "---",
+      "",
+      "#### Deep section",
+      "",
+      "",
+      `Read ${link} for details.`,
+      "",
+      "Then fix [draft]() now.   ",
+      "",
+    ];
+    const doc = lines.join(newline);
+    const expected = [
+      "---",
+      "title: Guide",
+      "---",
+      "",
+      "### Deep section",
+      "",
+      `Read ${link} for details.`,
+      "",
+      "Then fix [draft](TODO) now.",
+      "",
+    ].join(newline);
+    const violations = lintDocument(doc);
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "max-heading-depth",
+      "no-consecutive-blank-lines",
+      "invalid-link-target",
+      "no-trailing-spaces",
+    ]);
+    expect(violations.every((violation) => violation.fix !== null)).toBe(true);
+
+    // The invalid-link fix alone repairs only its own destination.
+    const linkFix = violations.find(
+      (violation) => violation.ruleId === "invalid-link-target",
+    )!;
+    expect(applyFix(doc, linkFix)).toBe(doc.replace("[draft]()", "[draft](TODO)"));
+
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // The heading-depth and blank-line fixes deleted a "#" and one line
+    // break before the link, so it moved left by that many bytes — yet the
+    // link itself is byte-identical, and the TODO insert and the trailing
+    // spaces trim after it never reached back into it.
+    expect(fixed.indexOf(link)).toBe(doc.indexOf(link) - ("#".length + newline.length));
+
+    const remaining = lintDocument(fixed);
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(fixed, remaining)).toBe(expected);
+  });
 });
 
 // ─── 5. Violation history helpers ────────────────────────────────────────────
