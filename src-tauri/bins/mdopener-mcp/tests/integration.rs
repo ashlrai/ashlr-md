@@ -6513,6 +6513,36 @@ fn export_text_keeps_prose_brackets_beside_formatted_links() {
     }
 }
 
+#[test]
+fn export_text_keeps_two_adjacent_bracket_pairs_and_order_in_varied_contexts() {
+    for (markdown, expected) in [
+        ("[alpha][beta]\n", "[alpha][beta]"),
+        ("[alpha] [beta]\n", "[alpha] [beta]"),
+        ("# [alpha][beta] title\n", "[alpha][beta] title"),
+        ("- [alpha][beta]\n", "[alpha][beta]"),
+        ("> [alpha] [beta]\n", "[alpha] [beta]"),
+        ("**[alpha]**[beta]\n", "[alpha][beta]"),
+        ("*[alpha]* and _[beta]_\n", "[alpha] and [beta]"),
+        (
+            "[a b][c d] then [e f] [g h]\n",
+            "[a b][c d] then [e f] [g h]",
+        ),
+    ] {
+        let result = run_export_text_on(markdown);
+        let text = result["text"].as_str().unwrap();
+        assert_eq!(text, expected, "{markdown:?}");
+        // Both pairs survive, balanced, with the first before the second.
+        let open_first = text.find('[').unwrap();
+        let open_second = text[open_first + 1..].find('[').unwrap() + open_first + 1;
+        assert!(open_first < open_second, "{text:?}");
+        assert_eq!(
+            text.matches('[').count(),
+            text.matches(']').count(),
+            "{text:?}"
+        );
+    }
+}
+
 /// `char_count` said only "character counts", leaving an agent to guess
 /// bytes or characters. The description says Unicode characters, and the
 /// count of a non-ASCII document is its chars, not its bytes.
