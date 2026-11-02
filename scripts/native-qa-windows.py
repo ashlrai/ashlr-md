@@ -327,10 +327,87 @@ def report_dom_state(session):
         print('Synthetic window-state diagnostic unavailable')
 
 
+def windows_argv(command):
+    require(isinstance(command,str) and 0<len(command)<=32768, 'invalid bounded command line')
+    from ctypes import wintypes
+    shell=ctypes.WinDLL('shell32',use_last_error=True)
+    kernel=ctypes.WinDLL('kernel32',use_last_error=True)
+    shell.CommandLineToArgvW.argtypes=[wintypes.LPCWSTR,ctypes.POINTER(ctypes.c_int)]
+    shell.CommandLineToArgvW.restype=ctypes.POINTER(wintypes.LPWSTR)
+    kernel.LocalFree.argtypes=[wintypes.HLOCAL]; kernel.LocalFree.restype=wintypes.HLOCAL
+    count=ctypes.c_int(); result=shell.CommandLineToArgvW(command,ctypes.byref(count))
+    require(bool(result),'command line parsing failed')
+    try:
+        require(0<count.value<=128,'too many process arguments')
+        return [result[i] for i in range(count.value)]
+    finally: kernel.LocalFree(ctypes.cast(result,wintypes.HLOCAL))
+
+
+def process_in_owned_job(pid):
+    require(_JOB is not None and type(pid) is int and 0<pid<2**32,'invalid owned process')
+    from ctypes import wintypes
+    kernel=ctypes.WinDLL('kernel32',use_last_error=True)
+    kernel.OpenProcess.argtypes=[wintypes.DWORD,wintypes.BOOL,wintypes.DWORD]; kernel.OpenProcess.restype=wintypes.HANDLE
+    kernel.IsProcessInJob.argtypes=[wintypes.HANDLE,wintypes.HANDLE,ctypes.POINTER(wintypes.BOOL)]; kernel.IsProcessInJob.restype=wintypes.BOOL
+    kernel.CloseHandle.argtypes=[wintypes.HANDLE]
+    handle=kernel.OpenProcess(0x1000,False,pid)
+    require(bool(handle),'cannot inspect owned process')
+    try:
+        member=wintypes.BOOL()
+        require(kernel.IsProcessInJob(handle,_JOB,ctypes.byref(member)),'job membership query failed')
+        return bool(member.value)
+    finally: kernel.CloseHandle(handle)
+
+
+def owned_app_processes(app):
+    require(hash_file(app,64*1024**2)==EXE_HASH,'diagnostic app identity mismatch')
+    script = "@(Get-CimInstance Win32_Process -Filter \"Name='md-opener.exe'\" | Where-Object {$_.ExecutablePath -eq $env:QA_APP_PATH} | Select-Object ProcessId,ExecutablePath,CommandLine) | ConvertTo-Json -Compress"
+    env={k:v for k,v in os.environ.items() if k.upper() in {'SYSTEMROOT','WINDIR','PATH','TEMP','TMP'}}
+    env['QA_APP_PATH']=str(app)
+    shell=safe_path(Path(os.environ['SYSTEMROOT'])/'System32/WindowsPowerShell/v1.0/powershell.exe')
+    try:
+        result=subprocess.run([str(shell),'-NoLogo','-NoProfile','-NonInteractive','-Command',script],env=env,capture_output=True,text=True,timeout=20,check=True)
+        require(len(result.stdout)<=40000,'process response too large')
+        rows=json.loads(result.stdout or '[]')
+    except (subprocess.SubprocessError,ValueError):
+        raise ValueError('owned app process query failed') from None
+    if isinstance(rows,dict): rows=[rows]
+    require(isinstance(rows,list) and len(rows)<=4,'unexpected app process count')
+    for row in rows:
+        require(isinstance(row,dict) and row.get('ExecutablePath')==str(app),'unexpected process path')
+        require(process_in_owned_job(row.get('ProcessId')),'app process not owned by probe job')
+    return rows
+
+
+def argv_summary(args,fixture):
+    tail=args[1:]; expected=str(fixture)
+    return {'argument_count':len(tail),'fixture_exact_arg':expected in tail,
+            'fixture_switch_arg':any(a in ('-'+expected,'--'+expected) for a in tail),
+            'fixture_quoted_arg':('"'+expected+'"') in tail}
+
+
+def report_app_argv(app,fixture):
+    try:
+        rows=owned_app_processes(app)
+        require(len(rows)==1,'expected one newly launched owned app')
+        print('Owned synthetic app argv:',json.dumps(argv_summary(windows_argv(rows[0].get('CommandLine')),fixture)))
+    except Exception:
+        print('Owned synthetic app argv diagnostic unavailable')
+
+
+def clear_readonly_attribute(path,attributes):
+    from ctypes import wintypes
+    kernel=ctypes.WinDLL('kernel32',use_last_error=True)
+    kernel.SetFileAttributesW.argtypes=[wintypes.LPCWSTR,wintypes.DWORD]
+    kernel.SetFileAttributesW.restype=wintypes.BOOL
+    require(kernel.SetFileAttributesW(str(path),attributes & ~1),'readonly attribute cleanup failed')
+
+
 def remove_owned_tree(root):
     def failure(function,path,error):
         # Observe only a failed entry beneath our owned synthetic root. Never
-        # change attributes/ACLs or follow a junction to make cleanup pass.
+        # follow a junction or change ACLs. Only the exact observed readonly DOS
+        # bit case below may be cleared before one directory-removal retry.
         try:
             relative=Path(path).relative_to(root)
             require('..' not in relative.parts, 'cleanup path escaped owned root')
@@ -345,6 +422,13 @@ def remove_owned_tree(root):
                 'readonly':bool(attributes&1),'reparse':bool(attributes&0x400),
                 'directory':stat.S_ISDIR(info.st_mode),'symlink':stat.S_ISLNK(info.st_mode),
                 'winerror':getattr(error,'winerror',None)}))
+            expected=Path('home/AppData/Roaming/Microsoft/Windows/Start Menu/Programs')
+            if (os.name=='nt' and root==stage() and relative==expected and function is os.rmdir
+                    and getattr(error,'winerror',None)==5 and attributes&1
+                    and not attributes&0x400 and stat.S_ISDIR(info.st_mode) and not stat.S_ISLNK(info.st_mode)):
+                clear_readonly_attribute(Path(path),attributes)
+                function(path)  # One retry; any failure still fails cleanup.
+                return
         except Exception:
             print('Owned cleanup attribute diagnostic unavailable')
         raise error
@@ -361,6 +445,7 @@ def worker():
         subprocess.run(nsis_command(work/INSTALLER,install),check=True,timeout=90)
         app=install/'md-opener.exe'
         require(hash_file(app,64*1024**2)==EXE_HASH, 'installed executable differs from original signed payload')
+        require(not owned_app_processes(app),'installer unexpectedly left an app process running')
         fixture=work/'native-smoke.md'
         with fixture.open('x',encoding='utf-8') as f: f.write(f'# {qa.HEADING}\n\nNative WebView Unicode: café 日本語.\n')
         session=None
@@ -375,6 +460,7 @@ def worker():
                         require(time.monotonic()<until,'native driver readiness timeout'); time.sleep(.2)
                 value=qa.wd('POST','/session',{'capabilities':{'alwaysMatch':{'tauri:options':{'application':str(app),'args':[str(fixture)]}}}})
                 session=value['sessionId']; require(qa.session_id(session),'invalid session id')
+                report_app_argv(app,fixture)
                 until=time.monotonic()+60
                 while True:
                     value=qa.wd('POST',f'/session/{session}/execute/sync',{'script':qa.DOM_SCRIPT,'args':[]})

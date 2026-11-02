@@ -76,5 +76,19 @@ Microsoft documents as application arguments when launching WebView2. Original
 721b source buffers CLI paths at setup and drains them after frontend mount.
 These contracts do not prove the cause of the observed empty heading/paragraph.
 Cleanup errors report only the failed owned relative path and file-type,
-read-only/reparse flags before rethrowing. No attribute, ACL or permission change
-is attempted; the prior WinError 5 does not itself prove a read-only attribute.
+read-only/reparse flags. The observed exact synthetic Start Menu Programs directory
+may have only its DOS read-only bit cleared after a WinError 5 from directory
+removal, then that removal is retried once. Other attributes are preserved,
+reparse paths and linked ancestors are rejected, and any subsequent failure is
+propagated. No ACL or security-policy change is performed. This narrowly scoped
+retry tests whether the observed read-only metadata caused the removal failure.
+
+Before creating a WebDriver session, the probe verifies that the original installer
+left no running instance of the exact installed executable. Afterwards, a bounded
+read-only process query selects that same executable, verifies membership in the
+probe's owned Windows Job Object, and parses its command line with the Windows API.
+Only the argument count and exact/prefixed/quoted synthetic-fixture match booleans
+are printed. Raw arguments, process environment and unrelated processes are never
+logged. A missing or ambiguous observation is reported as unavailable, not proof
+that the app received its file. The exact startup content oracle remains unchanged;
+no second launch, UI bypass or application IPC injection substitutes for it.
