@@ -5793,3 +5793,40 @@ describe("link and image autofix: mixed-fix idempotence", () => {
     expect(fixPass(fixPass(doc))).toBe(once);
   });
 });
+
+describe("invalid-link-target autofix: idempotence", () => {
+  const fixPass = (text: string) =>
+    applyAllFixes(text, lintDocument(text, { rules: [ruleInvalidLinkTarget] }));
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("running autofix twice on invalid links equals running it once with %j line endings", (nl) => {
+    const doc = [
+      "See [empty]() and [spaces](  \t  ) then [hash](#) plus [query](?).",
+      "Valid [docs](https://example.com) and [local](./file.md) stay.",
+      "",
+    ].join(nl);
+
+    // First pass: lint + fix
+    const once = fixPass(doc);
+    expect(once).not.toBe(doc); // something must change
+
+    // Second pass: lint the fixed doc + fix again — must not change anything
+    expect(fixPass(once)).toBe(once);
+
+    // Also verify no violations remain after the first fix
+    expect(lintDocument(once, { rules: [ruleInvalidLinkTarget] })).toEqual([]);
+  });
+
+  it.each([
+    ["single empty link", "Read [this]() for details.\n"],
+    ["single whitespace-only link", "Read [this](  \t  ) for details.\n"],
+    ["single hash link", "Read [this](#) for details.\n"],
+    ["single query link", "Read [this](?) for details.\n"],
+  ])("running autofix twice on %s equals running it once", (_label, doc) => {
+    const once = fixPass(doc);
+    expect(fixPass(once)).toBe(once);
+    expect(lintDocument(once, { rules: [ruleInvalidLinkTarget] })).toEqual([]);
+  });
+});
