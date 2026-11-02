@@ -76,15 +76,16 @@ Microsoft documents as application arguments when launching WebView2. Original
 721b source buffers CLI paths at setup and drains them after frontend mount.
 These contracts do not prove the cause of the observed empty heading/paragraph.
 Cleanup errors report only the failed owned relative path and file-type,
-read-only/reparse flags. Only the finite synthetic directory chain from `home`
-through `AppData/Roaming/Microsoft/Windows/Start Menu/Programs` may have its DOS
-read-only bit cleared after a WinError 5 from directory
-removal, then that removal is retried once. Other attributes are preserved,
-reparse paths and linked ancestors are rejected, and any subsequent failure is
-propagated. No ACL or security-policy change is performed. This narrowly scoped
-retry successfully removed Programs in run 41401789608; its parent Start Menu
-then exhibited the same error. No arbitrary sibling, root itself, file or other
-error is eligible for this retry.
+read-only/reparse flags. As in merged #640, owned regular files and directories
+may have only their DOS read-only bit cleared after WinError 5 from removal, then
+that same removal is retried once. Other attributes remain unchanged. This covers
+shell-folder parents and metadata files such as desktop.ini without guessing each
+successive folder name. The helper itself requires one of the two fixed, selected
+artifact/driver staging roots and validates its canonical nonreparse identity.
+Root itself, escaping paths, reparse targets/ancestors, other errors and special
+file types cannot trigger attribute changes. No ACL/security-policy change occurs.
+A failed retry remains a failed cleanup. Tests cover the complete synthetic shell
+folder chain as an example, regular-file cleanup, and root/containment negatives.
 
 Before creating a WebDriver session, the probe verifies that the original installer
 left no running instance of the exact installed executable inside its owned job.

@@ -462,14 +462,25 @@ def clear_readonly_attribute(path,attributes):
     require(kernel.SetFileAttributesW(str(path),attributes & ~1),'readonly attribute cleanup failed')
 
 
+def validate_cleanup_root(root):
+    # Only workflow-selected exclusive staging roots, never arbitrary supplied paths.
+    artifact=stage(); driver=driver_stage()
+    require((root==artifact and os.environ.get('STAGE_PATH')==str(root))
+            or (root==driver and os.environ.get('DRIVER_STAGE_PATH')==str(root)), 'unowned cleanup root')
+    safe_path(root)
+    info=root.lstat()
+    require(stat.S_ISDIR(info.st_mode) and not stat.S_ISLNK(info.st_mode) and not getattr(info,'st_file_attributes',0)&0x400,'unsafe cleanup root')
+
+
 def remove_owned_tree(root):
+    validate_cleanup_root(root)
     def failure(function,path,error):
         # Observe only a failed entry beneath our owned synthetic root. Never
         # follow a junction or change ACLs. Only the exact observed readonly DOS
-        # bit on the finite synthetic shell-folder chain may be cleared before one directory-removal retry.
+        # bit on an owned regular file or directory may be cleared before one removal retry.
         try:
             relative=Path(path).relative_to(root)
-            require('..' not in relative.parts, 'cleanup path escaped owned root')
+            require(relative!=Path('.') and '..' not in relative.parts, 'cleanup path escaped owned root')
             root_info=root.lstat()
             require(stat.S_ISDIR(root_info.st_mode) and not stat.S_ISLNK(root_info.st_mode) and not getattr(root_info,'st_file_attributes',0)&0x400,'unsafe cleanup root')
             parent=root
@@ -483,11 +494,10 @@ def remove_owned_tree(root):
                 'readonly':bool(attributes&1),'reparse':bool(attributes&0x400),
                 'directory':stat.S_ISDIR(info.st_mode),'symlink':stat.S_ISLNK(info.st_mode),
                 'winerror':getattr(error,'winerror',None)}))
-            expected=Path('home/AppData/Roaming/Microsoft/Windows/Start Menu/Programs')
-            chain={expected,*[p for p in expected.parents if p!=Path('.')]}
-            if (os.name=='nt' and root==stage() and relative in chain and function is os.rmdir
+            if (os.name=='nt' and function in (os.rmdir,os.unlink,os.remove)
                     and getattr(error,'winerror',None)==5 and attributes&1
-                    and not attributes&0x400 and stat.S_ISDIR(info.st_mode) and not stat.S_ISLNK(info.st_mode)):
+                    and not attributes&0x400 and not stat.S_ISLNK(info.st_mode)
+                    and (stat.S_ISDIR(info.st_mode) or stat.S_ISREG(info.st_mode))):
                 clear_readonly_attribute(Path(path),attributes)
                 function(path)  # One retry; any failure still fails cleanup.
                 return
