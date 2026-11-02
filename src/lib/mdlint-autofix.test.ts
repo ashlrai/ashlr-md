@@ -228,6 +228,26 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+  ])("replaces a whitespace-only href at offset 0 and keeps the remaining %s text byte-identical", (_name, nl) => {
+    const rest = ` is the first word of this café note.${nl}${nl}See [ref](./ref.md) and \`[draft](   )\`.${nl}`;
+    const doc = `[draft](   )${rest}`;
+    const expected = `[draft](TODO)${rest}`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+    expect(violations[0].range?.from.offset).toBe(0);
+    expect(doc.slice(0, violations[0].range!.to.offset)).toBe("[draft](   )");
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.endsWith(rest)).toBe(true);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
     "",
     "#",
     "?",
