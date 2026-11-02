@@ -3819,6 +3819,36 @@ describe("rule:missing-alt-text", () => {
     expect(applyAllFixes(fixed, remaining)).toBe(fixed);
   });
 
+  it.each([
+    ["\n", "\n"],
+    ["\r\n", "\r\n"],
+    ["\n", "\r\n"],
+    ["\r\n", "\n"],
+    ["\n\n", "\r\n\r\n"],
+  ])("inserts both placeholders for empty-alt images on separate lines and keeps line breaks %j and %j", (firstBreak, secondBreak) => {
+    const first = "images/first.png?size=2#preview";
+    const second = "images/second.png";
+    const trailing = "text ";
+    const doc = `![](${first})${firstBreak}![](${second})${secondBreak}${trailing}`;
+    const expected = `![TODO: describe image](${first})${firstBreak}![TODO: describe image](${second})${secondBreak}${trailing}`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+      "missing-alt-text",
+      "missing-alt-text",
+    ]);
+    expect(violations.every((violation) => violation.fix !== null)).toBe(true);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.match(/TODO: describe image/g)).toHaveLength(2);
+    const breaks = (text: string) => text.match(/\r\n|\n|\r/g);
+    expect(breaks(fixed)).toEqual(breaks(doc));
+    const remaining = lintDocument(fixed, { rules });
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(fixed, remaining)).toBe(expected);
+  });
+
   it("autofixes adjacent images with empty alt text and preserves both sources", () => {
     const doc = "Café: ![](images/first.png)![](images/second.jpg?size=2#preview).\n";
     const rules = [ruleMissingAltText];
