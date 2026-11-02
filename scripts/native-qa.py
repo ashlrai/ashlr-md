@@ -27,6 +27,18 @@ ZIP_APP = 'release/bundle/appimage/Ashlr MD_0.5.0_amd64.AppImage'
 APP_HASH = 'f4ebaa941f596877937df68713be3646783c8f00d05ac7af692a170484f17c9f'
 HEADING = 'Ashlr native qualification 721b976'
 
+# This reads the real document; only the renderer's copy-link control is excluded.
+DOM_SCRIPT = r"""
+const article = document.querySelector('article.reading-surface');
+const heading = article?.querySelector('h1')?.cloneNode(true);
+heading?.querySelectorAll('button.heading-anchor').forEach(button => button.remove());
+return {
+  heading: heading?.textContent,
+  text: [...(article?.querySelectorAll('p') ?? [])].map(p => p.textContent)
+    .find(text => text === 'Native WebView Unicode: café 日本語.')
+};
+"""
+
 
 def require(ok, message):
     if not ok:
@@ -196,10 +208,12 @@ def probe(work, app):
             require(session_id(session), 'invalid session id')
             until = time.monotonic() + 60
             while True:
-                value = wd('POST', f'/session/{session}/execute/sync', {'script': 'return {heading: document.querySelector("h1")?.textContent, text: [...document.querySelectorAll("p")].map(x => x.textContent).find(x => x === "Native WebView Unicode: café 日本語.")};', 'args': []})
+                value = wd('POST', f'/session/{session}/execute/sync', {'script': DOM_SCRIPT, 'args': []})
                 if oracle(value):
                     break
-                require(time.monotonic() < until, 'native DOM fixture mismatch/timeout')
+                if time.monotonic() >= until:
+                    print('Bounded synthetic DOM observation:', json.dumps({key: str(value.get(key, ''))[:256] for key in ('heading', 'text')} if isinstance(value, dict) else {'type': type(value).__name__}, ensure_ascii=True), file=sys.stderr)
+                    raise ValueError('native DOM fixture mismatch/timeout')
                 time.sleep(0.3)
             require(fixture.read_text() == f'# {HEADING}\n\nNative WebView Unicode: café 日本語.\n', 'fixture unexpectedly changed')
             print('PASS: original signed Linux AppImage launched and native DOM fixture matched; no install/update exercised', flush=True)
