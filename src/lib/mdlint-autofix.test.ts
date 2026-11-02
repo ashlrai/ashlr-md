@@ -1032,6 +1032,41 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    "",
+    " \t ",
+    "#",
+    "?",
+  ])("checks the exact fixed line for destination %j at the start of a line, preserving its trailing text", (destination) => {
+    for (const newline of ["\n", "\r\n"]) {
+      const link = `[draft](${destination})`;
+      const trailing = " continues to [guide](./guide.md) — café  spacing &\ttab.";
+      const lines = ["Intro line stays.", `${link}${trailing}`, "Closing line."];
+      const doc = `${lines.join(newline)}${newline}`;
+      const fixedLine = `[draft](TODO)${trailing}`;
+      const expected = `${[lines[0], fixedLine, lines[2]].join(newline)}${newline}`;
+      const rules = [ruleInvalidLinkTarget];
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations).toHaveLength(1);
+      expect(violations[0].ruleId).toBe("invalid-link-target");
+      expect(violations[0].range?.from).toMatchObject({ line: 2, col: 0 });
+      const { from, to } = violations[0].range!;
+      expect(doc.slice(from.offset, to.offset)).toBe(link);
+      expect(violations[0].fix).not.toBeNull();
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      const fixedLines = fixed.split(newline);
+      expect(fixedLines).toEqual([lines[0], fixedLine, lines[2], ""]);
+      expect(fixedLines[1]).toBe(fixedLine);
+      expect(fixedLines[1].slice("[draft](TODO)".length)).toBe(trailing);
+      const remaining = lintDocument(fixed, { rules });
+      expect(remaining).toEqual([]);
+      expect(applyAllFixes(fixed, remaining)).toBe(expected);
+    }
+  });
+
+  it.each([
     [
       "See [docs](https://example.com/guide?topic=lint#links) and [draft]().\n",
       "See [docs](https://example.com/guide?topic=lint#links) and [draft](TODO).\n",
