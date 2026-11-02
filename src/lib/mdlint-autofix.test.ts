@@ -248,6 +248,26 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    "> ",
+    ">",
+    "> > ",
+  ])("fixes a link inside a blockquote (prefix %j) keeping the prefix and label", (prefix) => {
+    const doc = `Before.\n\n${prefix}Read [draft]() before publishing.\n${prefix}Next line.\n`;
+    const expected = `Before.\n\n${prefix}Read [draft](TODO) before publishing.\n${prefix}Next line.\n`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("invalid-link-target");
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain(`${prefix}Read [draft](TODO)`);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
     "-",
     "2.",
   ])("fixes a link within %s list text without changing the surrounding content", (marker) => {
