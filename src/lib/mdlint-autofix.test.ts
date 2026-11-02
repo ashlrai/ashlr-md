@@ -1855,6 +1855,26 @@ describe("rule:invalid-link-target", () => {
 // ─── 3. Rule: missing-alt-text ────────────────────────────────────────────────
 
 describe("rule:missing-alt-text", () => {
+  it.each([
+    "",
+    "Intro.\r\n",
+  ])("fixes an image on a final line without a trailing newline (prefix %j)", (prefix) => {
+    const doc = `${prefix}![](images/chart.png)`;
+    const expected = `${prefix}![TODO: describe image](images/chart.png)`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.endsWith("\n")).toBe(false);
+    const remaining = lintDocument(fixed, { rules });
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(fixed, remaining)).toBe(expected);
+  });
+
   it("preserves a CRLF image line in a document with mixed line endings", () => {
     const doc =
       "Gallery introduction.\n\nSee ![](images/chart.png) for details.\r\n" +
