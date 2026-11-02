@@ -4316,6 +4316,32 @@ describe("LinterToast violation history", () => {
     expect(getLintHistory().map((entry) => entry.ruleId)).toEqual(["missing-alt-text"]);
   });
 
+  it("Fix all is idempotent for missing image alt text with a remaining warning", () => {
+    const doc = "# First\n\n## Second\n\nSee ![](chart.png) and ![ \t ](map.svg).\n";
+    const rules = [ruleOrphanedHeading, ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+      "orphaned-heading",
+      "missing-alt-text",
+      "missing-alt-text",
+    ]);
+
+    const once = fixAllViolations(doc, violations);
+    expect(once).toBe(
+      "# First\n\n## Second\n\nSee ![TODO: describe image](chart.png) and ![TODO: describe image](map.svg).\n",
+    );
+    const history = [...getLintHistory()];
+    expect(history.map(({ ruleId }) => ruleId)).toEqual([
+      "missing-alt-text",
+      "missing-alt-text",
+    ]);
+    const remaining = lintDocument(once, { rules });
+    expect(remaining.map(({ ruleId }) => ruleId)).toEqual(["orphaned-heading"]);
+    expect(remaining[0].fix).toBeNull();
+    expect(fixAllViolations(once, remaining)).toBe(once);
+    expect(getLintHistory()).toEqual(history);
+  });
+
   it.each([
     "",
     " \t ",
