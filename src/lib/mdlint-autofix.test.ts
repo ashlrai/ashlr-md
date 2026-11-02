@@ -1340,6 +1340,25 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 
+  it.each([
+    "\n",
+    "\r\n",
+  ])("inserts the placeholder for an undescribed image without adding a final newline with %j line endings", (newline) => {
+    const doc = `Opening paragraph.${newline}${newline}Before ![](images/chart.png) after.`;
+    const expected = `Opening paragraph.${newline}${newline}Before ![TODO: describe image](images/chart.png) after.`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("missing-alt-text");
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.endsWith("\n")).toBe(false);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
   it("preserves surrounding blank lines and the final newline when fixing a link", () => {
     const doc =
       "\nOpening paragraph.\n\n\nRead [draft]() here.\n\nClosing paragraph.\n\n";
