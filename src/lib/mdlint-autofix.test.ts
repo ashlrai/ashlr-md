@@ -1423,6 +1423,25 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    "",
+    " \t ",
+    "#",
+    "?",
+  ])("preserves punctuation on both sides of a link with destination %j", (destination) => {
+    const doc = `See (“[café guide](${destination})”); then continue.\r\n`;
+    const expected = "See (“[café guide](TODO)”); then continue.\r\n";
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("invalid-link-target");
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+
+  it.each([
     ["Read [draft](), then publish it.\n", "Read [draft](TODO), then publish it.\n"],
     ["(see [draft](#)), then continue.\n", "(see [draft](TODO)), then continue.\n"],
     ["Click [next](?); it's ready.\n", "Click [next](TODO); it's ready.\n"],
