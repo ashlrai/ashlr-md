@@ -6920,4 +6920,18 @@ describe("rule:invalid-link-target CRLF document", () => {
     expect(applyFix(doc, violations[0])).toBe(fixed);
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
+
+  it("fixes an invalid link followed by text on an unterminated final list item without adding a newline", () => {
+    const doc = "- [ ] [docs](./guide.md)\n- [ ] Fill in [draft]() before release.";
+    const expected =
+      "- [ ] [docs](./guide.md)\n- [ ] Fill in [draft](TODO) before release.";
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.endsWith("\n")).toBe(false);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
 });
