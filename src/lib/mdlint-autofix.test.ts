@@ -7247,3 +7247,29 @@ describe("autofix: no-findings document", () => {
     expect(getLintHistory()).toEqual([]);
   });
 });
+
+// ─── Mixed valid and invalid links ───────────────────────────────────────────
+
+describe("autofix: mixed valid and invalid links", () => {
+  it("turns only the invalid href into TODO and leaves every valid link byte for byte", () => {
+    const valid = [
+      "[site](https://example.com/a_(b)?q=1#frag)",
+      "[guide](./guide.md)",
+      "[top](#top)",
+    ];
+    const fm = "---\ntitle: Guide\n---\n\n";
+    const doc = `${fm}${valid[0]} then [broken]() and ${valid[1]}, [other](#) plus ${valid[2]}.\n`;
+    const expected = `${fm}${valid[0]} then [broken](TODO) and ${valid[1]}, [other](TODO) plus ${valid[2]}.\n`;
+
+    const violations = lintDocument(doc);
+    expect(violations.map((v) => v.ruleId)).toEqual([
+      "invalid-link-target",
+      "invalid-link-target",
+    ]);
+
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    for (const link of valid) expect(fixed).toContain(link);
+    expect(lintDocument(fixed)).toEqual([]);
+  });
+});
