@@ -9020,6 +9020,14 @@ fn export_text_keeps_bracketed_prose_beside_inline_links() {
         ),
         ("[sic][source](https://example.com)\n", "[sic]source"),
         ("[source](https://example.com)[sic]\n", "source[sic]"),
+        (
+            "[draft][release notes](/guide \"Read more\")[reviewed]\n",
+            "[draft]release notes[reviewed]",
+        ),
+        (
+            "See [section (revised)] and [the spec](https://example.com/a_(b)) [for review].\n",
+            "See [section (revised)] and the spec [for review].",
+        ),
     ];
     for (markdown, expected) in cases {
         let result = run_export_text_on(markdown);
