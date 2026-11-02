@@ -336,7 +336,7 @@ class Tests(unittest.TestCase):
             error=PermissionError('synthetic'); error.winerror=5
             def fail(path,onexc): onexc(os.rmdir,str(child),error)
             output=io.StringIO()
-            with patch.object(w.shutil,'rmtree',side_effect=fail), patch.object(w.Path,'lstat',return_value=info), patch.object(w.os,'chmod') as chmod, patch('sys.stdout',output):
+            with patch.object(w.os,'name','posix'), patch.object(w.shutil,'rmtree',side_effect=fail), patch.object(w.Path,'lstat',return_value=info), patch.object(w.os,'chmod') as chmod, patch('sys.stdout',output):
                 with self.assertRaises(PermissionError): w.remove_owned_tree(root)
                 chmod.assert_not_called()
             self.assertTrue(child.is_dir())
@@ -390,34 +390,35 @@ class Tests(unittest.TestCase):
                     for secret in ['private-command','private-argv','private-stderr']: self.assertNotIn(secret,rendered)
                 else: self.fail('query failure accepted')
 
-    def test_only_exact_owned_readonly_directory_gets_one_delete_retry(self):
+    def test_owned_readonly_entries_get_one_delete_retry_each(self):
         with canonical_tempdir() as t:
-            root=Path(t); target=root/'home/AppData/Roaming/Microsoft/Windows/Start Menu/Programs'
-            error=PermissionError('synthetic'); error.winerror=5
-            info=MagicMock(st_mode=0o040700,st_file_attributes=17)
-            def fake_rmtree(path,onexc): onexc(w.os.rmdir,str(target),error)
-            with patch.object(w.os,'name','nt'), patch.object(w,'Path',type(root)), patch.object(type(root),'lstat',return_value=info), patch.object(w,'stage',return_value=root), patch.object(w.shutil,'rmtree',side_effect=fake_rmtree), patch.object(w.os,'rmdir') as retry, patch.object(w,'clear_readonly_attribute') as clear:
-                w.remove_owned_tree(root)
-                clear.assert_called_once_with(target,17); retry.assert_called_once_with(str(target))
-                clear.reset_mock(); retry.reset_mock(); info.st_file_attributes=16
-                with self.assertRaises(PermissionError): w.remove_owned_tree(root)
-                clear.assert_not_called(); retry.assert_not_called()
-                info.st_file_attributes=17; retry.side_effect=PermissionError('still denied')
-                with self.assertRaises(PermissionError): w.remove_owned_tree(root)
-                self.assertEqual(retry.call_count,1)
+            root=Path(t)
+            for name,target,info in [
+                ('rmdir',root/'home/AppData/Roaming/Microsoft/Windows/Start Menu/Programs',MagicMock(st_mode=0o040700,st_file_attributes=17)),
+                ('rmdir',root/'installed/app',MagicMock(st_mode=0o040700,st_file_attributes=1)),
+                ('unlink',root/'home/AppData/Roaming/Microsoft/Windows/Start Menu/Programs/desktop.ini',MagicMock(st_mode=0o100600,st_file_attributes=1)),
+            ]:
+                error=PermissionError('synthetic'); error.winerror=5
+                def fail(path,onexc): onexc(getattr(w.os,name),str(target),error)
+                with patch.object(w.os,'name','nt'), patch.object(w,'Path',type(root)), patch.object(type(root),'lstat',return_value=info), patch.object(w.shutil,'rmtree',side_effect=fail), patch.object(w.os,name) as retry, patch.object(w,'clear_readonly_attribute') as clear:
+                    w.remove_owned_tree(root)
+                    clear.assert_called_once_with(target,info.st_file_attributes); retry.assert_called_once_with(str(target))
+                    clear.reset_mock(); retry.reset_mock(); retry.side_effect=PermissionError('still denied')
+                    with self.assertRaises(PermissionError): w.remove_owned_tree(root)
+                    self.assertEqual(retry.call_count,1)
 
-    def test_readonly_cleanup_rejects_all_other_targets_and_errors(self):
+    def test_readonly_cleanup_rejects_all_other_entries_and_errors(self):
         with canonical_tempdir() as t:
             root=Path(t); target=root/'home/AppData/Roaming/Microsoft/Windows/Start Menu/Programs'
-            for attrs,path,expected_root,winerror,wrong_function in [
-                (0x411,target,root,5,False),(17,root/'other',root,5,False),
-                (17,target,root/'other',5,False),(17,target,root,32,False),
-                (17,target,root,5,True),
+            for attrs,mode,winerror,wrong_function in [
+                (0x411,0o040700,5,False),(16,0o040700,5,False),
+                (1,0o040700,32,False),(1,0o040700,5,True),
+                (1,0o120777,5,False),(1,0o010600,5,False),
             ]:
                 error=PermissionError('synthetic'); error.winerror=winerror
-                info=MagicMock(st_mode=0o040700,st_file_attributes=attrs)
-                def fail(current,onexc): onexc((lambda p: None) if wrong_function else w.os.rmdir,str(path),error)
-                with patch.object(w.os,'name','nt'), patch.object(w,'Path',type(root)), patch.object(type(root),'lstat',return_value=info), patch.object(w,'stage',return_value=expected_root), patch.object(w.shutil,'rmtree',side_effect=fail), patch.object(w,'clear_readonly_attribute') as clear:
+                info=MagicMock(st_mode=mode,st_file_attributes=attrs)
+                def fail(current,onexc): onexc((lambda p: None) if wrong_function else w.os.rmdir,str(target),error)
+                with patch.object(w.os,'name','nt'), patch.object(w,'Path',type(root)), patch.object(type(root),'lstat',return_value=info), patch.object(w.shutil,'rmtree',side_effect=fail), patch.object(w,'clear_readonly_attribute') as clear:
                     with self.assertRaises(PermissionError): w.remove_owned_tree(root)
                     clear.assert_not_called()
 

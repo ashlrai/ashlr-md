@@ -406,8 +406,8 @@ def clear_readonly_attribute(path,attributes):
 def remove_owned_tree(root):
     def failure(function,path,error):
         # Observe only a failed entry beneath our owned synthetic root. Never
-        # follow a junction or change ACLs. Only the exact observed readonly DOS
-        # bit case below may be cleared before one directory-removal retry.
+        # follow a junction or change ACLs. Only the readonly DOS bit on a real
+        # owned file or directory may be cleared before one removal retry.
         try:
             relative=Path(path).relative_to(root)
             require('..' not in relative.parts, 'cleanup path escaped owned root')
@@ -422,10 +422,10 @@ def remove_owned_tree(root):
                 'readonly':bool(attributes&1),'reparse':bool(attributes&0x400),
                 'directory':stat.S_ISDIR(info.st_mode),'symlink':stat.S_ISLNK(info.st_mode),
                 'winerror':getattr(error,'winerror',None)}))
-            expected=Path('home/AppData/Roaming/Microsoft/Windows/Start Menu/Programs')
-            if (os.name=='nt' and root==stage() and relative==expected and function is os.rmdir
+            if (os.name=='nt' and function in (os.rmdir,os.unlink,os.remove)
                     and getattr(error,'winerror',None)==5 and attributes&1
-                    and not attributes&0x400 and stat.S_ISDIR(info.st_mode) and not stat.S_ISLNK(info.st_mode)):
+                    and not attributes&0x400 and not stat.S_ISLNK(info.st_mode)
+                    and (stat.S_ISDIR(info.st_mode) or stat.S_ISREG(info.st_mode))):
                 clear_readonly_attribute(Path(path),attributes)
                 function(path)  # One retry; any failure still fails cleanup.
                 return
