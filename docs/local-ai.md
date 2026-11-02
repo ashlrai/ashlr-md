@@ -88,4 +88,4 @@ While it is on:
 
 On a Mac with Apple Silicon and macOS 26 or later, turn on Apple Intelligence, then restart Ashlr MD. That path uses Apple Foundation Models and needs no account.
 
-On Windows and Linux, install [Ollama](https://ollama.com) or use the `localInference` block above. A cloud model runs only after you add a key in Preferences or opt into a hosted endpoint.
+On Windows and Linux, install [Ollama](https://ollama.com) or use the `localInference` block above. A cloud model runs only after you add an Anthropic API key in Preferences or opt into a hosted endpoint.

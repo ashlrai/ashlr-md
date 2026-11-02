@@ -24,6 +24,7 @@ People get a rendered page instead of raw syntax. Agents get `mdopen`, `mdopener
 [llms-full.txt](./llms-full.txt) ·
 [Examples](./docs/EXAMPLES.md) ·
 [Agent guide](./docs/AGENTS.md) ·
+[Keyboard shortcuts](./docs/SHORTCUTS.md) ·
 [Website](https://md.ashlr.ai)
 
 </div>
