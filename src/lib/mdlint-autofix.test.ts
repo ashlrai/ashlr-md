@@ -1810,6 +1810,24 @@ describe("rule:missing-alt-text", () => {
   });
 
   it.each([
+    ".",
+    ",",
+    "!",
+    "?",
+    "…",
+  ])("preserves trailing punctuation %j at the end of the document", (punctuation) => {
+    const doc = `See ![](chart.png)${punctuation}`;
+    const expected = `See ![TODO: describe image](chart.png)${punctuation}`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+
+  it.each([
     ["> ", "\n"],
     ["> ", "\r\n"],
     ["> > ", "\n"],
