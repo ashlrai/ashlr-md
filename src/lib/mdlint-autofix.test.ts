@@ -196,6 +196,30 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(expected)).toEqual([]);
   });
 
+  it("fixes two invalid hrefs on separate lines around a valid link and leaves all surrounding text unchanged", () => {
+    const doc =
+      "# Notes\n\nFirst, read [alpha]() before *anything* else.\n\nThen [kept](./kept.md) stays.\n\nLast, open [beta](   ) and `code` too.\n";
+    const expected =
+      "# Notes\n\nFirst, read [alpha](TODO) before *anything* else.\n\nThen [kept](./kept.md) stays.\n\nLast, open [beta](TODO) and `code` too.\n";
+    const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
+
+    expect(violations).toHaveLength(2);
+    expect(violations.every((v) => v.ruleId === "invalid-link-target")).toBe(true);
+    const slices = violations.map((v) =>
+      doc.slice(v.range!.from.offset, v.range!.to.offset),
+    );
+    expect(slices).toEqual(["[alpha]()", "[beta](   )"]);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    // Each fix alone touches only its own link.
+    expect(applyFix(doc, violations[0])).toBe(
+      doc.replace("[alpha]()", "[alpha](TODO)"),
+    );
+    expect(applyFix(doc, violations[1])).toBe(
+      doc.replace("[beta](   )", "[beta](TODO)"),
+    );
+    expect(lintDocument(expected, { rules: [ruleInvalidLinkTarget] })).toEqual([]);
+  });
+
   it("replaces only the invalid destination inside multi-sentence prose and leaves the surrounding text untouched", () => {
     const before =
       "Intro with *emphasis*, a `code span` and a [bracketed note] that is not a link. Then see ";
