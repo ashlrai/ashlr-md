@@ -11078,6 +11078,19 @@ describe("autofix: valid HTTPS link preservation", () => {
     expect(lintDocument(doc, { rules })).toEqual([]);
     expect(applyAllFixes(doc, lintDocument(doc, { rules }))).toBe(doc);
   });
+
+  it.each([
+    ["inline link", "[Docs](https://example.com/a_b/c(d)?x=1&y=2#frag)"],
+    ["titled link", '[Docs](https://example.com/guide "Guide")'],
+    ["angle-bracket autolink", "<https://example.com/path?q=1>"],
+  ])("leaves a valid https %s and its surrounding prose unchanged under the default rules", (_name, link) => {
+    for (const nl of ["\n", "\r\n"]) {
+      const doc = `---${nl}title: Links${nl}---${nl}${nl}# Links${nl}${nl}Before text, see ${link} for more; after text.${nl}`;
+      const violations = lintDocument(doc);
+      expect(applyAllFixes(doc, violations)).toBe(doc);
+      expect(lintDocument(doc, { rules: [ruleInvalidLinkTarget] })).toEqual([]);
+    }
+  });
 });
 
 describe("rule:missing-alt-text undescribed image in an ordered list", () => {
