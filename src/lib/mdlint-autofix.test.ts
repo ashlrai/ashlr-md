@@ -12092,4 +12092,28 @@ describe("autofix: [sic] beside parentheses and code under the fixable rules", (
     expect(fixed).toBe("Teh [sic] (as quoted); see [guide](TODO) and `[sic]`.\n");
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
+
+  it.each([
+    ["inline", "![Quarterly revenue](charts/q3.png)"],
+    ["collapsed reference", "![Quarterly revenue][q3]\n\n[q3]: charts/q3.png"],
+    ["full reference", '![Quarterly revenue][q3]\n\n[q3]: charts/q3.png "Q3"'],
+    [
+      "several in one paragraph",
+      '![One](a.png) and ![Two words](b.png "B") and ![Three](<c d.png>)',
+    ],
+  ])("autofix leaves a nonempty image description and its source unchanged (%s)", (_name, body) => {
+    for (const newline of ["\n", "\r\n"]) {
+      const doc = `# Report${newline}${newline}${body.replace(/\n/g, newline)}${newline}`;
+      for (const rules of [
+        [ruleInvalidLinkTarget, ruleMissingAltText],
+        BUILTIN_RULES,
+      ]) {
+        const violations = lintDocument(doc, { rules }).filter(
+          (v) => v.ruleId === "missing-alt-text" || v.ruleId === "invalid-link-target",
+        );
+        expect(violations).toEqual([]);
+        expect(applyAllFixes(doc, violations)).toBe(doc);
+      }
+    }
+  });
 });
