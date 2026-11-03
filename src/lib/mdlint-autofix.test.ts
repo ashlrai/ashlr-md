@@ -8324,6 +8324,30 @@ describe("autofix: invalid link in a document without a final newline", () => {
     expect(fixed.endsWith("](TODO)")).toBe(true);
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
+
+  it.each([
+    ["link is the whole document", "[draft]()", "[draft](TODO)"],
+    ["link ends a list item", "- one\n- [draft](  )", "- one\n- [draft](TODO)"],
+    [
+      "valid link precedes it",
+      "[ok](./a.md) and [draft]()",
+      "[ok](./a.md) and [draft](TODO)",
+    ],
+  ])("fixes through applyFix and the default rule set without adding a final newline (%s)", (_name, doc, expected) => {
+    // Default rules also report frontmatter-required here; only the link is fixable.
+    const violations = lintDocument(doc).filter(
+      ({ ruleId }) => ruleId === "invalid-link-target",
+    );
+
+    expect(violations).toHaveLength(1);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.endsWith("\n")).toBe(false);
+    expect(lintDocument(fixed).map(({ ruleId }) => ruleId)).not.toContain(
+      "invalid-link-target",
+    );
+  });
 });
 
 // ─── Bracketed prose ─────────────────────────────────────────────────────────
