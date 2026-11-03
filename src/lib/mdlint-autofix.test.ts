@@ -10829,3 +10829,30 @@ describe("invalid-link-target autofix: blockquote with code and lazy continuatio
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+describe("rule:invalid-link-target — Unicode label with Unicode prose", () => {
+  it.each([
+    ["Turkish dotted/dotless i", "İstanbul rehberi ıspanak", "Çok güzel şehir — "],
+    ["Vietnamese stacked diacritics", "Hướng dẫn sử dụng", "Xin chào, "],
+    [
+      "emphasis markers in the label",
+      "**ガイド** β _ñ_",
+      "前置き：「",
+    ],
+  ])("fixes an invalid href (%s) and keeps the label and surrounding prose unchanged", (_name, label, before) => {
+    const after = " — fin。Ünï ✓\n";
+    const doc = `${before}[${label}](#)${after}`;
+    const expected = `${before}[${label}](TODO)${after}`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("invalid-link-target");
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.startsWith(before)).toBe(true);
+    expect(fixed.endsWith(after)).toBe(true);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
