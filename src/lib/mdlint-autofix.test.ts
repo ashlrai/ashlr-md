@@ -243,6 +243,29 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    ["ellipsis", "..."],
+    ["interrobang", "?!"],
+    ["closing quote and period", '".'],
+    ["closing paren, colon and dash", "): —"],
+    ["unicode ellipsis", "…"],
+  ])("replaces an invalid href with TODO and keeps stacked trailing punctuation (%s)", (_name, punctuation) => {
+    const doc = `Is it [ready]()${punctuation} Yes, see [done](./done.md).\n`;
+    const expected = `Is it [ready](TODO)${punctuation} Yes, see [done](./done.md).\n`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("invalid-link-target");
+    const { from, to } = violations[0].range!;
+    // The reported range stops at the closing paren, excluding the punctuation.
+    expect(doc.slice(from.offset, to.offset)).toBe("[ready]()");
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain(`(TODO)${punctuation} Yes`);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
     ["CJK, combining mark and ZWJ emoji", "日本語ガイド café 👩🏽‍💻"],
     ["right-to-left script", "دليل المستخدم"],
   ])("replaces an empty href with TODO and keeps a Unicode label byte-for-byte (%s)", (_name, label) => {
