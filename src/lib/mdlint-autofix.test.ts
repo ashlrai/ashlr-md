@@ -8214,3 +8214,35 @@ describe("autofix: invalid links in CRLF list and blockquote lines", () => {
     expect(lintDocument(expected, { rules })).toEqual([]);
   });
 });
+
+describe("autofix: invalid link among valid links with repeated labels", () => {
+  const rules = [ruleInvalidLinkTarget];
+
+  it.each([
+    ["\n"],
+    ["\r\n"],
+  ])("replaces only the invalid href when the same label appears before and after it (%j)", (nl) => {
+    const validBefore = "[café guide](./guide.md)";
+    const validAfter = "[café guide](https://example.com/guide#top)";
+    const reference = "[café guide][ref]";
+    const doc =
+      `${validBefore} then [café guide](   ) then ${validAfter}.${nl}${nl}` +
+      `Also ${reference}.${nl}${nl}[ref]: https://example.com/ref${nl}`;
+    const expected = doc.replace("[café guide](   )", "[café guide](TODO)");
+
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("invalid-link-target");
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe("[café guide](   )");
+    expect(doc.indexOf("[café guide](   )")).toBe(from.offset);
+
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    for (const link of [validBefore, validAfter, reference])
+      expect(fixed).toContain(link);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
