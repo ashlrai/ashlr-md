@@ -9980,6 +9980,20 @@ describe("autofix: invalid link in a document without a final newline", () => {
     expect(fixed.endsWith("\n")).toBe(false);
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
+
+  it("fixes a broken link with italic formatting at document end and adds no final newline", () => {
+    const doc = "Intro.\n\nSee *[draft]()* for details";
+    const expected = "Intro.\n\nSee *[draft](TODO)* for details";
+    const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
+
+    expect(doc.endsWith("\n")).toBe(false);
+    expect(violations).toHaveLength(1);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.endsWith("\n")).toBe(false);
+    expect(fixed.endsWith("TODO)* for details")).toBe(true);
+    expect(lintDocument(fixed, { rules: [ruleInvalidLinkTarget] })).toEqual([]);
+  });
 });
 
 // ─── Bracketed prose ─────────────────────────────────────────────────────────
