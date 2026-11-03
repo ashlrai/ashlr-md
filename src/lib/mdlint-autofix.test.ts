@@ -230,6 +230,23 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(expected, { rules })).toEqual([]);
   });
 
+  it.each([
+    "\n",
+    "\r\n",
+  ])("fixes an invalid href beside a valid link in a blockquote and leaves the valid link unchanged (%j)", (nl) => {
+    const doc = `> See [valid](./valid.md) and [invalid](#).${nl}`;
+    const expected = `> See [valid](./valid.md) and [invalid](TODO).${nl}`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(doc.slice(violations[0].range!.from.offset, violations[0].range!.to.offset)).toBe("[invalid](#)");
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain("[valid](./valid.md)");
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
   it("applyFix on the single invalid link in a list and table row leaves the valid links beside it untouched", () => {
     const doc =
       "- [good](./good.md)\n- [bad]()\n\n| a | b |\n| - | - |\n| [ok](https://example.com) | [bad2](?) |\n";
