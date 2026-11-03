@@ -293,6 +293,16 @@ describe("rule:invalid-link-target", () => {
     expect(fixed).not.toContain("TODO");
   });
 
+  it("autofix leaves a valid image-wrapping link and its surrounding text unchanged", () => {
+    const link = "[![Build status](./badge.svg)](https://example.com/ci)";
+    const doc = `---\ntitle: Project\n---\n\n# Project\n\nBefore ${link} after, with *emphasis*.\n`;
+    const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
+
+    expect(violations).toEqual([]);
+    expect(applyAllFixes(doc, violations)).toBe(doc);
+    expect(applyAllFixes(doc, lintDocument(doc))).toBe(doc);
+  });
+
   it.each([
     ["titled link", 'Read [the guide](./guide.md "Guide title") first.'],
     ["fragment-only link", "Jump to [setup](#setup) first."],
