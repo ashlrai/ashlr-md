@@ -11464,3 +11464,40 @@ describe("rule:missing-alt-text undescribed image beside a described image in a 
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+describe("rule:missing-alt-text undescribed image on the last line without a final newline", () => {
+  it.each([
+    ["list item", "- Intro\n- ![](a.png)", "- Intro\n- ![TODO: describe image](a.png)"],
+    ["heading", "# Title ![](a.png)", "# Title ![TODO: describe image](a.png)"],
+    [
+      "blockquote",
+      "> Quote\n> ![](a.png)",
+      "> Quote\n> ![TODO: describe image](a.png)",
+    ],
+    [
+      "table cell",
+      "| A |\n| - |\n| ![](a.png) |",
+      "| A |\n| - |\n| ![TODO: describe image](a.png) |",
+    ],
+    [
+      "whitespace-only alt",
+      "Text.\n\n![ ](a.png)",
+      "Text.\n\n![TODO: describe image](a.png)",
+    ],
+    [
+      "trailing spaces",
+      "Text.\n\n![](a.png)  ",
+      "Text.\n\n![TODO: describe image](a.png)  ",
+    ],
+  ])("adds the description and no final newline (%s)", (_name, doc, expected) => {
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("missing-alt-text");
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.endsWith("\n")).toBe(false);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
