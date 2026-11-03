@@ -3870,6 +3870,30 @@ describe("rule:missing-alt-text", () => {
   });
 
   it.each([
+    ["-", "  ", "\n"],
+    ["3)", "   ", "\r\n"],
+  ])("fixes an image in a continuation paragraph of a loose list item with marker %j and keeps text and markers (line ending %j)", (marker, indent, newline) => {
+    const doc = [
+      `${marker} Intro text`,
+      "",
+      `${indent}Figure: ![](img/a.png "A") end.`,
+      "",
+      `${marker} Other item`,
+      "",
+    ].join(newline);
+    const expected = doc.replace("![]", "![TODO: describe image]");
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain(`${marker} Intro text`);
+    expect(fixed).toContain(`${marker} Other item`);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
     "\n",
     "\r\n",
   ])("fixes images that start list items, nested or ordered, keeping markers and source (line endings %j)", (nl) => {
