@@ -3140,6 +3140,24 @@ describe("rule:invalid-link-target", () => {
     }
   });
 
+  it("fixes an invalid link at the end of a line before a hard break and keeps the preceding text and break spaces", () => {
+    const rules = [ruleInvalidLinkTarget];
+    const leading = "Café notes: see **the** draft";
+    const doc = `${leading} [draft]()  \nNext line.\n`;
+    const expected = `${leading} [draft](TODO)  \nNext line.\n`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("invalid-link-target");
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe("[draft]()");
+    expect(doc.slice(0, from.offset)).toBe(`${leading} `);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.startsWith(`${leading} [draft](TODO)`)).toBe(true);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
   it("fixes an invalid link at the end of the last line with no trailing newline", () => {
     const leading = "Final note — see";
     const doc = `Intro paragraph.\n\n${leading} [draft](?)`;
