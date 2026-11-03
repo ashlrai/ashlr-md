@@ -1692,6 +1692,40 @@ describe("rule:invalid-link-target", () => {
   it.each([
     "\n",
     "\r\n",
+  ])("gives every undescribed image the placeholder and keeps each source (line ending %j)", (newline) => {
+    const doc = [
+      "![](images/a.png)",
+      'Mid ![](images/b c.png?v=2#top "T") and ![](https://example.com/d.svg) end.',
+      "![described](images/keep.png)",
+      "",
+    ].join(newline);
+    const expected = [
+      "![TODO: describe image](images/a.png)",
+      'Mid ![TODO: describe image](images/b c.png?v=2#top "T") and ![TODO: describe image](https://example.com/d.svg) end.',
+      "![described](images/keep.png)",
+      "",
+    ].join(newline);
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(3);
+    expect(violations.every((violation) => violation.fix !== null)).toBe(true);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.match(/!\[TODO: describe image\]/g)).toHaveLength(3);
+    for (const source of [
+      "images/a.png",
+      "images/b c.png?v=2#top",
+      "https://example.com/d.svg",
+    ]) {
+      expect(fixed).toContain(`(${source}`);
+    }
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
+    "\n",
+    "\r\n",
   ])("preserves an absolute URL and surrounding text when fixing another link with %j line endings", (newline) => {
     const valid =
       '[café guide](https://example.com/a%20b?tag=one&tag=two&empty=#section "Guide title")';
