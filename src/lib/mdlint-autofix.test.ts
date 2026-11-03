@@ -1858,6 +1858,23 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    ["bare filename", "chart.png"],
+    ["dot-slash", "./chart.png"],
+    ["parent directory", "../chart.jpeg"],
+    ["double extension", "images/archive.tar.gz"],
+    ["uppercase extension", "images/Chart.PNG"],
+  ])("keeps a relative destination with a filename extension when fixing an empty image description (%s)", (_name, target) => {
+    const doc = `Intro.\n\n![](${target})\n`;
+    const expected = `Intro.\n\n![TODO: describe image](${target})\n`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+
+  it.each([
     "\n",
     "\r\n",
   ])("inserts the placeholder when the undescribed image is the last text of the document with %j line endings", (newline) => {
