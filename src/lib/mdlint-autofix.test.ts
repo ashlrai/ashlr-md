@@ -10722,6 +10722,58 @@ describe("autofix: [sic] prose preservation", () => {
     const doc = 'Said "wich" [sic] again.   \nNext line.\n';
     expect(fix(doc)).toBe('Said "wich" [sic] again.\nNext line.\n');
   });
+
+  it("leaves every [sic] and its surrounding prose unchanged across a multi-block document under the full default rule set", () => {
+    for (const nl of ["\n", "\r\n"]) {
+      const doc = [
+        "---",
+        "title: Quotes",
+        "---",
+        "",
+        "# Quotes",
+        "",
+        'He wrote "teh quick fox" [sic] in the memo; see [draft]() and ![](chart.png).   ',
+        "",
+        'They were "definately" right [sic], per [notes](#) below.',
+        "",
+        "- wich [sic] item",
+        "",
+      ].join(nl);
+      const expected = [
+        "---",
+        "title: Quotes",
+        "---",
+        "",
+        "# Quotes",
+        "",
+        'He wrote "teh quick fox" [sic] in the memo; see [draft](TODO) and ![TODO: describe image](chart.png).',
+        "",
+        'They were "definately" right [sic], per [notes](TODO) below.',
+        "",
+        "- wich [sic] item",
+        "",
+      ].join(nl);
+
+      const violations = lintDocument(doc);
+      expect(violations.map((v) => v.ruleId)).toEqual([
+        "invalid-link-target",
+        "missing-alt-text",
+        "no-trailing-spaces",
+        "invalid-link-target",
+      ]);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      expect(fixed.match(/\[sic\]/g)).toHaveLength(3);
+      for (const prose of [
+        '"teh quick fox" [sic] in the memo',
+        "right [sic], per [notes]",
+        "- wich [sic] item",
+      ])
+        expect(fixed).toContain(prose);
+      expect(lintDocument(fixed)).toEqual([]);
+      expect(applyAllFixes(fixed, lintDocument(fixed))).toBe(fixed);
+    }
+  });
 });
 
 // ─── [1] footnote reference survives autofix untouched ──────────────────────
