@@ -1880,6 +1880,24 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    ["single level", "> ", "images/chart.png"],
+    ["nested levels", "> > ", "images/chart.png?v=2#top"],
+    ["no space after marker", ">", "images/a%20b.png"],
+    ["with a title", "> ", 'images/chart.png "Chart"'],
+  ])("adds the description placeholder to an undescribed image in a blockquote and keeps the marker and destination (%s)", (_name, marker, dest) => {
+    const doc = `Intro.\n\n${marker}See ![](${dest}) here.\n${marker}Second line.\n`;
+    const expected = `Intro.\n\n${marker}See ![TODO: describe image](${dest}) here.\n${marker}Second line.\n`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].fix).not.toBeNull();
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
     ["bare filename", "chart.png"],
     ["dot-slash", "./chart.png"],
     ["parent directory", "../chart.jpeg"],
