@@ -12156,6 +12156,35 @@ describe("rule:missing-alt-text undescribed image in a loose ordered list with c
   });
 });
 
+describe("invalid-link-target autofix: invalid link at the start of a paragraph", () => {
+  it.each([
+    [
+      "LF",
+      "[broken]() Please read the docs.\n",
+      "[broken](TODO) Please read the docs.\n",
+    ],
+    [
+      "CRLF",
+      "[broken]() Please read the docs.\r\n",
+      "[broken](TODO) Please read the docs.\r\n",
+    ],
+    [
+      "preceded by a paragraph",
+      "Previous paragraph.\n\n[broken]() Start of this paragraph.\n",
+      "Previous paragraph.\n\n[broken](TODO) Start of this paragraph.\n",
+    ],
+  ])("inserts TODO and preserves following prose (%s)", (_name, doc, expected) => {
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("invalid-link-target");
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
+
 describe("autofix of an invalid link between two paragraphs with varied separators", () => {
   it.each([
     ["one blank line", "\n\n"],
