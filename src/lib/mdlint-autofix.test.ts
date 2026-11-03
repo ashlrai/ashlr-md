@@ -7624,3 +7624,42 @@ describe("autofix: invalid link in a document without a final newline", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+// ─── Bracketed prose ─────────────────────────────────────────────────────────
+
+describe("autofix: bracketed prose preservation", () => {
+  const defaultRules = BUILTIN_RULES.filter((rule) =>
+    LINTER_DEFAULT_ENABLED_RULES.includes(rule.id),
+  );
+
+  it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+  ])("leaves [sic] and other bracketed prose unchanged (%s)", (_label, nl) => {
+    const doc = [
+      "---",
+      "title: Quotes",
+      "---",
+      "",
+      "# Quotes",
+      "",
+      "He wrote that they was [sic] late, per the [editor's note] and [1].",
+      "",
+      "Brackets [at the start] and an empty [] pair stay put.",
+      "",
+    ].join(nl);
+    for (const rules of [BUILTIN_RULES, defaultRules]) {
+      const violations = lintDocument(doc, { rules });
+      expect(violations).toEqual([]);
+      expect(applyAllFixes(doc, violations)).toBe(doc);
+    }
+  });
+
+  it("keeps [sic] intact while fixing a real broken link beside it", () => {
+    const doc = "Teh [sic] word, see [guide]().\n";
+    const rules = [ruleInvalidLinkTarget];
+    const fixed = applyAllFixes(doc, lintDocument(doc, { rules }));
+    expect(fixed).toBe("Teh [sic] word, see [guide](TODO).\n");
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
