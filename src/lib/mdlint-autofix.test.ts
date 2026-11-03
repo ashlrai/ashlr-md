@@ -10567,6 +10567,36 @@ describe("autofix: invalid links in an ordered list", () => {
     expect(applyAllFixes(doc, violations)).toBe(expected);
     expect(lintDocument(expected, { rules })).toEqual([]);
   });
+
+  it("fixes invalid hrefs in nested ordered lists and a quoted ordered list, keeping markers, indentation, inline code and text", () => {
+    const doc = [
+      "1. Parent with `[code]()` kept and [bad]() link.",
+      "   1. Child [one](#) then [two](./two.md).",
+      "   2) Child [three]( ) end.",
+      "2. Next.",
+      "",
+      "> 1. Quoted [q]() item",
+      "> 2. Plain",
+      "",
+    ].join("\n");
+    const expected = [
+      "1. Parent with `[code]()` kept and [bad](TODO) link.",
+      "   1. Child [one](TODO) then [two](./two.md).",
+      "   2) Child [three](TODO) end.",
+      "2. Next.",
+      "",
+      "> 1. Quoted [q](TODO) item",
+      "> 2. Plain",
+      "",
+    ].join("\n");
+
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(4);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
 });
 
 describe("invalid-link-target autofix: idempotence inside blockquotes, tables and headings", () => {
