@@ -10915,3 +10915,31 @@ describe("autofix: two undescribed images", () => {
     expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
   });
 });
+
+describe("link and image autofix: nested linked images idempotence", () => {
+  const rules = [ruleInvalidLinkTarget, ruleMissingAltText];
+  const fixPass = (text: string) => applyAllFixes(text, lintDocument(text, { rules }));
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("a second pass leaves linked images, empty links and code decoys unchanged with %j line endings", (nl) => {
+    const doc = [
+      "# Links",
+      "",
+      "[![](logo.png)](https://example.com) and [![](b.png)]() then [![ok](c.png)](#)",
+      "Plain [home](/) ![](d.png) `[x]() ![](y.png)`",
+      "",
+    ].join(nl);
+
+    const once = fixPass(doc);
+    expect(once).not.toBe(doc);
+    expect(once).toContain("![TODO: describe image](logo.png)");
+    expect(lintDocument(once, { rules })).toEqual([]);
+
+    // Second pass must produce exactly the same output as the first.
+    expect(fixPass(once)).toBe(once);
+    // Inline code is left untouched.
+    expect(once).toContain("`[x]() ![](y.png)`");
+  });
+});
