@@ -156,6 +156,19 @@ describe("rule:invalid-link-target", () => {
     }
   });
 
+  it("leaves a [section](#section) link unchanged while autofix repairs an unrelated violation", () => {
+    const link = "[section](#section)";
+    const doc = `# Guide\n\nJump to ${link} first.   \n\n## Section\n\nBody.\n`;
+    const violations = lintDocument(doc, {
+      rules: [ruleNoTrailingSpaces, ruleInvalidLinkTarget],
+    });
+
+    expect(violations.map((v) => v.ruleId)).toEqual(["no-trailing-spaces"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(doc.replace("first.   ", "first."));
+    expect(fixed).toContain(link);
+  });
+
   it.each([
     ["no matching heading in the document", "#nowhere"],
     ["underscores and digits", "#step_2-of-3"],
