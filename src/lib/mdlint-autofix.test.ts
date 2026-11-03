@@ -2793,6 +2793,27 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    "\n",
+    "\r\n",
+  ])("describes an undescribed image that opens a later paragraph and preserves the prose after it with %j line endings", (newline) => {
+    const intro = `Intro paragraph, café.${newline}${newline}`;
+    const rest = ` shows the *trend*; see [notes](./n.md).${newline}Wrapped line stays.${newline}${newline}Last paragraph.${newline}`;
+    const doc = `${intro}![](images/chart.png "Chart")${rest}`;
+    const expected = `${intro}![TODO: describe image](images/chart.png "Chart")${rest}`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("missing-alt-text");
+    expect(violations[0].fix).not.toBeNull();
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.startsWith(intro)).toBe(true);
+    expect(fixed.endsWith(rest)).toBe(true);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
     [
       "image is the entire document",
       "![](a b.png)",
