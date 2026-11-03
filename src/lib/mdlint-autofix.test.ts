@@ -9759,6 +9759,20 @@ describe("autofix: valid relative link preservation", () => {
     expect(fixed).toBe("See [broken](TODO) and [guide](./docs/guide.md) both.\n");
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
+
+  it("preserves a deeply nested relative link while fixing trailing spaces elsewhere", () => {
+    const doc = "# Title\n\nSee [config](../../src/config.md) here.\nTrailing   \n";
+    expect(fix(doc)).toBe(
+      "# Title\n\nSee [config](../../src/config.md) here.\nTrailing\n",
+    );
+  });
+
+  it("keeps a relative link and surrounding prose unchanged in a document with front matter", () => {
+    const doc =
+      "---\ntitle: Manual\n---\n\nRead the [setup guide](./getting-started/setup.md) first.\n";
+    expect(lintDocument(doc, { rules })).toEqual([]);
+    expect(fix(doc)).toBe(doc);
+  });
 });
 
 // ─── Fragment links survive autofix untouched ──────────────────────────────
