@@ -3204,6 +3204,35 @@ describe("rule:missing-alt-text", () => {
   });
 
   it.each([
+    "\n",
+    "\r\n",
+  ])("describes two undescribed images in list items and a blockquote, including a repeated source (line endings %j)", (nl) => {
+    const doc = [
+      "- ![](shared.png)",
+      '- ![](shared.png "Again") tail',
+      "> ![](quoted/b.png?x=1#y)",
+      "",
+    ].join(nl);
+    const expected = [
+      "- ![TODO: describe image](shared.png)",
+      '- ![TODO: describe image](shared.png "Again") tail',
+      "> ![TODO: describe image](quoted/b.png?x=1#y)",
+      "",
+    ].join(nl);
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+      "missing-alt-text",
+      "missing-alt-text",
+      "missing-alt-text",
+    ]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
     "",
     "Intro.\r\n",
   ])("fixes an image on a final line without a trailing newline (prefix %j)", (prefix) => {
