@@ -9680,4 +9680,17 @@ describe("autofix: plain-text preservation", () => {
     const violations = lintDocument(doc, { disabledRules: ["frontmatter-required"] });
     expect(applyAllFixes(doc, violations)).toBe(doc);
   });
+
+  it("leaves [sic] brackets and surrounding prose unchanged", () => {
+    const doc = [
+      'The memo said "their going to the park" [sic] and later "recieve" [sic].',
+      "",
+      "Quoted verbatim: she wrote [sic] without comment.",
+      "",
+    ].join("\n");
+    const violations = lintDocument(doc, { disabledRules: ["frontmatter-required"] });
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(doc);
+    expect(fixed.match(/\[sic\]/g)).toHaveLength(3);
+  });
 });
