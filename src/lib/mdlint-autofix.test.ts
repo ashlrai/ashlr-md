@@ -494,6 +494,25 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    [
+      "-",
+      "- [ ] See [spec]() for details, then [ok](./ok.md) done.",
+      "- [ ] See [spec](TODO) for details, then [ok](./ok.md) done.",
+    ],
+    ["*", "* Before [spec]( ) after", "* Before [spec](TODO) after"],
+    ["+", "+ [spec]()", "+ [spec](TODO)"],
+  ])("sets the href to TODO in a one-item unordered list (marker %s) and keeps the marker, checkbox and text before and after", (_marker, line, expectedLine) => {
+    const rules = [ruleInvalidLinkTarget];
+    const doc = `Intro\n\n${line}\n\nOutro\n`;
+    const expected = `Intro\n\n${expectedLine}\n\nOutro\n`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+
+  it.each([
     ["-", "\n"],
     ["*", "\r\n"],
     ["+", "\n"],
