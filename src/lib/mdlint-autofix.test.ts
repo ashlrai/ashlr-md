@@ -10866,3 +10866,27 @@ describe("invalid-link-target autofix: blockquote with code and lazy continuatio
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+describe("invalid-link-target autofix: bracketed prose mixed with an invalid link", () => {
+  it("preserves prose brackets (incl. [x] and [ref]) and replaces only the invalid href", () => {
+    const rules = [ruleInvalidLinkTarget];
+    const doc = [
+      "See [1] and [note] for context, then [broken]() and [a] [b] done.",
+      "Array a[0] and [ ] unchecked, but [ok](./a.md) stays.",
+      "",
+    ].join("\n");
+    const violations = lintDocument(doc, { rules });
+    expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+
+    const fixed = applyAllFixes(doc, violations);
+
+    expect(fixed).toBe(
+      [
+        "See [1] and [note] for context, then [broken](TODO) and [a] [b] done.",
+        "Array a[0] and [ ] unchecked, but [ok](./a.md) stays.",
+        "",
+      ].join("\n"),
+    );
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
