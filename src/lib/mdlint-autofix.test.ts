@@ -12317,3 +12317,40 @@ describe("autofix: valid mailto link preserved next to a broken link", () => {
     }
   });
 });
+
+// ─── undescribed images across separate paragraphs ───────────────────────────
+
+describe("autofix: undescribed images in separate paragraphs", () => {
+  const rules = [ruleMissingAltText];
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("repairs each image and keeps the paragraph boundaries (line ending %j)", (nl) => {
+    const doc = [
+      "First café paragraph ![](images/a.png) ends here.",
+      "",
+      '![](images/b c.png?v=2#top "T")',
+      "",
+      "Third has a described ![kept](images/keep.png) and ![](https://example.com/d.svg).",
+      "",
+    ].join(nl);
+    const expected = [
+      "First café paragraph ![TODO: describe image](images/a.png) ends here.",
+      "",
+      '![TODO: describe image](images/b c.png?v=2#top "T")',
+      "",
+      "Third has a described ![kept](images/keep.png) and ![TODO: describe image](https://example.com/d.svg).",
+      "",
+    ].join(nl);
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(3);
+    expect(violations.every((violation) => violation.fix !== null)).toBe(true);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // Blank-line separators survive, so the paragraph count is unchanged.
+    expect(fixed.split(`${nl}${nl}`)).toHaveLength(doc.split(`${nl}${nl}`).length);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
