@@ -2100,6 +2100,18 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 
+  it("keeps the complete source URL, including its query string, when filling a missing description", () => {
+    const src = "https://cdn.example.com:8443/img/chart.png?size=2&v=1&token=a-b_c";
+    const doc = `![](${src})\n`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(`![TODO: describe image](${src})\n`);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
   it.each([
     "\n",
     "\r\n",
