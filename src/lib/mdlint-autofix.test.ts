@@ -8763,6 +8763,14 @@ describe("autofix: undescribed image with a nested relative path", () => {
 // ─── Undescribed image as the last block of a document ───────────────────────
 
 describe("autofix: undescribed image at the end of a document", () => {
+  it("describes a lone image without adding a trailing newline", () => {
+    const doc = "![](image.png)";
+    const violations = lintDocument(doc, { rules: [ruleMissingAltText] });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    expect(applyAllFixes(doc, violations)).toBe("![TODO: describe image](image.png)");
+  });
+
   it.each([
     "\n",
     "\r\n",
