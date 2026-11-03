@@ -3831,6 +3831,23 @@ describe("rule:missing-alt-text", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
   it.each([
+    ["empty alt, parenthesized destination", "![](img/chart_(1).png)"],
+    ["whitespace alt, title and query", '![ ](img/chart.png?v=2#top "Chart")'],
+  ])("autofixes the first-character undescribed image (%s) with the default rule set, keeping the destination and following text", (_name, image) => {
+    const rest = " then *emphasis* and [a link](https://example.com).\nSecond line.\n";
+    const doc = `${image}${rest}`;
+    const dest = image.slice(image.indexOf("]") + 1);
+    const violations = lintDocument(doc).filter((v) => v.ruleId === "missing-alt-text");
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].range!.from.offset).toBe(0);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(`![TODO: describe image]${dest}${rest}`);
+    expect(lintDocument(fixed).filter((v) => v.ruleId === "missing-alt-text")).toEqual(
+      [],
+    );
+  });
+  it.each([
     "my_chart.png",
     "images/my_chart_v2.png?size=2#a_b",
     "_leading_and_trailing_.png",
