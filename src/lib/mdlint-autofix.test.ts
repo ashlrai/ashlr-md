@@ -11023,3 +11023,48 @@ describe("autofix: an invalid link on a wrapped line of a bulleted list item", (
     expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
   });
 });
+
+describe("autofix: an invalid link among multiline surrounding text", () => {
+  const rules = [ruleInvalidLinkTarget];
+
+  it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+  ])("changes only the invalid href and keeps every other line byte-for-byte, including trailing spaces, tabs and a fenced block (%s)", (_name, nl) => {
+    const lines = (href: string) => [
+      "Setext title",
+      "============",
+      "",
+      "Intro line ends with a hard break.  ",
+      `Middle line has [the docs](${href}) and **bold** text.\t`,
+      "\tTab-indented tail with a [fine](https://example.com/ok) link.",
+      "",
+      "```md",
+      "[not a link]()",
+      "```",
+      "",
+      "Final line, no extra spaces.",
+      "",
+    ];
+    const doc = lines("").join(nl);
+    const expected = lines("TODO").join(nl);
+
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+    expect(violations[0].range!.from.line).toBe(5);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+
+    // Every line other than the fixed one is identical to the input.
+    const before = doc.split(nl);
+    const after = fixed.split(nl);
+    expect(after).toHaveLength(before.length);
+    after.forEach((line, i) => {
+      if (i !== 4) expect(line).toBe(before[i]);
+    });
+    expect(after[4]).toBe(before[4].replace("]()", "](TODO)"));
+
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
