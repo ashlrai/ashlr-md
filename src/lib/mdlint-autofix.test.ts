@@ -184,6 +184,22 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    ["CJK, combining mark and ZWJ emoji", "日本語ガイド café 👩🏽‍💻"],
+    ["right-to-left script", "دليل المستخدم"],
+  ])("replaces an empty href with TODO and keeps a Unicode label byte-for-byte (%s)", (_name, label) => {
+    const doc = `---\ntitle: Guide\n---\n\nSee [${label}]() and [reference](./guide.md).\n`;
+    const expected = `---\ntitle: Guide\n---\n\nSee [${label}](TODO) and [reference](./guide.md).\n`;
+    const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("invalid-link-target");
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(`[${label}]()`);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected)).toEqual([]);
+  });
+
+  it.each([
     "\n",
     "\r\n",
   ])("mixed valid and invalid links: autofix changes only the invalid href and keeps every valid link (%j)", (nl) => {
