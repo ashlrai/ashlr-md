@@ -2716,6 +2716,24 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(fixed, { rules: [ruleInvalidLinkTarget] })).toHaveLength(0);
   });
 
+  it("sets both invalid hrefs in a heading and a table row to TODO and keeps the surrounding text intact", () => {
+    const doc =
+      "## See [setup]() first\n\n| Name | Link |\n| --- | --- |\n| **docs** | [guide](   ) and [ok](./ok.md) |\n\nTrailing *text*.\n";
+    const expected =
+      "## See [setup](TODO) first\n\n| Name | Link |\n| --- | --- |\n| **docs** | [guide](TODO) and [ok](./ok.md) |\n\nTrailing *text*.\n";
+    const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
+
+    expect(violations.map((v) => v.ruleId)).toEqual([
+      "invalid-link-target",
+      "invalid-link-target",
+    ]);
+    expect(
+      violations.map((v) => doc.slice(v.range!.from.offset, v.range!.to.offset)),
+    ).toEqual(["[setup]()", "[guide](   )"]);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules: [ruleInvalidLinkTarget] })).toEqual([]);
+  });
+
   it.each([
     "\n",
     "\r\n",
