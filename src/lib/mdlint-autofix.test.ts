@@ -8711,6 +8711,37 @@ describe("link and image autofix: mixed-fix idempotence", () => {
     // Whole pipeline run twice from the original matches a single run.
     expect(fixPass(fixPass(doc))).toBe(once);
   });
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("is idempotent for an undescribed image inside an invalid link, in lists and quotes, beside code decoys (%j)", (nl) => {
+    const doc = [
+      "# Mixed",
+      "",
+      "[![](logo.png)]() and [![ok](badge.png)](#)",
+      "",
+      "- item [a]() with ![](i.png)",
+      "> quote [b](?) with ![ ](q.png)",
+      "",
+      "`[code]() ![](x.png)` stays",
+      "",
+      "```",
+      "[fence]() ![](y.png)",
+      "```",
+      "",
+    ].join(nl);
+
+    const first = fixPass(doc);
+    expect(first).not.toBe(doc);
+    // Decoys in inline code and fenced code are untouched.
+    expect(first).toContain("`[code]() ![](x.png)` stays");
+    expect(first).toContain(`[fence]() ![](y.png)${nl}`);
+    expect(lintDocument(first, { rules })).toEqual([]);
+
+    // The second autofix produces exactly the first result.
+    expect(fixPass(first)).toBe(first);
+  });
 });
 
 describe("invalid-link-target autofix: idempotence", () => {
