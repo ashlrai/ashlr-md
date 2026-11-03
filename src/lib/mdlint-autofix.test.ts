@@ -9905,3 +9905,31 @@ describe("rule:missing-alt-text undescribed image in an ordered list", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+describe("link and image autofix: invalid link wrapping an undescribed image", () => {
+  const rules = [ruleInvalidLinkTarget, ruleMissingAltText];
+  const fixPass = (text: string) => applyAllFixes(text, lintDocument(text, { rules }));
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("is idempotent for linked images, quoted and listed mixes with %j line endings", (nl) => {
+    const doc = [
+      "> [![](logo.png)]() and ![](b.png) in a quote",
+      "",
+      "- [![ ](c.png)](#) then [ok](./ok.md)",
+      "- | cell ![](d.png) [x](?) |",
+      "",
+    ].join(nl);
+    const once = fixPass(doc);
+
+    expect(once).not.toBe(doc);
+    expect(once).not.toContain("![](");
+    expect(once).toContain("[ok](./ok.md)");
+    expect(once).toContain("[x](TODO)");
+    // Links that wrap an image are not linted, so they may survive; the pass must still converge.
+    expect(lintDocument(once, { rules })).toEqual([]);
+    expect(fixPass(once)).toBe(once);
+    expect(fixPass(fixPass(doc))).toBe(once);
+  });
+});
