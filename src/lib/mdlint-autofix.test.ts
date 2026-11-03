@@ -539,6 +539,20 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(fixed, { rules: [ruleInvalidLinkTarget] })).toEqual([]);
   });
 
+  it("turns both hrefs into TODO when a document has exactly two invalid links and leaves the link text intact", () => {
+    const doc = "Read [first guide]() and then [second guide](#) today.\n";
+    const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
+
+    expect(violations).toHaveLength(2);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(
+      "Read [first guide](TODO) and then [second guide](TODO) today.\n",
+    );
+    expect(fixed).toContain("[first guide]");
+    expect(fixed).toContain("[second guide]");
+    expect(lintDocument(fixed, { rules: [ruleInvalidLinkTarget] })).toEqual([]);
+  });
+
   it("rewrites an invalid link that sits alone between two paragraphs to TODO and keeps both paragraphs intact", () => {
     const before = "First paragraph, with *emphasis* and a [valid](./ok.md) link.";
     const after = "Last paragraph stays exactly as written.";
