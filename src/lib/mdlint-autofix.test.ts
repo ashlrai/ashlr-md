@@ -8265,3 +8265,25 @@ describe("autofix: invalid link among valid links with repeated labels", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+describe("autofix: undescribed image inside a blockquote", () => {
+  const rules = [ruleMissingAltText];
+
+  it.each([
+    ["\n"],
+    ["\r\n"],
+  ])("inserts the description placeholder and keeps the blockquote marker intact (%j)", (nl) => {
+    const doc = `> ![](diagram.png)${nl}> tail${nl}`;
+    const expected = `> ![TODO: describe image](diagram.png)${nl}> tail${nl}`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("missing-alt-text");
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // Blockquote marker is preserved
+    expect(fixed).toMatch(/^> !\[TODO: describe image\]/m);
+    expect(applyFix(doc, violations[0])).toBe(fixed);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
