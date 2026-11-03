@@ -10915,3 +10915,32 @@ describe("autofix: two undescribed images", () => {
     expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
   });
 });
+
+describe("autofix: an invalid link on a wrapped line of a bulleted list item", () => {
+  const rules = [ruleInvalidLinkTarget];
+
+  it.each([
+    ["-", "\n"],
+    ["*", "\r\n"],
+    ["+", "\n"],
+  ])("sets the href to TODO on the continuation line and keeps marker %j, the first line and line ending %j", (marker, nl) => {
+    const lines = (href: string) => [
+      `${marker} First line of the item, see [a](./a.md)`,
+      `  and the wrapped part with [broken *link*](${href}) inside,`,
+      `  then more text.`,
+      `${marker} Second item.`,
+      "",
+    ];
+    const doc = lines("#").join(nl);
+    const expected = lines("TODO").join(nl);
+
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+});
