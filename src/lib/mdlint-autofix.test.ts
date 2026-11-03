@@ -7847,6 +7847,11 @@ describe("autofix: invalid link in a document without a final newline", () => {
       "Intro line.\n\nSee [draft](TODO)",
     ],
     [
+      "tab-only href",
+      "Intro line.\n\nSee [draft](	)",
+      "Intro line.\n\nSee [draft](TODO)",
+    ],
+    [
       "CRLF",
       "Intro line.\r\n\r\nSee [draft]()",
       "Intro line.\r\n\r\nSee [draft](TODO)",
