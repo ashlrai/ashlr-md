@@ -456,6 +456,18 @@ describe("rule:invalid-link-target", () => {
     expect(applyAllFixes(doc, lintDocument(doc))).toBe(doc);
   });
 
+  it("autofix leaves an HTTPS image and its surrounding text unchanged", () => {
+    const image =
+      '![Architecture diagram](https://example.com/img/arch_(v2).png?w=640&dpi=2#top "Architecture")';
+    const doc = `---\ntitle: Project\n---\n\n# Project\n\nBefore ${image} after, with *emphasis* and [local](./local.md).\n`;
+    const rules = [ruleInvalidLinkTarget, ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toEqual([]);
+    expect(applyAllFixes(doc, violations)).toBe(doc);
+    expect(applyAllFixes(doc, lintDocument(doc))).toBe(doc);
+  });
+
   it.each([
     ["titled link", 'Read [the guide](./guide.md "Guide title") first.'],
     ["fragment-only link", "Jump to [setup](#setup) first."],
