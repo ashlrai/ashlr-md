@@ -8749,6 +8749,34 @@ describe("rule:missing-alt-text unicode image sources", () => {
     expect(fixed).toContain(`(<${source}> "Café ☕")`);
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
+  it.each([
+    [
+      "raw Unicode path with query and fragment",
+      "📊 café.png?query=日本語#詳細",
+      "Café report 前文 😀 ",
+      " end.",
+    ],
+    ["emoji in path", "chart/⭐🖼️-stars.png", "See the gallery: ", " then done."],
+    [
+      "combining characters",
+      "logos/naïve-résumé.png?lang=日本語",
+      "View résumé: ",
+      " complete.",
+    ],
+  ])("fixing an empty image description preserves the Unicode source and surrounding prose (%s)", (_name, source, before, after) => {
+    const image = `![](${source})`;
+    const repaired = `![TODO: describe image](${source})`;
+    const doc = `# Title\r\n\r\n${before}${image}${after}\r\n`;
+    const expected = `# Title\r\n\r\n${before}${repaired}${after}\r\n`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("missing-alt-text");
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(expected).toContain(`](${source})`);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
 });
 
 describe("autofix: undescribed image surrounded by Unicode text", () => {
