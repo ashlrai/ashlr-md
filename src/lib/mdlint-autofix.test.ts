@@ -3642,6 +3642,20 @@ describe("rule:invalid-link-target", () => {
 // ─── 3. Rule: missing-alt-text ────────────────────────────────────────────────
 
 describe("rule:missing-alt-text", () => {
+  it("autofixes an undescribed image at the start of a document", () => {
+    const doc = "![](chart.png)\nSome text follows.\n";
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("missing-alt-text");
+    expect(violations[0].range!.from.offset).toBe(0);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe("![TODO: describe image](chart.png)\nSome text follows.\n");
+    expect(fixed).toContain("TODO: describe image");
+    expect(fixed).toContain("(chart.png)");
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
   it.each([
     "my_chart.png",
     "images/my_chart_v2.png?size=2#a_b",
