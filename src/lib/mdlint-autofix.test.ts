@@ -10436,6 +10436,40 @@ describe("rule:missing-alt-text undescribed image in an ordered list", () => {
   });
 });
 
+describe("rule:missing-alt-text undescribed image as the whole content of numbered list items", () => {
+  it.each([
+    ["\n"],
+    ["\r\n"],
+  ])("fills every image-only and nested numbered item, keeping start number, indentation, markers and sources (line ending %j)", (nl) => {
+    const doc = [
+      "Steps:",
+      "",
+      "3. ![](images/one.png)",
+      '4) ![](images/two%20x.png?v=2#top "Two")',
+      "   1. ![](./nested.png)",
+      "5. ![Described](images/keep.png)",
+      "",
+    ].join(nl);
+    const expected = [
+      "Steps:",
+      "",
+      "3. ![TODO: describe image](images/one.png)",
+      '4) ![TODO: describe image](images/two%20x.png?v=2#top "Two")',
+      "   1. ![TODO: describe image](./nested.png)",
+      "5. ![Described](images/keep.png)",
+      "",
+    ].join(nl);
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(3);
+    for (const v of violations) expect(v.fix).not.toBeNull();
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
+
 describe("rule:missing-alt-text undescribed image in a bulleted list", () => {
   it.each([
     ["dash marker", "- ", "images/chart.png"],
