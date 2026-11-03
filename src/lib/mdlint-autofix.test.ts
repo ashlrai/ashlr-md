@@ -12254,3 +12254,42 @@ describe("autofix: plain paragraph preservation", () => {
     expect(applyAllFixes(doc, violations)).toBe(doc);
   });
 });
+
+// ─── Mixed paragraph: bracketed prose + described image ──────────────────────
+
+describe("autofix: mixed paragraph with bracketed prose and a described image", () => {
+  const defaultRules = BUILTIN_RULES.filter((rule) =>
+    LINTER_DEFAULT_ENABLED_RULES.includes(rule.id),
+  );
+  const withoutFrontmatterRule = BUILTIN_RULES.filter(
+    (rule) => rule.id !== "frontmatter-required",
+  );
+  const image = '![Quarterly *revenue* chart](img/q3 chart.png#top "Q3")';
+  const bracketed = ["[sic]", "[42]", "[citation needed]", "[...]", "[Smith, 2020]"];
+
+  it.each([
+    ["\n", defaultRules],
+    ["\r\n", defaultRules],
+    ["\n", withoutFrontmatterRule],
+    ["\r\n", withoutFrontmatterRule],
+  ])("preserves both constructs exactly (line endings %j)", (nl, rules) => {
+    const described = image.replace("q3 chart", "q3-chart");
+    const doc = `He wrote ${bracketed[0]} that ${bracketed[1]} holds, ${bracketed[2]}.${nl}Then ${described} ${bracketed[3]} and ${bracketed[4]}.${nl}`;
+    const violations = lintDocument(doc, { rules });
+    const fixed = applyAllFixes(doc, violations);
+
+    expect(fixed).toBe(doc);
+    expect(fixed).toContain(described);
+    for (const text of bracketed) expect(fixed).toContain(text);
+  });
+
+  it("keeps the bracketed prose and described image while fixing an invalid link beside them", () => {
+    const described = "![Quarterly chart](img/chart.png)";
+    const doc = `See [sic] and ${described} then [draft]() and [42].\n`;
+    const rules = [ruleInvalidLinkTarget, ruleMissingAltText];
+    const fixed = applyAllFixes(doc, lintDocument(doc, { rules }));
+
+    expect(fixed).toBe(`See [sic] and ${described} then [draft](TODO) and [42].\n`);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
