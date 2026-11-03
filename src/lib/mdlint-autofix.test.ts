@@ -10040,3 +10040,25 @@ describe("link and image autofix: invalid link wrapping an undescribed image", (
     expect(fixPass(fixPass(doc))).toBe(once);
   });
 });
+
+describe("autofix preserves bracketed numeric reference prose like [1]", () => {
+  const rules = [ruleInvalidLinkTarget, ruleMissingAltText, ruleNoTrailingSpaces];
+  const fixPass = (text: string) => applyAllFixes(text, lintDocument(text, { rules }));
+
+  it("keeps a bare [1] reference and its surrounding text while fixing a real violation", () => {
+    const doc =
+      "As shown in prior work [1], results hold. See [bad]() and note [1] again.\n";
+    const fixed = fixPass(doc);
+
+    expect(fixed).toBe(
+      "As shown in prior work [1], results hold. See [bad](TODO) and note [1] again.\n",
+    );
+    expect(fixPass(fixed)).toBe(fixed);
+  });
+
+  it("leaves a document containing only [1] prose byte-for-byte unchanged", () => {
+    const doc = "Claim [1] and another [1].\n\n[1]: https://example.com/ref\n";
+    expect(lintDocument(doc, { rules })).toEqual([]);
+    expect(fixPass(doc)).toBe(doc);
+  });
+});
