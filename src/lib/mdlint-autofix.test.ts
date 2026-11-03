@@ -7624,3 +7624,24 @@ describe("autofix: invalid link in a document without a final newline", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+describe("autofix: numbered bracketed prose", () => {
+  it.each([
+    ["citation", "As shown in the study [1], results held.\n"],
+    ["several markers", "See [1], [2] and [12] for details.\n"],
+    ["start of line", "[1] is the first reference.\n"],
+    ["CRLF", "Prior work [1] agrees.\r\nSecond line [2].\r\n"],
+  ])("leaves [n] in ordinary prose unchanged (%s)", (_name, doc) => {
+    const rules = [ruleInvalidLinkTarget, ruleMissingAltText, ruleNoTrailingSpaces];
+    const violations = lintDocument(doc, { rules });
+    expect(violations).toEqual([]);
+    expect(applyAllFixes(doc, violations)).toBe(doc);
+  });
+
+  it("keeps [1] intact while repairing an invalid link on the same line", () => {
+    const doc = "Note [1] and [draft]() here.\n";
+    const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    expect(applyAllFixes(doc, violations)).toBe("Note [1] and [draft](TODO) here.\n");
+  });
+});
