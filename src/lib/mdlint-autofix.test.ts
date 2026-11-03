@@ -251,6 +251,24 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(expected, { rules })).toEqual([]);
   });
 
+  it.each([
+    ["emoji", "Ship it 🚀👩‍💻"],
+    ["parentheses and entity", "Guide (v2) &amp; notes"],
+    ["underscores and angle text", "snake_case <b>bold</b> *x*"],
+  ])("replaces a whitespace-only href with TODO and keeps a label with %s unchanged", (_name, label) => {
+    const doc = `Status: [${label}](  \t ) and [ok](./a.md).\n`;
+    const expected = `Status: [${label}](TODO) and [ok](./a.md).\n`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("invalid-link-target");
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+
   it("mixed valid and invalid links: autofix rewrites only the invalid destinations", () => {
     const doc =
       "[docs](./docs.md) and [empty]() then [web](https://example.com/a?b=1#c) and [hash](#) and [anchor](#top).\n";
