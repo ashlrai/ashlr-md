@@ -10802,6 +10802,44 @@ describe("autofix preserves [TODO] prose in varied markdown contexts", () => {
   });
 });
 
+describe("autofix keeps [TODO] prose exactly while fixing neighbouring violations", () => {
+  const rules = [ruleInvalidLinkTarget, ruleMissingAltText, ruleNoTrailingSpaces];
+  const fixPass = (text: string) => applyAllFixes(text, lintDocument(text, { rules }));
+
+  it.each([
+    [
+      "a space before parentheses",
+      "Do [TODO] (soon) and [bad]() now.\n",
+      "Do [TODO] (soon) and [bad](TODO) now.\n",
+    ],
+    [
+      "a reference-style label",
+      "Do [TODO][ref] and [bad](#).\n\n[ref]: ./ref.md\n",
+      "Do [TODO][ref] and [bad](TODO).\n\n[ref]: ./ref.md\n",
+    ],
+    [
+      "inline code",
+      "Use `[TODO]` or [TODO] and ![](a.png).\n",
+      "Use `[TODO]` or [TODO] and ![TODO: describe image](a.png).\n",
+    ],
+    [
+      "a trailing-space line",
+      "Item [TODO]   \nNext [bad]() line\n",
+      "Item [TODO]\nNext [bad](TODO) line\n",
+    ],
+    [
+      "a nested bracket",
+      "Note [[TODO]] and [bad]().\n",
+      "Note [[TODO]] and [bad](TODO).\n",
+    ],
+  ])("preserves [TODO] beside %s", (_label, doc, expected) => {
+    const fixed = fixPass(doc);
+    expect(fixed).toBe(expected);
+    expect(fixed.split("[TODO]").length).toBe(doc.split("[TODO]").length);
+    expect(fixPass(fixed)).toBe(fixed);
+  });
+});
+
 describe("autofix of an undescribed image between two paragraphs", () => {
   it.each([
     "\n",
