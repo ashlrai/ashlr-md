@@ -8301,6 +8301,7 @@ describe("autofix: whitespace-only document", () => {
     ["blank lines only", "\n\n"],
     ["mixed spaces, tabs and blank lines", " \t \n\n  \n"],
     ["CRLF blank lines with spaces", "\r\n  \r\n"],
+    ["mixed whitespace without a final newline", "\t \r\n \t"],
     ["single newline", "\n"],
   ])("preserves %s without placeholders under every rule set", (_label, doc) => {
     const defaultRules = BUILTIN_RULES.filter((rule) =>
