@@ -1811,6 +1811,37 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    "\n",
+    "\r\n",
+  ])("describes several undescribed images with distinct hyphenated filenames in one document and keeps each filename (%j line endings)", (newline) => {
+    const targets = [
+      "images/my-chart.png",
+      "<images/my-spaced-chart v2.png>",
+      "-leading-and-trailing-.png",
+      "assets/UPPER-case--double-hyphen.PNG",
+    ];
+    const titles = ["", ' "Chart-1"', "", " 'it-s'"];
+    const build = (alt: string) =>
+      targets
+        .map((t, i) => `Line ${i} ![${alt}](${t}${titles[i]}) end.`)
+        .join(newline);
+    const doc = `# Title${newline}${newline}${build("")}${newline}`;
+    const expected = `# Title${newline}${newline}${build("TODO: describe image")}${newline}`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(targets.length);
+    for (const v of violations) {
+      expect(v.ruleId).toBe("missing-alt-text");
+      expect(v.fix).not.toBeNull();
+    }
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    for (const t of targets) expect(fixed).toContain(`](${t}`);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
     [true, "\n"],
     [false, "\n"],
     [true, "\r\n"],
