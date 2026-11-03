@@ -291,6 +291,37 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(expected, { rules: [ruleInvalidLinkTarget] })).toEqual([]);
   });
 
+  it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+  ])("is idempotent: applying the invalid-link fix twice yields the same complete output as once (%s)", (_name, nl) => {
+    const doc = [
+      "# Notes",
+      "",
+      "First, read [alpha]() before *anything* else.",
+      "Then [kept](./kept.md) stays.",
+      "Last, open [beta](   ) and `code` too.",
+      "",
+    ].join(nl);
+    const expected = [
+      "# Notes",
+      "",
+      "First, read [alpha](TODO) before *anything* else.",
+      "Then [kept](./kept.md) stays.",
+      "Last, open [beta](TODO) and `code` too.",
+      "",
+    ].join(nl);
+    const opts = { rules: [ruleInvalidLinkTarget] };
+    const fixOnce = (text: string) => applyAllFixes(text, lintDocument(text, opts));
+
+    const once = fixOnce(doc);
+    const twice = fixOnce(once);
+
+    expect(once).toBe(expected);
+    expect(twice).toBe(once);
+    expect(lintDocument(once, opts)).toEqual([]);
+  });
+
   it("fixes two invalid hrefs inside list items and emphasis, keeping markers, nesting and a valid neighbour intact", () => {
     const doc =
       "- **[bold one]()** then [ok](./ok.md)\n- _see [second](  )_ and done\n";
