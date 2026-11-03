@@ -12735,3 +12735,50 @@ describe("autofix idempotence for undescribed images: inline wrappers, attribute
     expect(lintDocument(twice, { rules })).toEqual([]);
   });
 });
+
+describe("autofix: [1] prose preservation across block contexts", () => {
+  const rules = [ruleInvalidLinkTarget, ruleMissingAltText, ruleNoTrailingSpaces];
+  const fixAll = (doc: string) => applyAllFixes(doc, lintDocument(doc, { rules }));
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("leaves [1] in a heading, list, blockquote and table byte-for-byte unchanged (line endings %j)", (nl) => {
+    const doc = [
+      "# Results [1]",
+      "",
+      "- item [1]",
+      "1. ordered [1], then [2]",
+      "> quoted [1] text",
+      "",
+      "| a [1] | b |",
+      "| --- | --- |",
+      "| [1] | c |",
+      "",
+    ].join(nl);
+
+    expect(fixAll(doc)).toBe(doc);
+    expect(fixAll(fixAll(doc))).toBe(doc);
+  });
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("keeps [1] and its neighbours exactly while fixing a link, an image and trailing spaces together (line endings %j)", (nl) => {
+    const doc = [
+      "Claim [1] here.   ",
+      "See [guide]() [1] and ![](a.png)[1] too.",
+      "",
+    ].join(nl);
+    const expected = [
+      "Claim [1] here.",
+      "See [guide](TODO) [1] and ![TODO: describe image](a.png)[1] too.",
+      "",
+    ].join(nl);
+
+    const fixed = fixAll(doc);
+    expect(fixed).toBe(expected);
+    expect(fixed.match(/\[1\]/g)).toHaveLength(3);
+    expect(fixAll(fixed)).toBe(fixed);
+  });
+});
