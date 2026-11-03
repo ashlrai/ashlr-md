@@ -126,6 +126,21 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    "Guide: setup, usage & tips!",
+    'What\'s new? (v2.0) - see "notes"; ok...',
+    "100% done @ home #1 *yes* ~maybe~ <b>",
+  ])("autofix leaves a valid link with punctuation in its label %j unchanged", (label) => {
+    for (const nl of ["\n", "\r\n"]) {
+      const doc = `---${nl}title: Guide${nl}---${nl}${nl}Read [${label}](./guide.md) today.${nl}`;
+      const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
+
+      expect(violations).toEqual([]);
+      expect(applyAllFixes(doc, violations)).toBe(doc);
+      expect(applyAllFixes(doc, lintDocument(doc))).toBe(doc);
+    }
+  });
+
+  it.each([
     ["Cyrillic", "Руководство"],
     ["Greek with accents", "Οδηγός χρήσης"],
     ["Devanagari and Thai", "मार्गदर्शिका คู่มือ"],
