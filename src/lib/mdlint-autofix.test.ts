@@ -368,6 +368,21 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(expected)).toEqual([]);
   });
 
+  it("replaces every kind of invalid destination (empty, lone # and lone ?) with TODO and keeps the labels in order", () => {
+    const doc = "Go [alpha]() then [beta](#) then [gamma](?) done.\n";
+    const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
+
+    expect(violations).toHaveLength(3);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe("Go [alpha](TODO) then [beta](TODO) then [gamma](TODO) done.\n");
+    expect([...fixed.matchAll(/\[(\w+)\]/g)].map((m) => m[1])).toEqual([
+      "alpha",
+      "beta",
+      "gamma",
+    ]);
+    expect(lintDocument(fixed, { rules: [ruleInvalidLinkTarget] })).toEqual([]);
+  });
+
   it("gives two invalid links in one document a TODO href each and keeps both labels", () => {
     const fm = "---\ntitle: Guide\n---\n\n";
     const doc = `${fm}See [first label]() and [second label](  ) for details.\n`;
