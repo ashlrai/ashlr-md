@@ -11577,3 +11577,39 @@ describe("rule:missing-alt-text trailing newline preservation", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+describe("rule:missing-alt-text undescribed image in a loose ordered list with continuation content", () => {
+  it.each([
+    ["\n"],
+    ["\r\n"],
+  ])("fills images in a continuation paragraph, an angle-bracket source and a blockquote, keeping markers and sources (line ending %j)", (nl) => {
+    const doc = [
+      "7. First step.",
+      "",
+      "   ![](images/cont.png)",
+      "",
+      "8) Two in one: ![](<my images/a b.png>) and ![](b.png#frag).",
+      "",
+      "> 9. ![](images/quoted.png)",
+      "",
+    ].join(nl);
+    const expected = [
+      "7. First step.",
+      "",
+      "   ![TODO: describe image](images/cont.png)",
+      "",
+      "8) Two in one: ![TODO: describe image](<my images/a b.png>) and ![TODO: describe image](b.png#frag).",
+      "",
+      "> 9. ![TODO: describe image](images/quoted.png)",
+      "",
+    ].join(nl);
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(4);
+    for (const v of violations) expect(v.fix).not.toBeNull();
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
