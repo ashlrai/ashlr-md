@@ -533,6 +533,20 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(expected)).toEqual([]);
   });
 
+  it("replaces both invalid hrefs in a blockquote and keeps both labels, with no trailing newline", () => {
+    const doc = "> [alpha *one*]()\n> [beta **two**](?)";
+    const expected = "> [alpha *one*](TODO)\n> [beta **two**](TODO)";
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(2);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain("[alpha *one*]");
+    expect(fixed).toContain("[beta **two**]");
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
   it("keeps a valid link unchanged and turns the invalid href into TODO when both share one line", () => {
     const valid = '[docs](https://example.com/docs "Docs")';
     const doc = `Read ${valid}, then [broken]() and [more](./more.md).\n`;
