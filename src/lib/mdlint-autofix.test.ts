@@ -10542,3 +10542,20 @@ describe("autofix: valid anchor-link preservation (default rules)", () => {
     expect(fixDefault(fixed)).toBe(fixed);
   });
 });
+
+describe("autofix preserves a described image with a valid relative source", () => {
+  it.each([
+    ["sibling file", "![Team photo](team.png)"],
+    ["dot-slash path", "![Team photo](./img/team.png)"],
+    ["parent directory", "![Team photo](../assets/team.png)"],
+    ["nested folders", "![Team photo](assets/2026/team.png)"],
+    ["with a title", '![Team photo](img/team.png "The team")'],
+  ])("leaves the image and its source unchanged (%s)", (_name, image) => {
+    for (const nl of ["\n", "\r\n"]) {
+      const doc = `---${nl}title: Doc${nl}---${nl}${nl}# Doc${nl}${nl}Intro ${image} outro.${nl}`;
+      const fixed = applyAllFixes(doc, lintDocument(doc));
+      expect(fixed).toBe(doc);
+      expect(applyAllFixes(fixed, lintDocument(fixed))).toBe(fixed);
+    }
+  });
+});
