@@ -10485,3 +10485,35 @@ describe("autofix idempotence for undescribed images", () => {
     }
   });
 });
+
+// ─── Valid anchor links survive the default autofix pipeline ─────────────────
+
+describe("autofix: valid anchor-link preservation (default rules)", () => {
+  const fixDefault = (doc: string) => applyAllFixes(doc, lintDocument(doc));
+
+  it.each([
+    ["hyphenated slug", "Skip to [install steps](#install-steps) now.\n"],
+    ["underscore and digits", "Jump to [step 2](#step_2) later.\n"],
+    ["percent-encoded unicode", "Lire [café](#caf%C3%A9) d'abord.\n"],
+    ["two anchors in one sentence", "Compare [a](#alpha), then [b](#beta); done.\n"],
+    ["anchor in a list item", "- Go to [top](#top) (see below).\n"],
+    ["anchor in a blockquote", "> Refer to [notes](#notes) for context.\n"],
+    ["anchor in a table cell", "| Col |\n| --- |\n| [row](#row-1) |\n"],
+    ["anchor with title", 'See [faq](#faq "Questions") before asking.\n'],
+  ])("leaves a valid anchor link (%s) and its prose unchanged", (_name, body) => {
+    for (const nl of ["\n", "\r\n"]) {
+      const doc = `---${nl}title: Doc${nl}---${nl}${nl}# Doc${nl}${nl}${body.replace(/\n/g, nl)}`;
+      const violations = lintDocument(doc);
+      expect(violations.filter((v) => v.ruleId === "invalid-link-target")).toEqual([]);
+      expect(fixDefault(doc)).toBe(doc);
+    }
+  });
+
+  it("preserves the anchor link while fixing a broken link beside it", () => {
+    const head = "---\ntitle: Doc\n---\n\n# Doc\n\n";
+    const doc = `${head}See [bad]() or [good](#good-section) today.\n`;
+    const fixed = fixDefault(doc);
+    expect(fixed).toBe(`${head}See [bad](TODO) or [good](#good-section) today.\n`);
+    expect(fixDefault(fixed)).toBe(fixed);
+  });
+});
