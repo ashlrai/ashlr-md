@@ -1554,6 +1554,26 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 
+  it.each([
+    "images/my-chart.png",
+    "my-multi-part-chart-v2.png",
+    "./assets/hero-image-2x.png?size=2#preview",
+  ])("inserts the placeholder for an undescribed image and preserves the hyphenated filename %j", (src) => {
+    const doc = `Intro.\n\nSee ![](${src}) here.\n`;
+    const expected = `Intro.\n\nSee ![TODO: describe image](${src}) here.\n`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("missing-alt-text");
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain(`(${src})`);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
   it("preserves surrounding blank lines and the final newline when fixing a link", () => {
     const doc =
       "\nOpening paragraph.\n\n\nRead [draft]() here.\n\nClosing paragraph.\n\n";
