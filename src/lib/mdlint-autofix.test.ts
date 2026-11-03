@@ -8851,3 +8851,31 @@ describe("invalid link and unrelated prose on separate lines", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+describe("invalid-link-target autofix: idempotence across document shapes", () => {
+  const rules = [ruleInvalidLinkTarget];
+  const fixPass = (text: string) => applyAllFixes(text, lintDocument(text, { rules }));
+
+  it.each([
+    ["adjacent links", "[x]( )[y]()\n", "[x](TODO)[y](TODO)\n"],
+    ["nested list items", "- [x]()\n  - [y](#)\n", "- [x](TODO)\n  - [y](TODO)\n"],
+    [
+      "links mixed with an image",
+      "a [x]() [y](#) [z](?) ![i]() \n",
+      "a [x](TODO) [y](TODO) [z](TODO) ![i](TODO) \n",
+    ],
+  ])("fixes %s once and a second pass changes nothing", (_name, doc, expected) => {
+    const once = fixPass(doc);
+    expect(once).toBe(expected);
+    expect(fixPass(once)).toBe(once);
+    expect(lintDocument(once, { rules })).toEqual([]);
+  });
+
+  it.each([
+    "a [x](<>) b\n",
+    'a [x](# "t") b\n',
+  ])("leaves %j byte-identical on every pass", (doc) => {
+    expect(fixPass(doc)).toBe(doc);
+    expect(fixPass(fixPass(doc))).toBe(doc);
+  });
+});
