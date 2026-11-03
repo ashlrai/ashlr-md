@@ -7624,3 +7624,27 @@ describe("autofix: invalid link in a document without a final newline", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+// ─── 9. Bracketed TODO prose is preserved ─────────────────────────────────────
+
+describe("autofix preserves bracketed [TODO] prose", () => {
+  it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+  ])("leaves [TODO] in ordinary prose unchanged with every default rule (%s)", (_name, nl) => {
+    const doc = `---${nl}title: Notes${nl}---${nl}${nl}# Notes${nl}${nl}Finish this section [TODO] before release, then cite [1].${nl}`;
+    const violations = lintDocument(doc, { rules: BUILTIN_RULES });
+
+    expect(violations.filter((v) => v.ruleId === "invalid-link-target")).toEqual([]);
+    expect(applyAllFixes(doc, violations)).toBe(doc);
+  });
+
+  it("keeps [TODO] prose byte-for-byte while still fixing a real empty link beside it", () => {
+    const doc = "Fix [TODO] here and see [draft]() too.\n";
+    const rules = [ruleInvalidLinkTarget];
+    const fixed = applyAllFixes(doc, lintDocument(doc, { rules }));
+
+    expect(fixed).toBe("Fix [TODO] here and see [draft](TODO) too.\n");
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
