@@ -10013,6 +10013,62 @@ describe("rule:missing-alt-text undescribed image in an ordered list", () => {
   });
 });
 
+describe("rule:missing-alt-text undescribed image in a blockquote", () => {
+  it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+  ])("inserts the description placeholder and preserves the blockquote marker and image source (%s)", (_name, nl) => {
+    const doc = ["> ![](diagram.png)", "> This is supporting text.", ""].join(nl);
+    const expected = [
+      "> ![TODO: describe image](diagram.png)",
+      "> This is supporting text.",
+      "",
+    ].join(nl);
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("missing-alt-text");
+    expect(violations[0].fix).not.toBeNull();
+
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // blockquote marker is preserved
+    expect(fixed).toContain("> ![TODO: describe image](diagram.png)");
+    // image source is preserved
+    expect(fixed).toContain("(diagram.png)");
+    // clean after fix
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it("handles a deeply nested blockquote with an undescribed image", () => {
+    const doc = [
+      "> Quote level 1",
+      "> > Nested quote with ![](nested.png) image",
+      "> > More nested text.",
+      "",
+    ].join("\n");
+    const expected = [
+      "> Quote level 1",
+      "> > Nested quote with ![TODO: describe image](nested.png) image",
+      "> > More nested text.",
+      "",
+    ].join("\n");
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].fix).not.toBeNull();
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // blockquote markers at both levels are preserved
+    expect(fixed).toContain(
+      "> > Nested quote with ![TODO: describe image](nested.png) image",
+    );
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
+
 describe("link and image autofix: invalid link wrapping an undescribed image", () => {
   const rules = [ruleInvalidLinkTarget, ruleMissingAltText];
   const fixPass = (text: string) => applyAllFixes(text, lintDocument(text, { rules }));
