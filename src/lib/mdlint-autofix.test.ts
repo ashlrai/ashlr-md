@@ -126,6 +126,17 @@ describe("rule:invalid-link-target", () => {
     }
   });
 
+  it("preserves a valid fragment link [section](#section) alongside its target heading", () => {
+    for (const nl of ["\n", "\r\n"]) {
+      const doc = `---${nl}title: Guide${nl}---${nl}${nl}# Guide${nl}${nl}Jump to [section](#section) first.${nl}${nl}## Section${nl}${nl}Body text.${nl}`;
+      const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
+
+      expect(violations).toEqual([]);
+      expect(applyAllFixes(doc, violations)).toBe(doc);
+      expect(applyAllFixes(doc, lintDocument(doc))).toBe(doc);
+    }
+  });
+
   describe("preserves valid mailto links", () => {
     it.each([
       ["plain address", "[contact](mailto:team@example.com)"],
