@@ -6841,6 +6841,42 @@ describe("invalid-link-target autofix: repeated application", () => {
   });
 });
 
+describe("rule:missing-alt-text mixed described and undescribed images", () => {
+  it.each([
+    ["\n", "\n\n"],
+    ["\r\n", "\r\n\r\n"],
+  ])("gives a placeholder only to the undescribed image, leaving the described one untouched (%j line endings)", (newline, gap) => {
+    // One undescribed image and one described image on separate lines.
+    const undescribed = "![](photos/lake.jpg)";
+    const described = "![Sunset over the lake](photos/sunset.jpg)";
+    const doc = `Gallery.${gap}${undescribed}${gap}${described}${newline}`;
+
+    // After fix: only the undescribed image gets the placeholder.
+    const expected = `Gallery.${gap}![TODO: describe image](photos/lake.jpg)${gap}${described}${newline}`;
+
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    // Only one violation — the undescribed image.
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("missing-alt-text");
+
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+
+    // The described image is byte-for-byte preserved.
+    expect(fixed).toContain(described);
+    // The undescribed image now has the placeholder.
+    expect(fixed).toContain("![TODO: describe image](photos/lake.jpg)");
+    // Original undescribed syntax is gone.
+    expect(fixed).not.toContain("![](photos/lake.jpg)");
+    // Clean after fix.
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    // Idempotent.
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+});
+
 describe("rule:missing-alt-text two undescribed images", () => {
   it.each([
     ["\n", "\n\n"],
