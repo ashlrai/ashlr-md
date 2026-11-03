@@ -249,6 +249,24 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(expected, { rules })).toEqual([]);
   });
 
+  it("one invalid href among valid links: the default rule set changes only that href and keeps every valid link exactly", () => {
+    const valid = [
+      '[guide](./guide.md "Guide title")',
+      "[spec](<./my spec.md>)",
+      "[web](https://example.com/a_(b)?q=1#top)",
+      "[mail](mailto:team@example.com)",
+    ];
+    const doc = `---\ntitle: Links\n---\n\n# Links\n\nSee ${valid[0]}, ${valid[1]}, [broken]() and ${valid[2]}; write ${valid[3]}.\n`;
+    const expected = doc.replace("[broken]()", "[broken](TODO)");
+    const violations = lintDocument(doc);
+
+    expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    for (const link of valid) expect(fixed).toContain(link);
+    expect(lintDocument(fixed)).toEqual([]);
+  });
+
   it("applyFix on the single invalid link in a list and table row leaves the valid links beside it untouched", () => {
     const doc =
       "- [good](./good.md)\n- [bad]()\n\n| a | b |\n| - | - |\n| [ok](https://example.com) | [bad2](?) |\n";
