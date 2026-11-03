@@ -8489,4 +8489,25 @@ describe("autofix: a described image with no other findings", () => {
       expect(applyAllFixes(doc, violations)).toBe(doc);
     }
   });
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("describes an undescribed image at the start of a later line and leaves the following text unchanged with %j line endings", (newline) => {
+    const before = `Intro café.${newline}`;
+    const image = "![](images/chart.png)";
+    const following = ` then *more* text, see [link](https://example.com).${newline}Last line. ☕${newline}`;
+    const doc = before + image + following;
+    const expected = `${before}![TODO: describe image](images/chart.png)${following}`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    expect(violations[0].range?.from.offset).toBe(before.length);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.endsWith(following)).toBe(true);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
 });
