@@ -10682,6 +10682,29 @@ describe("autofix idempotence for undescribed images", () => {
   });
 });
 
+describe("autofix idempotence for undescribed images under the default rules", () => {
+  const fixDefault = (text: string) => applyAllFixes(text, lintDocument(text));
+
+  it.each([
+    ["in a heading", "## Chart ![](a.png)"],
+    ["in a table cell", "| Col |\n| --- |\n| ![](a.png) |"],
+    ["as a linked image", "[![](badge.svg)](https://example.com)"],
+    ["with a title", '![](a.png "Title")'],
+    ["after a code fence", "```\n![](code.png)\n```\n\n![](a.png)"],
+  ])("a second default-rule pass changes nothing (%s)", (_name, body) => {
+    for (const nl of ["\n", "\r\n"]) {
+      const doc = `---${nl}title: Doc${nl}---${nl}${nl}# Doc${nl}${nl}${body.replace(/\n/g, nl)}${nl}`;
+      const once = fixDefault(doc);
+
+      expect(once).toContain("![TODO: describe image]");
+      expect(fixDefault(once)).toBe(once);
+      expect(lintDocument(once).filter((v) => v.ruleId === "missing-alt-text")).toEqual(
+        [],
+      );
+    }
+  });
+});
+
 // ─── Valid anchor links survive the default autofix pipeline ─────────────────
 
 describe("autofix: valid anchor-link preservation (default rules)", () => {
