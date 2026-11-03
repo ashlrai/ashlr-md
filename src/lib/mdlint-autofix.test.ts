@@ -10725,3 +10725,47 @@ describe("invalid-link-target autofix: blockquote with code and lazy continuatio
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+// ─── Plain-text preservation: autofix leaves ordinary prose unchanged ─────────
+
+describe("autofix: plain-text preservation", () => {
+  const fixDefault = (doc: string) => applyAllFixes(doc, lintDocument(doc));
+
+  it.each([
+    ["simple paragraph", "This is an ordinary paragraph with some text.\n"],
+    [
+      "multiple paragraphs",
+      "First paragraph here.\n\nSecond paragraph follows.\n\nAnd a third to round it out.\n",
+    ],
+    [
+      "bold, italic, and strikethrough",
+      "This has **bold**, *italic*, and ~~strikethrough~~ formatting.\n",
+    ],
+    [
+      "mixed inline emphasis",
+      "Use the *bold* and **italic** keywords sparingly.\n",
+    ],
+    ["prose with a code span", "Run `cargo test` to verify.\n"],
+    ["prose with ellipsis and em dash", "Wait\u2026 and then\u2014done.\n"],
+    [
+      "longer flowing prose",
+      "The quick brown fox jumps over the lazy dog. "
+      + "Pack my box with five dozen liquor jugs. "
+      + "How vexingly quick daft zebras jump!\n",
+    ],
+    ["list of plain items", "- First item\n- Second item\n- Third item\n"],
+    [
+      "ordered list",
+      "1. Step one\n2. Step two\n3. Step three\n",
+    ],
+  ])("returns ordinary prose unchanged (%s)", (_name, body) => {
+    for (const nl of ["\n", "\r\n"]) {
+      const doc = `---${nl}title: Doc${nl}---${nl}${nl}# Doc${nl}${nl}${body.replace(/\n/g, nl)}`;
+      const violations = lintDocument(doc);
+      expect(violations).toEqual([]);
+      expect(fixDefault(doc)).toBe(doc);
+      // Idempotent: running autofix again on the (unchanged) result is stable.
+      expect(fixDefault(fixDefault(doc))).toBe(doc);
+    }
+  });
+});
