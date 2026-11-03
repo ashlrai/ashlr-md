@@ -1663,6 +1663,26 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    ["nested directory", "docs/assets/img/chart.png"],
+    ["dot-slash prefix", "./docs/assets/chart.png"],
+    ["parent traversal", "../../assets/shared/chart.png"],
+    ["query and fragment", "docs/assets/chart.png?view=full#data"],
+  ])("inserts the placeholder for an undescribed image and preserves the full relative directory path (%s)", (_name, target) => {
+    const doc = `Intro.\n\nSee ![](${target} "Chart") here.\n`;
+    const expected = `Intro.\n\nSee ![TODO: describe image](${target} "Chart") here.\n`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("missing-alt-text");
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain(`](${target} "Chart")`);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
     "\n",
     "\r\n",
   ])("describes an undescribed image that ends the document with no final newline with %j line endings", (newline) => {
