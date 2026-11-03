@@ -12843,3 +12843,65 @@ describe("autofix: [1] prose preservation across block contexts", () => {
     expect(fixAll(fixed)).toBe(fixed);
   });
 });
+
+// ─── Valid link + described image: autofix is a no-op ──────────────────────────
+
+describe("autofix: valid link and described image no-op", () => {
+  const pair = [ruleInvalidLinkTarget, ruleMissingAltText];
+
+  it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+  ])("preserves a valid link, a described image and their surrounding text byte-for-byte (%s endings)", (_name, nl) => {
+    const link = '[the guide](./docs/guide.md "Setup guide")';
+    const image = '![Architecture diagram](images/arch.png "Overview")';
+    const doc = [
+      "---",
+      "title: Guide",
+      "---",
+      "",
+      "# Guide",
+      "",
+      `Read ${link} before the install.`,
+      "",
+      image,
+      "",
+      "Questions? Email [support](mailto:support@example.com) anytime.",
+      "",
+    ].join(nl);
+
+    // Neither the fixable pair nor the full default rule set finds anything.
+    expect(lintDocument(doc, { rules: pair })).toEqual([]);
+    expect(lintDocument(doc)).toEqual([]);
+
+    // Autofix is a byte-for-byte no-op under both rule sets.
+    for (const fixed of [
+      applyAllFixes(doc, lintDocument(doc, { rules: pair })),
+      applyAllFixes(doc, lintDocument(doc)),
+    ]) {
+      expect(fixed).toBe(doc);
+      // Both constructs and the text around them survive exactly.
+      expect(fixed).toContain(`Read ${link} before the install.`);
+      expect(fixed).toContain(image);
+      expect(fixed).toContain("[support](mailto:support@example.com)");
+    }
+  });
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("leaves a valid link and a described image untouched when they sit inline amid prose punctuation (%j)", (nl) => {
+    const link = "[docs](https://example.com/docs)";
+    const image = "![flow](img/flow.svg)";
+    const sentence = `See ${link}, then ${image} — done!`;
+    const doc = `---${nl}title: Notes${nl}---${nl}${nl}${sentence}${nl}`;
+    const violations = lintDocument(doc, { rules: pair });
+
+    expect(violations).toEqual([]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(doc);
+    expect(fixed).toContain(sentence);
+    // Idempotent: a second lint-and-fix pass changes nothing.
+    expect(applyAllFixes(fixed, lintDocument(fixed))).toBe(fixed);
+  });
+});
