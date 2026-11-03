@@ -7522,6 +7522,32 @@ describe("autofix: no-findings document", () => {
   });
 });
 
+describe("autofix: empty document", () => {
+  const defaultRules = BUILTIN_RULES.filter((rule) =>
+    LINTER_DEFAULT_ENABLED_RULES.includes(rule.id),
+  );
+
+  it("reports no violations and no applicable fixes for an empty document", () => {
+    for (const rules of [BUILTIN_RULES, defaultRules]) {
+      const violations = lintDocument("", { rules });
+      expect(violations).toEqual([]);
+      expect(violations.filter((v) => v.fix !== null)).toEqual([]);
+    }
+  });
+
+  it("applyAllFixes returns an empty document unchanged", () => {
+    expect(applyAllFixes("", [])).toBe("");
+    expect(applyAllFixes("", lintDocument("", { rules: BUILTIN_RULES }))).toBe("");
+  });
+
+  it("fixAllViolations returns an empty document unchanged and records no history", () => {
+    clearLintHistory();
+    const violations = lintDocument("", { rules: BUILTIN_RULES });
+    expect(fixAllViolations("", violations)).toBe("");
+    expect(getLintHistory()).toEqual([]);
+  });
+});
+
 // ─── Mixed valid and invalid links ───────────────────────────────────────────
 
 describe("autofix: mixed valid and invalid links", () => {
