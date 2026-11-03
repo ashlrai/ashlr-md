@@ -10676,3 +10676,35 @@ describe("described image preservation across line endings and rule sets", () =>
     expect(applyAllFixes(doc, lintDocument(doc))).toContain(image);
   });
 });
+
+describe("invalid-link-target autofix: blockquote with code and lazy continuation", () => {
+  it("sets the invalid href to TODO, keeps every quote marker, and leaves quoted code untouched", () => {
+    const rules = [ruleInvalidLinkTarget];
+    const doc = [
+      "> Quote with a [broken link]( ) here",
+      "lazy continuation with [another](#) too",
+      "> ```md",
+      "> [in code]()",
+      "> ```",
+      "> Done [ok](./a.md).",
+      "",
+    ].join("\n");
+    const violations = lintDocument(doc, { rules });
+    expect(violations.length).toBeGreaterThanOrEqual(1);
+
+    const fixed = applyAllFixes(doc, violations);
+
+    expect(fixed).toBe(
+      [
+        "> Quote with a [broken link](TODO) here",
+        "lazy continuation with [another](TODO) too",
+        "> ```md",
+        "> [in code]()",
+        "> ```",
+        "> Done [ok](./a.md).",
+        "",
+      ].join("\n"),
+    );
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
