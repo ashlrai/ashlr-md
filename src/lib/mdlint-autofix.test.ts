@@ -7808,4 +7808,24 @@ describe("autofix: bracketed prose preservation", () => {
     expect(fixed).toBe("Teh [sic] word, see [guide](TODO).\n");
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
+
+  it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+  ])("turns an invalid href into TODO across multi-line prose and leaves other lines and breaks alone (%s)", (_label, nl) => {
+    const doc = [
+      "First line of prose, untouched.",
+      "Second line says see [the guide]() for more",
+      "and continues here with `[code]()` and [ok](./a.md).",
+      "",
+      "Last paragraph line.",
+      "",
+    ].join(nl);
+    const expected = doc.replace("[the guide]()", "[the guide](TODO)");
+    const rules = [ruleInvalidLinkTarget];
+    const fixed = applyAllFixes(doc, lintDocument(doc, { rules }));
+    expect(fixed).toBe(expected);
+    expect(fixed.split(nl)).toHaveLength(doc.split(nl).length);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
 });
