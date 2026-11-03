@@ -348,6 +348,22 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 
+  it("replaces an invalid href while preserving punctuation and surrounding text", () => {
+    const doc =
+      'Read it (see [guide]()), "[quote]()"; then [next](), — done! Really [end]()?\n';
+    const expected =
+      'Read it (see [guide](TODO)), "[quote](TODO)"; then [next](TODO), — done! Really [end](TODO)?\n';
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(4);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // Only the empty href changed: stripping the placeholder restores the input.
+    expect(fixed.replaceAll("(TODO)", "()")).toBe(doc);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
   it.each([
     ["LF", "\n"],
     ["CRLF", "\r\n"],
