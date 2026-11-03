@@ -1707,6 +1707,34 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    [true, "\n"],
+    [false, "\n"],
+    [true, "\r\n"],
+    [false, "\r\n"],
+  ])("describes an undescribed image and preserves a valid link exactly beside it (image first: %s, %j)", (imageFirst, newline) => {
+    const link =
+      '[Café docs](https://example.com/docs/caf%C3%A9?a=1&b=2#top "Docs (v2)")';
+    const image = "![](images/chart.png?view=full#data)";
+    const repairedImage = "![TODO: describe image](images/chart.png?view=full#data)";
+    const body = imageFirst ? `${image} ${link}` : `${link} ${image}`;
+    const expectedBody = imageFirst
+      ? `${repairedImage} ${link}`
+      : `${link} ${repairedImage}`;
+    const doc = `Before café: ${body}  after.${newline}`;
+    const expected = `Before café: ${expectedBody}  after.${newline}`;
+    const rules = [ruleInvalidLinkTarget, ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    // Only the image is flagged; the valid link is never touched.
+    expect(violations.map((v) => v.ruleId)).toEqual(["missing-alt-text"]);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain(link);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
     "images/my-chart.png",
     "my-multi-part-chart-v2.png",
     "./assets/hero-image-2x.png?size=2#preview",
