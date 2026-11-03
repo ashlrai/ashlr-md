@@ -8682,6 +8682,37 @@ describe("autofix: undescribed image at the end of a document", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
     expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(expected);
   });
+
+  it.each([
+    ["LF, trailing newline", "\n", "\n"],
+    ["LF, no trailing newline", "\n", ""],
+    ["CRLF, trailing newline", "\r\n", "\r\n"],
+    ["CRLF, no trailing newline", "\r\n", ""],
+  ])("inserts the description placeholder and preserves the destination and final newline (%s)", (_name, nl, end) => {
+    const dest = "photos/summary.png?width=1200";
+    const body = `Line one.${nl}${nl}Line two with [link](./ref.md).${nl}`;
+    const doc = `${body}![](${dest})${end}`;
+    const expected = `${body}![TODO: describe image](${dest})${end}`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("missing-alt-text");
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(`![](${dest})`);
+    expect(to.offset).toBe(doc.length - end.length);
+
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // Acceptance: destination is preserved
+    expect(fixed).toContain(`](${dest})`);
+    // Acceptance: final newline (or lack thereof) is preserved
+    expect(fixed.endsWith(end)).toBe(true);
+    expect(fixed.length).toBe(doc.length + "TODO: describe image".length);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(expected);
+  });
 });
 
 // ─── Invalid link as the last thing in a document with no final newline ──────
