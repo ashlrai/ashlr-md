@@ -11501,3 +11501,21 @@ describe("rule:missing-alt-text undescribed image on the last line without a fin
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+describe("autofix: [sic] survives single-violation fixes", () => {
+  it("applyFix on each of two invalid links leaves every [sic] untouched", () => {
+    const rules = [ruleInvalidLinkTarget];
+    const doc = "Teh [sic] [one]() and wich [sic] [two]() end [sic].\n";
+    const violations = lintDocument(doc, { rules });
+    expect(violations).toHaveLength(2);
+
+    const once = applyFix(doc, violations[0]);
+    expect(once).toBe("Teh [sic] [one](TODO) and wich [sic] [two]() end [sic].\n");
+    const twice = applyFix(once, lintDocument(once, { rules })[0]);
+    expect(twice).toBe(
+      "Teh [sic] [one](TODO) and wich [sic] [two](TODO) end [sic].\n",
+    );
+    expect(twice.match(/\[sic\]/g)).toHaveLength(3);
+    expect(lintDocument(twice, { rules })).toEqual([]);
+  });
+});
