@@ -1697,6 +1697,27 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    ["parentheses", "(", ")"],
+    ["quotes and comma", "“", "”,"],
+    ["brackets and semicolon", "[", "];"],
+    ["colon and em dash", "see: ", "—"],
+    ["trailing ellipsis and bang", "", "…!"],
+    ["CJK punctuation", "「", "」。"],
+  ])("inserts the placeholder for an undescribed image adjacent to punctuation and leaves the punctuation unchanged (%s)", (_name, before, after) => {
+    const doc = `Intro.\n\nLook ${before}![](images/chart.png)${after} end.\n`;
+    const expected = `Intro.\n\nLook ${before}![TODO: describe image](images/chart.png)${after} end.\n`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("missing-alt-text");
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
     ["nested directory", "docs/assets/img/chart.png"],
     ["dot-slash prefix", "./docs/assets/chart.png"],
     ["parent traversal", "../../assets/shared/chart.png"],
