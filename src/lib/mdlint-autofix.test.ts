@@ -10936,6 +10936,34 @@ describe("rule:missing-alt-text undescribed image in a blockquote", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
     expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
   });
+
+  it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+  ])("inserts the description placeholder mid-prose inside a single-level blockquote, preserving the marker and image source (%s)", (_name, nl) => {
+    const doc = [
+      "> This sentence has an ![](photo.jpg) inline.",
+      "> Continuation after the image.",
+      "",
+    ].join(nl);
+    const expected = [
+      "> This sentence has an ![TODO: describe image](photo.jpg) inline.",
+      "> Continuation after the image.",
+      "",
+    ].join(nl);
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("missing-alt-text");
+    expect(violations[0].fix).not.toBeNull();
+
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.startsWith("> This sentence")).toBe(true);
+    expect(fixed).toContain("(photo.jpg)");
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
 });
 
 describe("link and image autofix: invalid link wrapping an undescribed image", () => {
