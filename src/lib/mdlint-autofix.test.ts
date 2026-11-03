@@ -12429,3 +12429,35 @@ describe("autofix keeps [TODO] prose at document edges, in tables and in fences"
     expect(fixPass(doc)).toBe("[TODO] mid [bad](TODO) end [TODO]");
   });
 });
+
+describe("invalid-link autofix idempotence in task lists and nested ordered lists", () => {
+  const opts = { rules: [ruleInvalidLinkTarget] };
+  const fixPass = (text: string) => applyAllFixes(text, lintDocument(text, opts));
+
+  it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+  ])("a second autofix pass equals the first for checkbox items and nested numbering (%s)", (_name, nl) => {
+    const doc = [
+      "- [ ] task [a]()",
+      "- [x] done [b](#)",
+      "1. [c](  )",
+      "   1. [d](?) and [kept](./kept.md)",
+      "",
+    ].join(nl);
+    const expected = [
+      "- [ ] task [a](TODO)",
+      "- [x] done [b](TODO)",
+      "1. [c](TODO)",
+      "   1. [d](TODO) and [kept](./kept.md)",
+      "",
+    ].join(nl);
+
+    const once = fixPass(doc);
+    const twice = fixPass(once);
+
+    expect(once).toBe(expected);
+    expect(twice).toBe(once);
+    expect(lintDocument(once, opts)).toEqual([]);
+  });
+});
