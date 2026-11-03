@@ -8179,3 +8179,32 @@ describe("autofix: invalid links in CRLF list and blockquote lines", () => {
     expect(lintDocument(expected, { rules })).toEqual([]);
   });
 });
+
+describe("autofix: undescribed image on its own line between two unaffected lines", () => {
+  it.each([
+    "\n",
+    "\r\n",
+  ])("inserts the alt-text placeholder and preserves both neighboring lines with %j line endings", (newline) => {
+    const before = "Line before, with café.  ";
+    const after = "  Line after.";
+    const doc = [before, "![](images/chart.png)", after, ""].join(newline);
+    const expected = [
+      before,
+      "![TODO: describe image](images/chart.png)",
+      after,
+      "",
+    ].join(newline);
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("missing-alt-text");
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.split(newline)[0]).toBe(before);
+    expect(fixed.split(newline)[2]).toBe(after);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
