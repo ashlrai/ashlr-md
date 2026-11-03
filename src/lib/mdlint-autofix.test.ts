@@ -11954,3 +11954,43 @@ describe("autofix of an invalid link between two paragraphs with varied separato
     );
   });
 });
+
+describe("invalid-link autofix idempotence across markdown contexts", () => {
+  it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+  ])("a second autofix pass returns exactly the first pass's output for invalid links in prose, list, table, blockquote, fence and inline code (%s)", (_name, nl) => {
+    const doc = [
+      "# Links",
+      "",
+      "Read [empty]() and [hash](#) and [ok](./ok.md).",
+      "",
+      "- item [list link]()",
+      "",
+      "| col | link |",
+      "| --- | --- |",
+      "| a | [cell]() |",
+      "",
+      "> quoted [quote]()",
+      "",
+      "Inline `[code]()` stays.",
+      "",
+      "```md",
+      "[fenced]()",
+      "```",
+      "",
+    ].join(nl);
+    const rules = [ruleInvalidLinkTarget];
+
+    const firstViolations = lintDocument(doc, { rules });
+    expect(firstViolations.length).toBeGreaterThanOrEqual(5);
+    const once = applyAllFixes(doc, firstViolations);
+    expect(once).not.toBe(doc);
+    expect(once).toContain("[empty](TODO)");
+    expect(once).toContain("[ok](./ok.md)");
+
+    const secondViolations = lintDocument(once, { rules });
+    expect(secondViolations).toEqual([]);
+    expect(applyAllFixes(once, secondViolations)).toBe(once);
+  });
+});
