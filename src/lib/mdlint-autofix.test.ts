@@ -203,6 +203,24 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(expected, { rules })).toEqual([]);
   });
 
+  it("applyFix on the single invalid link in a list and table row leaves the valid links beside it untouched", () => {
+    const doc =
+      "- [good](./good.md)\n- [bad]()\n\n| a | b |\n| - | - |\n| [ok](https://example.com) | [bad2](?) |\n";
+    const expected =
+      "- [good](./good.md)\n- [bad](TODO)\n\n| a | b |\n| - | - |\n| [ok](https://example.com) | [bad2](?) |\n";
+    const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
+
+    expect(violations).toHaveLength(2);
+    // Applying just the first fix changes only that href.
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    // Applying both fixes also leaves both valid links byte-for-byte intact.
+    const all = applyAllFixes(doc, violations);
+    expect(all).toContain("[good](./good.md)");
+    expect(all).toContain("[ok](https://example.com)");
+    expect(all).toContain("[bad2](TODO)");
+    expect(lintDocument(all, { rules: [ruleInvalidLinkTarget] })).toEqual([]);
+  });
+
   it.each([
     "\n",
     "\r\n",
