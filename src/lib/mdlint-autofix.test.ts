@@ -9681,3 +9681,43 @@ describe("autofix: plain-text preservation", () => {
     expect(applyAllFixes(doc, violations)).toBe(doc);
   });
 });
+
+describe("autofix: invalid link at the end of a document", () => {
+  const rules = [ruleInvalidLinkTarget];
+
+  it("replaces the empty href with TODO, keeps the label, and changes nothing else", () => {
+    const doc = [
+      "# Getting Started",
+      "",
+      "Welcome to the guide.",
+      "This is the second paragraph with some *italic* and **bold** text.",
+      "",
+      "Read [the manual](./manual.md) for details.",
+      "",
+      "Also check [help page]() for more info.",
+      "",
+    ].join("\n");
+
+    const violations = lintDocument(doc, { rules });
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("invalid-link-target");
+
+    const fixed = applyAllFixes(doc, violations);
+
+    // Acceptance: href becomes TODO
+    expect(fixed).toContain("[help page](TODO)");
+    // Acceptance: label remains intact
+    expect(fixed).not.toContain("[TODO]");
+    // Acceptance: no unrelated text changes — prefix before the link is untouched
+    const linkIndex = fixed.indexOf("[help page](TODO)");
+    expect(fixed.slice(0, linkIndex)).toBe(doc.slice(0, doc.indexOf("[help page]()")));
+    // Suffix (trailing newline) is also untouched
+    const docAfter = doc.slice(doc.indexOf("[help page]()") + "[help page]()".length);
+    const fixedAfter = fixed.slice(linkIndex + "[help page](TODO)".length);
+    expect(fixedAfter).toBe(docAfter);
+    // Valid link in earlier paragraph is untouched
+    expect(fixed).toContain("[the manual](./manual.md)");
+    // Clean after fix
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
