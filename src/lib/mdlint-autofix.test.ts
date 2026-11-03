@@ -9350,3 +9350,41 @@ describe("rule:missing-alt-text image alone in an unordered list item", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+describe("autofix: invalid links in an ordered list", () => {
+  const rules = [ruleInvalidLinkTarget];
+
+  it.each([
+    ["empty", ""],
+    ["whitespace-only", "   "],
+    ["bare hash", "#"],
+  ])("replaces the %s destination with TODO and keeps each number, delimiter and label", (_name, href) => {
+    const doc = [
+      "Steps:",
+      "",
+      "1. Read [the **setup** guide](./setup.md) first.",
+      `2. Then open [Café menu ☕](${href}) next.`,
+      `10) Finally see [wrap-up](${href}).`,
+      "",
+    ].join("\n");
+    const expected = [
+      "Steps:",
+      "",
+      "1. Read [the **setup** guide](./setup.md) first.",
+      "2. Then open [Café menu ☕](TODO) next.",
+      "10) Finally see [wrap-up](TODO).",
+      "",
+    ].join("\n");
+
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual([
+      "invalid-link-target",
+      "invalid-link-target",
+    ]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+});
