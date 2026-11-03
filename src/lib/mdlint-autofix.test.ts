@@ -10666,6 +10666,22 @@ describe("autofix preserves bracketed [sic] prose", () => {
     expect(lintDocument(doc, { rules })).toEqual([]);
     expect(fixPass(doc)).toBe(doc);
   });
+
+  it.each([
+    ["heading", "# Teh [sic] title\n\nBody.\n"],
+    ["list item", "- wich [sic] item\n- next [sic]\n"],
+    ["blockquote", '> She said "recieve" [sic] twice.\n'],
+    ["table cell", "| a | b |\n| - | - |\n| teh [sic] | [sic] |\n"],
+    ["no trailing newline", "Quoted [sic]"],
+  ])("leaves [sic] unchanged inside a %s", (_name, doc) => {
+    expect(lintDocument(doc, { rules })).toEqual([]);
+    expect(fixPass(doc)).toBe(doc);
+  });
+
+  it("keeps [sic] and a hard line break exact in a blockquote while fixing a broken link", () => {
+    const doc = "> Teh [sic] note, see [x]().  \n> Done [sic].\n";
+    expect(fixPass(doc)).toBe("> Teh [sic] note, see [x](TODO).  \n> Done [sic].\n");
+  });
 });
 
 describe("autofix on a whitespace-only document", () => {
