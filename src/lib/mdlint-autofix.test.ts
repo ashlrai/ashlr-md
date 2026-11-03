@@ -2346,6 +2346,31 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    ["described image first", true],
+    ["undescribed image first", false],
+  ])("inserts the placeholder only for the undescribed image and keeps both sources (%s)", (_name, describedFirst) => {
+    const described = '![Chart of sales](images/sales.png?size=2#top "Sales")';
+    const undescribedSrc = "images/raw data.png?v=1";
+    const undescribed = `![](<${undescribedSrc}>)`;
+    const repaired = `![TODO: describe image](<${undescribedSrc}>)`;
+    const [a, b] = describedFirst ? [described, undescribed] : [undescribed, described];
+    const [expA, expB] = describedFirst ? [described, repaired] : [repaired, described];
+    const doc = `Intro.\n\n${a} and ${b} end.\n`;
+    const expected = `Intro.\n\n${expA} and ${expB} end.\n`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("missing-alt-text");
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.split("TODO: describe image")).toHaveLength(2);
+    expect(fixed).toContain(described);
+    expect(fixed).toContain(undescribedSrc);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
     "\n",
     "\r\n",
   ])("inserts the placeholder for an undescribed image without adding a final newline with %j line endings", (newline) => {
