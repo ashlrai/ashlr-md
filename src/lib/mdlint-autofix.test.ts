@@ -386,6 +386,31 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    ["-", "\n"],
+    ["*", "\r\n"],
+    ["+", "\n"],
+  ])("replaces lone # and ? destinations in a nested unordered list (marker %s) and keeps indentation, markers and text (line ending %j)", (marker, nl) => {
+    const rules = [ruleInvalidLinkTarget];
+    const doc = [
+      `${marker} Top [one](#) text`,
+      `  ${marker} Child [two](?) text, [ok](./ok.md)`,
+      `    ${marker} Grandchild plain`,
+      "",
+    ].join(nl);
+    const expected = [
+      `${marker} Top [one](TODO) text`,
+      `  ${marker} Child [two](TODO) text, [ok](./ok.md)`,
+      `    ${marker} Grandchild plain`,
+      "",
+    ].join(nl);
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(2);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+
+  it.each([
     ["blockquote", "> Quote [a b](  ) end\n", "> Quote [a b](TODO) end\n", "[a b](  )"],
     [
       "table cell",
