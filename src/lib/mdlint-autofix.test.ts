@@ -126,6 +126,25 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    "[read-me-first](./README.md)",
+    "[well-known-guide](https://example.com/guide?topic=lint#links)",
+    "[multi-word-label](#section)",
+  ])("autofix leaves the complete valid link with hyphenated label %j unchanged", (link) => {
+    for (const nl of ["\n", "\r\n"]) {
+      const doc = `---${nl}title: Guide${nl}---${nl}${nl}Start here: ${link} today.${nl}`;
+      const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
+
+      expect(violations).toEqual([]);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(doc);
+      expect(fixed).toContain(link);
+      expect(fixed).not.toContain("TODO");
+      // The full default rule set must not rewrite it either.
+      expect(applyAllFixes(doc, lintDocument(doc))).toBe(doc);
+    }
+  });
+
+  it.each([
     "\n",
     "\r\n",
   ])("preserves valid links and surrounding text when the document has no violations with %j line endings", (nl) => {
