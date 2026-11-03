@@ -1991,6 +1991,30 @@ describe("rule:invalid-link-target", () => {
   it.each([
     "\n",
     "\r\n",
+  ])("adds a placeholder to every undescribed image in one paragraph and keeps each destination in order with %j line endings", (newline) => {
+    const doc = `Intro.${newline}${newline}First ![](images/a.png) then ![](images/b%20c.png "B") and ![](images/c.png?v=2#top).${newline}`;
+    const expected = `Intro.${newline}${newline}First ![TODO: describe image](images/a.png) then ![TODO: describe image](images/b%20c.png "B") and ![TODO: describe image](images/c.png?v=2#top).${newline}`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(3);
+    expect(
+      violations.every((v) => v.ruleId === "missing-alt-text" && v.fix !== null),
+    ).toBe(true);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    const destinations = [...fixed.matchAll(/\]\(([^)]*)\)/g)].map((m) => m[1]);
+    expect(destinations).toEqual([
+      "images/a.png",
+      'images/b%20c.png "B"',
+      "images/c.png?v=2#top",
+    ]);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
+    "\n",
+    "\r\n",
   ])("inserts the placeholder when the undescribed image is the last text of the document with %j line endings", (newline) => {
     const doc = `Intro.${newline}${newline}![](images/chart.png "Chart")`;
     const expected = `Intro.${newline}${newline}![TODO: describe image](images/chart.png "Chart")`;
