@@ -1724,6 +1724,29 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    ["a single space", " "],
+    ["several spaces", "   "],
+    ["a tab", "\t"],
+    ["mixed spaces and tabs", " \t \t"],
+    ["a non-breaking space", " "],
+    ["an ideographic space", "　"],
+  ])("replaces a whitespace-only image description (%s) with the placeholder and keeps the source", (_name, alt) => {
+    const source = 'images/caf%C3%A9 diagram.png?size=2#preview "Diagram"';
+    const doc = `Intro café.\r\n\r\nSee ![${alt}](${source}) now.\r\n`;
+    const expected = `Intro café.\r\n\r\nSee ![TODO: describe image](${source}) now.\r\n`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("missing-alt-text");
+    expect(violations[0].fix).not.toBeNull();
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain(`(${source})`);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
     "\n",
     "\r\n",
   ])("preserves an absolute URL and surrounding text when fixing another link with %j line endings", (newline) => {
