@@ -8901,6 +8901,33 @@ describe("invalid-link-target autofix: link label preservation", () => {
     // Idempotence: fixing again produces the same result
     expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
   });
+
+  it("preserves a multiword label byte-for-byte while replacing a whitespace-only href", () => {
+    const label = "complete installation guide";
+    const doc = `Draft: [${label}](   ) plus [ok](./ok.md) stay.\n`;
+    const expected = `Draft: [${label}](TODO) plus [ok](./ok.md) stay.\n`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("invalid-link-target");
+    expect(violations[0].fix).not.toBeNull();
+    // The reported range covers the whole link, label included.
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(`[${label}](   )`);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain(`[${label}](TODO)`);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    // Idempotence: fixing again produces the same result.
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+    // The full default rule set makes the same label-preserving repair.
+    const full = `---\ntitle: Guide\n---\n\nDraft: [${label}](   ) plus [ok](./ok.md) stay.\n`;
+    expect(applyAllFixes(full, lintDocument(full))).toBe(
+      `---\ntitle: Guide\n---\n\nDraft: [${label}](TODO) plus [ok](./ok.md) stay.\n`,
+    );
+  });
 });
 
 describe("invalid-link-target autofix: empty href case", () => {
