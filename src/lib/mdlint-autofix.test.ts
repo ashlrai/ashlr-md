@@ -157,6 +157,24 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    ["no matching heading in the document", "#nowhere"],
+    ["underscores and digits", "#step_2-of-3"],
+    ["raw Unicode", "#einführung-概要"],
+    ["percent-encoded characters", "#caf%C3%A9"],
+    ["a single character", "#a"],
+  ])("leaves a link to a nonempty fragment unchanged (%s)", (_name, fragment) => {
+    for (const nl of ["\n", "\r\n"]) {
+      const link = `[jump](${fragment})`;
+      const doc = `Intro text.${nl}${nl}See ${link} for more.${nl}`;
+      const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
+
+      expect(violations).toEqual([]);
+      expect(applyAllFixes(doc, violations)).toBe(doc);
+      expect(applyAllFixes(doc, lintDocument(doc))).toContain(link);
+    }
+  });
+
+  it.each([
     "./guide.md#install-steps",
     "../docs/guide.md?view=full#install-steps",
     "https://example.com/docs/guide#install-steps",
