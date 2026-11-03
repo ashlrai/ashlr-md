@@ -9414,6 +9414,70 @@ describe("autofix: [sic] prose preservation", () => {
   });
 });
 
+// ─── [TODO] prose annotation survives autofix untouched ────────────────────────
+
+describe("autofix: [TODO] prose preservation", () => {
+  const rules = [ruleInvalidLinkTarget, ruleMissingAltText, ruleNoTrailingSpaces];
+  const fix = (doc: string) => applyAllFixes(doc, lintDocument(doc, { rules }));
+
+  it.each([
+    ["inline prose", "Remember [TODO] add unit tests for this module.\n"],
+    ["mid sentence", "The [TODO] fix is pending review.\n"],
+    ["end of sentence", "Run the build [TODO].\n"],
+    ["multiple", "[TODO] refactor and [TODO] test needed.\n"],
+  ])("leaves a %s [TODO] annotation and surrounding prose unchanged", (_name, doc) => {
+    expect(lintDocument(doc, { rules })).toEqual([]);
+    expect(fix(doc)).toBe(doc);
+  });
+
+  it.each([
+    [
+      "after the link",
+      "See [the guide]() [TODO] for the next step.\n",
+      "See [the guide](TODO) [TODO] for the next step.\n",
+    ],
+    [
+      "before the link",
+      "[TODO] draft: check [notes]() later.\n",
+      "[TODO] draft: check [notes](TODO) later.\n",
+    ],
+    [
+      "on both sides",
+      "A [TODO] [broken link]() [TODO], done.\n",
+      "A [TODO] [broken link](TODO) [TODO], done.\n",
+    ],
+    [
+      "touching the link",
+      "Read [broken]()[TODO] for now.\n",
+      "Read [broken](TODO)[TODO] for now.\n",
+    ],
+  ])("repairs an invalid link and preserves a [TODO] annotation %s", (_name, doc, expected) => {
+    const violations = lintDocument(doc, { rules });
+    expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(fix(fixed)).toBe(fixed);
+  });
+
+  it("keeps [TODO] exact while fixing missing alt text beside it", () => {
+    const doc = "Add [TODO] diagram ![](chart.png) here.\n";
+    expect(fix(doc)).toBe(
+      "Add [TODO] diagram ![TODO: describe image](chart.png) here.\n",
+    );
+  });
+
+  it("keeps [TODO] exact while fixing trailing spaces elsewhere", () => {
+    const doc = "Item [TODO] first.   \nNext line.\n";
+    expect(fix(doc)).toBe("Item [TODO] first.\nNext line.\n");
+  });
+
+  it("leaves [TODO] alone alongside [sic] in the same paragraph", () => {
+    const doc = 'He said "teh" [sic] -- [TODO] verify the source.\n';
+    expect(fix(doc)).toBe(doc);
+  });
+});
+
 describe("autofix: invalid link at the end of a document", () => {
   const rules = [ruleInvalidLinkTarget];
   const head = "# Notes\n\nSee [ok](./a.md) and *emphasis* first.\n\n";
