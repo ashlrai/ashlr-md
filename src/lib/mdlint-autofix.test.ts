@@ -9482,6 +9482,33 @@ describe("autofix: invalid link in a document without a final newline", () => {
       "invalid-link-target",
     );
   });
+
+  it.each([
+    [
+      "two invalid links, the last ends the file",
+      "See [a]() and [b](#)",
+      "See [a](TODO) and [b](TODO)",
+    ],
+    [
+      "hash-only href after frontmatter",
+      "---\ntitle: T\n---\n\n# T\n\nGo [here](#)",
+      "---\ntitle: T\n---\n\n# T\n\nGo [here](TODO)",
+    ],
+    [
+      "mixed CRLF with a valid sibling link",
+      "[ok](./a.md)\r\n\r\n[draft](   )",
+      "[ok](./a.md)\r\n\r\n[draft](TODO)",
+    ],
+  ])("fixes every invalid href and still adds no final newline (%s)", (_name, doc, expected) => {
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.length).toBeGreaterThan(0);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.endsWith("\n")).toBe(false);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
 });
 
 // ─── Bracketed prose ─────────────────────────────────────────────────────────
