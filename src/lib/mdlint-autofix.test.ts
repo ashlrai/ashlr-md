@@ -313,6 +313,36 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(expected)).toEqual([]);
   });
 
+  it("fixes two invalid links in separate paragraphs with different invalid patterns, keeping labels and prose intact", () => {
+    const doc =
+      "Read about [the overview](#) for a quick intro.\n\n" +
+      "For the full reference, visit [the guide]() and review the examples below.\n";
+    const expected =
+      "Read about [the overview](TODO) for a quick intro.\n\n" +
+      "For the full reference, visit [the guide](TODO) and review the examples below.\n";
+    const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
+
+    expect(violations).toHaveLength(2);
+    expect(violations.every((v) => v.ruleId === "invalid-link-target")).toBe(true);
+
+    // Labels and surrounding prose are byte-for-byte preserved.
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(expected).toContain("[the overview](TODO)");
+    expect(expected).toContain("[the guide](TODO)");
+    expect(expected).toContain("for a quick intro.");
+    expect(expected).toContain("For the full reference, visit");
+    expect(expected).toContain("and review the examples below.");
+
+    // A second lint pass on the fixed document reports no violations.
+    expect(lintDocument(expected, { rules: [ruleInvalidLinkTarget] })).toEqual([]);
+
+    // Idempotent: re-applying fixes changes nothing.
+    const fixed = applyAllFixes(doc, violations);
+    expect(
+      applyAllFixes(fixed, lintDocument(fixed, { rules: [ruleInvalidLinkTarget] })),
+    ).toBe(fixed);
+  });
+
   it.each([
     ["LF", "\n"],
     ["CRLF", "\r\n"],
