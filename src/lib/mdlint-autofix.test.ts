@@ -1433,6 +1433,24 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 
+  it.each([
+    ["relative SVG with a bare fragment", "![Logo](assets/logo.svg#icon)"],
+    ["fragment-only source", "![Figure one](#figure-1)"],
+    ["angle-bracket source with a fragment", "![Spaced](<my images/a b.svg#part>)"],
+    ["fragment and title", '![Chart](chart.png#top "Chart")'],
+  ])("preserves a described image whose source has a fragment (%s)", (_name, image) => {
+    const rules = [ruleInvalidLinkTarget, ruleMissingAltText];
+    for (const newline of ["\n", "\r\n"]) {
+      const doc = `Intro café.${newline}${newline}Before ${image} after.${newline}`;
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations).toEqual([]);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(doc);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+    }
+  });
+
   it("preserves a described image with an HTTPS source and its query, fragment and title", () => {
     const image =
       '![Release chart](https://cdn.example.com/img/chart.png?size=2&v=1#top "Chart")';
