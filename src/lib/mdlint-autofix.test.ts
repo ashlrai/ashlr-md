@@ -393,6 +393,20 @@ describe("rule:invalid-link-target", () => {
     expect(applyAllFixes(doc, lintDocument(doc))).toBe(doc);
   });
 
+  it("preserves a valid fragment-only link and surrounding prose under autofix", () => {
+    for (const nl of ["\n", "\r\n"]) {
+      const doc = `---${nl}title: Setup${nl}---${nl}${nl}# Setup${nl}${nl}Before the [setup steps](#setup) begin. Read the [quick start](#quick-start) too.${nl}${nl}## Setup${nl}${nl}Follow these instructions.${nl}${nl}## Quick Start${nl}${nl}Get up and running.${nl}`;
+      const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
+
+      // No violations -- fragment-only links are valid targets.
+      expect(violations).toEqual([]);
+      // applyAllFixes with empty violations returns the unchanged document.
+      expect(applyAllFixes(doc, violations)).toBe(doc);
+      // Full default rule set: document is a fixed point, prose is untouched.
+      expect(applyAllFixes(doc, lintDocument(doc))).toBe(doc);
+    }
+  });
+
   it("replaces an invalid href at offset 0 of the document with TODO and preserves the following prose", () => {
     const doc =
       "[start link]() opens the doc, then **prose** and [ok](./a.md) follow.\n";
