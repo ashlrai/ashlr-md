@@ -10629,6 +10629,10 @@ describe("autofix: bracketed-word prose preservation", () => {
     ["task marker and footnote", "- [ ] todo [^1] item [x]"],
     ["collapsed reference", "See [word][] and [other][ref] here."],
     ["nested brackets", "A [[nested]] word and [a [b] c] span."],
+    [
+      "numeric citation",
+      "As shown in prior work [1], results hold; see also [1] and [12].",
+    ],
   ])("leaves bracketed prose untouched (%s)", (_label, doc) => {
     const violations = lintDocument(doc, { rules });
     expect(violations).toEqual([]);
