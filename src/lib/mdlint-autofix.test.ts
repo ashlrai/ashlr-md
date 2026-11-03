@@ -183,6 +183,24 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(expected)).toEqual([]);
   });
 
+  it.each(["", "   "])(
+    "replaces the invalid href %j with TODO and keeps a hyphenated label and surrounding text",
+    (href) => {
+      const doc = `---\ntitle: Guide\n---\n\nSee the [follow-up-guide](${href}) for well-known steps, then [ref](./guide.md).\n`;
+      const expected =
+        "---\ntitle: Guide\n---\n\nSee the [follow-up-guide](TODO) for well-known steps, then [ref](./guide.md).\n";
+      const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
+
+      expect(violations).toHaveLength(1);
+      expect(violations[0].ruleId).toBe("invalid-link-target");
+      const { from, to } = violations[0].range!;
+      expect(doc.slice(from.offset, to.offset)).toBe(`[follow-up-guide](${href})`);
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      expect(applyAllFixes(doc, violations)).toBe(expected);
+      expect(lintDocument(expected)).toEqual([]);
+    },
+  );
+
   it.each([
     ["CJK, combining mark and ZWJ emoji", "日本語ガイド café 👩🏽‍💻"],
     ["right-to-left script", "دليل المستخدم"],
