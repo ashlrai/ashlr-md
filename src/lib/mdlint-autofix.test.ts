@@ -10460,6 +10460,30 @@ describe("autofix preserves bracketed TODO prose like [TODO]", () => {
   });
 });
 
+describe("autofix preserves [TODO] prose in varied markdown contexts", () => {
+  const rules = [ruleInvalidLinkTarget, ruleMissingAltText, ruleNoTrailingSpaces];
+  const fixPass = (text: string) => applyAllFixes(text, lintDocument(text, { rules }));
+
+  it.each([
+    ["heading", "# Plan [TODO]\n\nBody text.\n"],
+    ["list item", "- [TODO] write docs\n- [TODO] add tests\n"],
+    ["blockquote", "> [TODO] revisit this\n"],
+    ["emphasis", "Do **[TODO]** and *[TODO]* now.\n"],
+    ["CRLF", "Line [TODO] one\r\nLine [TODO] two\r\n"],
+    ["valid link labelled TODO", "See [TODO](./todo.md) for details.\n"],
+  ])("leaves [TODO] untouched in a %s", (_label, doc) => {
+    expect(lintDocument(doc, { rules })).toEqual([]);
+    expect(fixPass(doc)).toBe(doc);
+  });
+
+  it("keeps the [TODO] label when the link itself has an empty target", () => {
+    const doc = "Open [TODO]() then [TODO] again.\n";
+    const fixed = fixPass(doc);
+    expect(fixed).toBe("Open [TODO](TODO) then [TODO] again.\n");
+    expect(fixPass(fixed)).toBe(fixed);
+  });
+});
+
 describe("autofix of an undescribed image between two paragraphs", () => {
   it.each([
     "\n",
