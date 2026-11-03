@@ -3719,6 +3719,34 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 
+  it.each([
+    ["no trailing newline", ""],
+    ["one trailing newline", "\n"],
+    ["trailing blank lines", "\n\n\n"],
+  ])("inserts TODO into a last-line heading link after a fenced example and keeps all preceding text (%s)", (_name, ending) => {
+    const prefix = [
+      "# Notes",
+      "",
+      "```md",
+      "[example]()",
+      "```",
+      "",
+      "Earlier [ok](./ok.md) text with `[code]()` stays.",
+      "",
+      "## See ",
+    ].join("\n");
+    const doc = `${prefix}[more](#)${ending}`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    expect(violations[0].range?.from.offset).toBe(prefix.length);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(`${prefix}[more](TODO)${ending}`);
+    expect(fixed.startsWith(prefix)).toBe(true);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
   it("repairs a final invalid link with all built-in rules without adding a trailing newline", () => {
     const prefix = "---\ntitle: Guide\n---\n\n# Guide\n\nSee [docs](./guide.md) and ";
     const doc = `${prefix}[draft]()`;
