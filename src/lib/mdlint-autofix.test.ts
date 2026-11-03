@@ -319,6 +319,21 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 
+  it("replaces each of two invalid destinations with TODO and preserves both link labels", () => {
+    const doc = "Read [First Guide]() and [Second *Guide*](#) today.\n";
+    const expected = "Read [First Guide](TODO) and [Second *Guide*](TODO) today.\n";
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(2);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain("[First Guide]");
+    expect(fixed).toContain("[Second *Guide*]");
+    expect(fixed.match(/\]\(TODO\)/g)).toHaveLength(2);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
   it("applyFix on the single invalid link in a list and table row leaves the valid links beside it untouched", () => {
     const doc =
       "- [good](./good.md)\n- [bad]()\n\n| a | b |\n| - | - |\n| [ok](https://example.com) | [bad2](?) |\n";
