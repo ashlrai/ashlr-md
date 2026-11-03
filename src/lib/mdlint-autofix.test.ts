@@ -9483,3 +9483,36 @@ describe("autofix: invalid links in an ordered list", () => {
     expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
   });
 });
+
+describe("invalid-link-target autofix: idempotence inside blockquotes, tables and headings", () => {
+  const rules = [ruleInvalidLinkTarget];
+  const fixPass = (text: string) => applyAllFixes(text, lintDocument(text, { rules }));
+
+  it("applying the autofix twice equals applying it once", () => {
+    const doc = [
+      "## See [docs]()",
+      "",
+      "> quoted [a](#) and [b]( )",
+      "",
+      "| col | link |",
+      "| --- | --- |",
+      "| x | [c](?) |",
+      "",
+    ].join("\n");
+    const once = fixPass(doc);
+    expect(once).toBe(
+      [
+        "## See [docs](TODO)",
+        "",
+        "> quoted [a](TODO) and [b](TODO)",
+        "",
+        "| col | link |",
+        "| --- | --- |",
+        "| x | [c](TODO) |",
+        "",
+      ].join("\n"),
+    );
+    expect(fixPass(once)).toBe(once);
+    expect(lintDocument(once, { rules })).toEqual([]);
+  });
+});
