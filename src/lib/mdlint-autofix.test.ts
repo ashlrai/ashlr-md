@@ -8578,3 +8578,24 @@ describe("autofix: a described image with no other findings", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+describe("invalid-link autofix: whitespace-only href beside a code span", () => {
+  it.each([
+    "\n",
+    "\r\n",
+  ])("sets the real link's href to TODO, keeps its label, and leaves a lookalike inside a code span unchanged with %j line endings", (nl) => {
+    const doc = `Use \`[sample](   )\` as text, then open [real guide](   ) now.${nl}Done.${nl}`;
+    const expected = `Use \`[sample](   )\` as text, then open [real guide](TODO) now.${nl}Done.${nl}`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe("[real guide](   )");
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(expected);
+  });
+});
