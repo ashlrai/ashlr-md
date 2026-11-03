@@ -449,6 +449,30 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    ["Korean and Hebrew", "안내서 מדריך"],
+    ["astral math letters", "𝐆𝐮𝐢𝐝𝐞 𝟏"],
+    ["fullwidth brackets and CJK punctuation", "【ガイド】（初級）"],
+    ["precomposed and decomposed forms side by side", "é é ß İ"],
+  ])("fixes an invalid link whose label is Unicode (%s) after astral characters and before a second invalid link", (_name, label) => {
+    const lead = "😀 𝄞 ";
+    const doc = `${lead}[${label}]() then [Ünï second]( ) end.\n`;
+    const expected = `${lead}[${label}](TODO) then [Ünï second](TODO) end.\n`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(2);
+    expect(violations.every((v) => v.ruleId === "invalid-link-target")).toBe(true);
+    // Offsets stay correct after surrogate pairs earlier on the line.
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(`[${label}]()`);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain(`[${label}](TODO)`);
+    expect(fixed.normalize("NFC")).toBe(expected.normalize("NFC"));
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
     "\n",
     "\r\n",
   ])("mixed valid and invalid links: autofix changes only the invalid href and keeps every valid link (%j)", (nl) => {
