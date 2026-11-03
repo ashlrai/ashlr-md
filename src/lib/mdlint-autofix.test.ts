@@ -7994,6 +7994,38 @@ describe("invalid-link-target autofix: preserves surrounding content", () => {
   });
 });
 
+describe("invalid-link-target autofix: invalid link in a blockquote", () => {
+  it("replaces the invalid href with TODO and keeps the blockquote, nesting and surrounding text", () => {
+    const doc = [
+      "Intro before the quote.",
+      "",
+      "> Quoted text with an [empty link]() and a [valid one](https://example.com).",
+      "> > Nested [hash only](#) stays quoted.",
+      "",
+      "Outro after the quote.",
+      "",
+    ].join("\n");
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+    expect(violations).toHaveLength(2);
+
+    const fixed = applyAllFixes(doc, violations);
+
+    expect(fixed).toBe(
+      [
+        "Intro before the quote.",
+        "",
+        "> Quoted text with an [empty link](TODO) and a [valid one](https://example.com).",
+        "> > Nested [hash only](TODO) stays quoted.",
+        "",
+        "Outro after the quote.",
+        "",
+      ].join("\n"),
+    );
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
+
 describe("link and image autofix: mixed-fix idempotence", () => {
   const rules = [ruleInvalidLinkTarget, ruleMissingAltText];
   const fixPass = (text: string) => applyAllFixes(text, lintDocument(text, { rules }));
