@@ -11501,3 +11501,45 @@ describe("rule:missing-alt-text undescribed image on the last line without a fin
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+describe("autofix: an undescribed image in an unordered list item", () => {
+  it.each([
+    ["-", "\n"],
+    ["*", "\n"],
+    ["+", "\r\n"],
+  ])("inserts the placeholder and keeps the %s marker, text and line endings (%j)", (marker, nl) => {
+    const doc = [
+      "Intro café.",
+      "",
+      `${marker} Before ![](images/a b.png "Title") after.`,
+      `${marker} Plain item.`,
+      "",
+    ].join(nl);
+    const expected = [
+      "Intro café.",
+      "",
+      `${marker} Before ![TODO: describe image](images/a b.png "Title") after.`,
+      `${marker} Plain item.`,
+      "",
+    ].join(nl);
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("missing-alt-text");
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it("fixes only the undescribed image in a nested list item and leaves a described sibling alone", () => {
+    const doc = "- Top\n  - ![](deep.png) caption\n  - ![Chart](ok.png)\n";
+    const expected =
+      "- Top\n  - ![TODO: describe image](deep.png) caption\n  - ![Chart](ok.png)\n";
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+  });
+});
