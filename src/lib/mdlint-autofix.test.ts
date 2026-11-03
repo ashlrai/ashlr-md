@@ -1320,6 +1320,32 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    "\n",
+    "\r\n",
+  ])("preserves a bracketed numeric citation [42] and its surrounding text exactly while fixing neighbors (line endings %j)", (nl) => {
+    const doc = `As shown in prior work [42], see [draft]() and ![](fig.png) too.${nl}Cited again (see [42]); [42].${nl}`;
+    const expected = `As shown in prior work [42], see [draft](TODO) and ![TODO: describe image](fig.png) too.${nl}Cited again (see [42]); [42].${nl}`;
+    const rules = [ruleInvalidLinkTarget, ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId).sort()).toEqual([
+      "invalid-link-target",
+      "missing-alt-text",
+    ]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.match(/\[42\]/g)).toHaveLength(3);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it("leaves a document containing only a [42] citation untouched", () => {
+    const doc = "Claim [42].\n";
+    expect(
+      lintDocument(doc, { rules: [ruleInvalidLinkTarget, ruleMissingAltText] }),
+    ).toEqual([]);
+  });
+
+  it.each([
     "https://example.com/a_(b)?q=1&r=2#frag",
     "mailto:team@example.com",
     "#install",
