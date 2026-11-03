@@ -10693,6 +10693,30 @@ describe("autofix: valid relative link preservation", () => {
     expect(lintDocument(doc, { rules })).toEqual([]);
     expect(fix(doc)).toBe(doc);
   });
+
+  it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+  ])("leaves a bare link to guide.md and its surrounding text unchanged (%s)", (_name, nl) => {
+    const link = "[guide](guide.md)";
+    const doc = `---${nl}title: Manual${nl}---${nl}${nl}# Manual${nl}${nl}Read the ${link} first, then continue here.${nl}`;
+    expect(lintDocument(doc, { rules })).toEqual([]);
+    expect(fix(doc)).toBe(doc);
+    expect(fix(doc)).toContain(link);
+    expect(applyAllFixes(doc, lintDocument(doc))).toBe(doc);
+  });
+
+  it("keeps a guide.md link and its surrounding text intact while fixing an empty link on the same line", () => {
+    const link = "[guide](guide.md)";
+    const doc = `Read ${link} and [broken]() today.\n`;
+    const violations = lintDocument(doc, { rules });
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("invalid-link-target");
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(`Read ${link} and [broken](TODO) today.\n`);
+    expect(fixed).toContain(link);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
 });
 
 // ─── Fragment links survive autofix untouched ──────────────────────────────
