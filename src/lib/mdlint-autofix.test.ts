@@ -380,6 +380,7 @@ describe("rule:invalid-link-target", () => {
     ["lone #", "#"],
     ["lone ?", "?"],
     ["whitespace only", "   "],
+    ["tab only", "\t"],
   ])("replaces a %s href at document start with TODO and preserves the following text", (_name, href) => {
     const tail = " then *emphasis* and [ok](./a.md) follow.\n";
     const doc = `[first](${href})${tail}`;
