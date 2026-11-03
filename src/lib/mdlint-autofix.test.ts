@@ -12429,3 +12429,45 @@ describe("autofix keeps [TODO] prose at document edges, in tables and in fences"
     expect(fixPass(doc)).toBe("[TODO] mid [bad](TODO) end [TODO]");
   });
 });
+
+// ─── Valid HTTP link preservation ────────────────────────────────────────────
+
+describe("autofix: valid HTTP link preservation", () => {
+  const rules = [ruleInvalidLinkTarget];
+
+  it.each([
+    ["plain http", "http://example.com"],
+    ["http with port", "http://example.com:8080/docs"],
+    ["http with query and fragment", "http://example.com/find?q=lint&page=2#hit"],
+    ["http loopback", "http://localhost:3000/health"],
+    ["https subdomain", "https://docs.example.com/a/b.html"],
+  ])("leaves the %s link and surrounding text unchanged while fixing a broken sibling", (_name, href) => {
+    for (const nl of ["\n", "\r\n"]) {
+      const link = `[reference](${href})`;
+      const doc = `Start here. Read the ${link}, then fix [todo]() and stop.${nl}`;
+      const expected = `Start here. Read the ${link}, then fix [todo](TODO) and stop.${nl}`;
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations).toHaveLength(1);
+      expect(violations[0].ruleId).toBe("invalid-link-target");
+      expect(
+        doc.slice(violations[0].range!.from.offset, violations[0].range!.to.offset),
+      ).toBe("[todo]()");
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      expect(fixed).toContain(link);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+    }
+  });
+
+  it("leaves a standalone valid HTTP link and its surrounding text byte-for-byte unchanged under the default rules", () => {
+    for (const nl of ["\n", "\r\n"]) {
+      const doc = `---${nl}title: Links${nl}---${nl}${nl}# Links${nl}${nl}Before text. See [the site](http://example.com/guide) now. After text.${nl}`;
+      const violations = lintDocument(doc);
+
+      expect(violations).toEqual([]);
+      expect(applyAllFixes(doc, violations)).toBe(doc);
+      expect(applyAllFixes(doc, lintDocument(doc, { rules }))).toBe(doc);
+    }
+  });
+});
