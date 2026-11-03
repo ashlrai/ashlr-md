@@ -10570,3 +10570,31 @@ describe("rule:missing-alt-text undescribed image in a loose unordered list", ()
     expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
   });
 });
+
+describe("autofix: bracketed-word prose preservation", () => {
+  const rules = [ruleInvalidLinkTarget, ruleMissingAltText];
+
+  it.each([
+    ["editorial insertion", "He said [sic] twice."],
+    ["task marker and footnote", "- [ ] todo [^1] item [x]"],
+    ["collapsed reference", "See [word][] and [other][ref] here."],
+    ["nested brackets", "A [[nested]] word and [a [b] c] span."],
+  ])("leaves bracketed prose untouched (%s)", (_label, doc) => {
+    const violations = lintDocument(doc, { rules });
+    expect(violations).toEqual([]);
+    expect(applyAllFixes(doc, violations)).toBe(doc);
+  });
+
+  it("keeps brackets and surrounding prose exactly while fixing a neighbouring link and image", () => {
+    const doc = "Said [sic] then [draft]() and [aside] ![](a.png) plus [2] end.\n";
+    const violations = lintDocument(doc, { rules });
+    expect(violations).toHaveLength(2);
+
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(
+      "Said [sic] then [draft](TODO) and [aside] ![TODO: describe image](a.png) plus [2] end.\n",
+    );
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+});
