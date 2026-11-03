@@ -11307,6 +11307,43 @@ describe("rule:missing-alt-text undescribed image in a blockquote", () => {
   });
 });
 
+describe("rule:missing-alt-text undescribed image in a blockquote with surrounding text", () => {
+  it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+  ])("keeps each quote prefix, the unquoted text around the quote and the image title and source (%s)", (_name, nl) => {
+    const doc = [
+      "Before the quote, café.",
+      "",
+      ">![](tight.png)",
+      ">",
+      '>   Indented ![](<my pics/a b.png> "Title") text.',
+      "",
+      "After the quote.",
+    ].join(nl);
+    const expected = [
+      "Before the quote, café.",
+      "",
+      ">![TODO: describe image](tight.png)",
+      ">",
+      '>   Indented ![TODO: describe image](<my pics/a b.png> "Title") text.',
+      "",
+      "After the quote.",
+    ].join(nl);
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(2);
+    expect(
+      violations.every((v) => v.ruleId === "missing-alt-text" && v.fix !== null),
+    ).toBe(true);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+});
+
 describe("link and image autofix: invalid link wrapping an undescribed image", () => {
   const rules = [ruleInvalidLinkTarget, ruleMissingAltText];
   const fixPass = (text: string) => applyAllFixes(text, lintDocument(text, { rules }));
