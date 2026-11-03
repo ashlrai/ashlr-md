@@ -9063,3 +9063,25 @@ describe("autofix: valid relative link preservation", () => {
     expect(fix(doc)).toBe("# Title\n\nSee [guide](./docs/guide.md) here.\nTrailing\n");
   });
 });
+
+// ─── [sic] prose annotation survives autofix untouched ───────────────────────
+
+describe("autofix: [sic] prose preservation", () => {
+  const rules = [ruleInvalidLinkTarget, ruleMissingAltText, ruleNoTrailingSpaces];
+  const fix = (doc: string) => applyAllFixes(doc, lintDocument(doc, { rules }));
+
+  it.each([
+    ["inline quote", 'He wrote "teh quick fox" [sic] in the memo.\n'],
+    ["italic variant", "The sign said *recieve* [_sic_] at the door.\n"],
+    ["end of sentence", 'They were "definately" right [sic].\n'],
+    ["uppercase", 'Quoted as written: "alot" [SIC] and moved on.\n'],
+  ])("leaves a %s [sic] annotation and surrounding prose unchanged", (_name, doc) => {
+    expect(lintDocument(doc, { rules })).toEqual([]);
+    expect(fix(doc)).toBe(doc);
+  });
+
+  it("keeps [sic] exact while fixing trailing spaces elsewhere", () => {
+    const doc = 'Said "wich" [sic] again.   \nNext line.\n';
+    expect(fix(doc)).toBe('Said "wich" [sic] again.\nNext line.\n');
+  });
+});
