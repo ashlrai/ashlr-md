@@ -1232,6 +1232,22 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    "\n",
+    "\r\n",
+  ])("preserves bracketed prose like [1] while replacing an invalid link destination with TODO (line endings %j)", (nl) => {
+    const doc = `Results [1] show growth, see [draft]() and note [2].${nl}Also [1] again, [1].${nl}`;
+    const expected = `Results [1] show growth, see [draft](TODO) and note [2].${nl}Also [1] again, [1].${nl}`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.match(/\[1\]/g)).toHaveLength(3);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
     "https://example.com/a_(b)?q=1&r=2#frag",
     "mailto:team@example.com",
     "#install",
