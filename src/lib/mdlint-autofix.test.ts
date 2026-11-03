@@ -8066,3 +8066,33 @@ describe("autofix: empty href on a link with an empty label", () => {
     expect(lintDocument(expected, { rules })).toEqual([]);
   });
 });
+
+describe("autofix: invalid links in CRLF list and blockquote lines", () => {
+  const rules = [ruleInvalidLinkTarget];
+
+  it("inserts the TODO placeholder per line, never swallows a \\r, and keeps every CRLF intact", () => {
+    const doc =
+      "# Links\r\n\r\n- [first]()\r\n- [ok](./a.md)\r\n- [third](   )\r\n\r\n> [quoted](#)\r\n> tail\r\n";
+    const expected =
+      "# Links\r\n\r\n- [first](TODO)\r\n- [ok](./a.md)\r\n- [third](TODO)\r\n\r\n> [quoted](TODO)\r\n> tail\r\n";
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual([
+      "invalid-link-target",
+      "invalid-link-target",
+      "invalid-link-target",
+    ]);
+    for (const v of violations) {
+      const { from, to } = v.range!;
+      const slice = doc.slice(from.offset, to.offset);
+      expect(slice).not.toMatch(/[\r\n]/);
+      expect(applyFix(doc, v)).toContain("(TODO)");
+    }
+
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.match(/\r\n/g)).toHaveLength(doc.match(/\r\n/g)!.length);
+    expect(fixed.replace(/\r\n/g, "")).not.toMatch(/[\r\n]/);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+});
