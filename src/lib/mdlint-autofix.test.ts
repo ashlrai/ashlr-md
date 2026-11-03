@@ -1776,6 +1776,26 @@ describe("rule:invalid-link-target", () => {
   it.each([
     "\n",
     "\r\n",
+  ])("is idempotent: a second autofix pass over undescribed images equals the first pass (line ending %j)", (newline) => {
+    const doc = [
+      "![](images/a.png)",
+      'Mid ![ ](images/b c.png?v=2#top "T") and ![](https://example.com/d.svg) end.',
+      "![described](images/keep.png)",
+      "",
+    ].join(newline);
+    const rules = [ruleMissingAltText];
+
+    const first = applyAllFixes(doc, lintDocument(doc, { rules }));
+    expect(first.match(/!\[TODO: describe image\]/g)).toHaveLength(3);
+
+    const secondViolations = lintDocument(first, { rules });
+    expect(secondViolations).toEqual([]);
+    expect(applyAllFixes(first, secondViolations)).toBe(first);
+  });
+
+  it.each([
+    "\n",
+    "\r\n",
   ])("preserves an absolute URL and surrounding text when fixing another link with %j line endings", (newline) => {
     const valid =
       '[café guide](https://example.com/a%20b?tag=one&tag=two&empty=#section "Guide title")';
