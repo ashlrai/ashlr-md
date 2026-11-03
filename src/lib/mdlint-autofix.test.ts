@@ -866,6 +866,35 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    [
+      "touching, image first",
+      "![Release chart](chart.png)[notes](#)",
+      "![Release chart](chart.png)[notes](TODO)",
+    ],
+    [
+      "touching, link first",
+      "[notes](?)![Release chart](chart.png)",
+      "[notes](TODO)![Release chart](chart.png)",
+    ],
+    [
+      "angle-bracket image path with a title",
+      '[notes]( ) ![Plan *v2*](<img/plan v2.png> "Plan")',
+      '[notes](TODO) ![Plan *v2*](<img/plan v2.png> "Plan")',
+    ],
+  ])("replaces the invalid href and keeps the described image exactly (%s)", (_name, source, expected) => {
+    const doc = `Intro café.\n\n${source}\n`;
+    const rules = [ruleInvalidLinkTarget, ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "invalid-link-target",
+    ]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(`Intro café.\n\n${expected}\n`);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
     "\n",
     "\r\n",
   ])("changes only the link destination for an invalid link and valid image in one wrapped paragraph (%j)", (newline) => {
