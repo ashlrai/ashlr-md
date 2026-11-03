@@ -301,6 +301,28 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    ["dash", "- "],
+    ["star", "* "],
+    ["plus", "+ "],
+    ["ordered", "12. "],
+    ["nested", "  - "],
+    ["task", "- [ ] "],
+  ])("inserts TODO into an empty link in a %s list item and keeps the marker and text", (_name, marker) => {
+    const rules = [ruleInvalidLinkTarget];
+    for (const nl of ["\n", "\r\n"]) {
+      const doc = `# L${nl}${nl}${marker}before [bad]() after${nl}${marker}other${nl}`;
+      const expected = `# L${nl}${nl}${marker}before [bad](TODO) after${nl}${marker}other${nl}`;
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations).toHaveLength(1);
+      expect(doc.slice(violations[0].range!.from.offset, violations[0].range!.to.offset)).toBe("[bad]()");
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      expect(applyAllFixes(doc, violations)).toBe(expected);
+      expect(lintDocument(expected, { rules })).toEqual([]);
+    }
+  });
+
+  it.each([
     "\n",
     "\r\n",
   ])("preserves valid links and surrounding text when the document has no violations with %j line endings", (nl) => {
