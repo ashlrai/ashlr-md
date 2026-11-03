@@ -10419,6 +10419,26 @@ describe("rule:missing-alt-text undescribed image in an ordered list", () => {
   });
 });
 
+describe("rule:missing-alt-text undescribed image in a bulleted list", () => {
+  it.each([
+    ["dash marker", "- ", "images/chart.png"],
+    ["asterisk marker", "* ", "images/a%20b.png?v=2#top"],
+    ["plus marker", "+ ", 'images/chart.png "Chart"'],
+    ["nested dash marker", "  - ", "images/chart.png"],
+  ])("adds the description placeholder and keeps the list marker and image source (%s)", (_name, marker, dest) => {
+    const doc = `Items:\n\n${marker}See ![](${dest}) here.\n${marker}Second item.\n`;
+    const expected = `Items:\n\n${marker}See ![TODO: describe image](${dest}) here.\n${marker}Second item.\n`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].fix).not.toBeNull();
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
+
 describe("rule:missing-alt-text undescribed image in a blockquote", () => {
   it.each([
     ["LF", "\n"],
