@@ -429,6 +429,26 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(once, opts)).toEqual([]);
   });
 
+  it.each([
+    ["-"],
+    ["*"],
+    ["+"],
+    ["  -"],
+    ["1."],
+  ])("gives the invalid href in a list item with marker %j a TODO destination and keeps the marker and surrounding text", (marker) => {
+    const doc = `Intro line.\n${marker} Before [the guide](  ) after, see [ok](./ok.md).\n${marker} Next item.\n`;
+    const expected = `Intro line.\n${marker} Before [the guide](TODO) after, see [ok](./ok.md).\n${marker} Next item.\n`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(fixed).toContain(`${marker} Before [the guide](TODO) after,`);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
   it("fixes two invalid hrefs inside list items and emphasis, keeping markers, nesting and a valid neighbour intact", () => {
     const doc =
       "- **[bold one]()** then [ok](./ok.md)\n- _see [second](  )_ and done\n";
