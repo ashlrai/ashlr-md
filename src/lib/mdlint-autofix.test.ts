@@ -154,6 +154,25 @@ describe("rule:invalid-link-target", () => {
     expect(applyAllFixes(doc, lintDocument(doc))).toBe(doc);
   });
 
+  it.each([
+    ["a single digit", "7"],
+    ["a year", "2024"],
+    ["a decimal", "3.14"],
+    ["leading zeros", "007"],
+  ])("replaces an empty href with TODO and keeps a numeric label (%s)", (_name, label) => {
+    const doc = `---\ntitle: Guide\n---\n\nSee [${label}]() and [reference](./guide.md).\n`;
+    const expected = `---\ntitle: Guide\n---\n\nSee [${label}](TODO) and [reference](./guide.md).\n`;
+    const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("invalid-link-target");
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(`[${label}]()`);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules: [ruleInvalidLinkTarget] })).toEqual([]);
+  });
+
   it("replaces a whitespace-only href with TODO while preserving the link text", () => {
     const doc =
       "---\ntitle: Guide\n---\n\nRead [café guide](   ) and [reference](./guide.md).\n";
