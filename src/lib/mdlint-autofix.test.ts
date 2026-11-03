@@ -559,6 +559,41 @@ describe("rule:invalid-link-target", () => {
     expect(applyAllFixes(doc, lintDocument(doc))).toBe(doc);
   });
 
+  it.each([
+    [
+      "an IPv4 host, port and userinfo",
+      "https://ops@192.168.1.20:8443/releases/v2.4?channel=stable#notes",
+    ],
+    ["raw Unicode path segments", "https://example.com/guides/日本語/入門#概要"],
+    [
+      "a subdomain chain and deep path",
+      "https://docs.api.eu-west-1.example.com/v3/reference/endpoints/list",
+    ],
+  ])("autofix leaves a valid HTTPS link with %s and its surrounding text unchanged", (_name, href) => {
+    for (const nl of ["\n", "\r\n"]) {
+      const link = `[status](${href})`;
+      const doc = [
+        "---",
+        "title: Status",
+        "---",
+        "",
+        "# Status",
+        "",
+        `Check ${link} before deploying; outages are rare.`,
+        "",
+        `- On-call reads ${link} daily.`,
+        `> **Note:** ${link} refreshes hourly.`,
+        "",
+      ].join(nl);
+      const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
+
+      expect(violations).toEqual([]);
+      expect(applyAllFixes(doc, violations)).toBe(doc);
+      // The full default rule set must not rewrite the link or the prose either.
+      expect(applyAllFixes(doc, lintDocument(doc))).toBe(doc);
+    }
+  });
+
   it("replaces an invalid href at offset 0 of the document with TODO and preserves the following prose", () => {
     const doc =
       "[start link]() opens the doc, then **prose** and [ok](./a.md) follow.\n";
