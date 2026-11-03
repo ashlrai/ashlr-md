@@ -9886,3 +9886,21 @@ describe("autofix: valid HTTPS link preservation", () => {
     expect(applyAllFixes(doc, lintDocument(doc, { rules }))).toBe(doc);
   });
 });
+
+describe("valid HTTPS image source preservation", () => {
+  it.each([
+    ["plain", "![Release chart](https://example.com/chart.png)"],
+    [
+      "query, fragment and title",
+      '![Café *chart*](https://cdn.example.com/a%20b.png?size=2&theme=dark#preview "Chart (v2)")',
+    ],
+    ["angle-bracket destination", "![Plan](<https://example.com/plan v2.png>)"],
+  ])("leaves a described image with an HTTPS source unchanged (%s)", (_name, image) => {
+    const doc = `Intro café.\r\n\r\nSee ${image} here.\r\n`;
+    const rules = [ruleInvalidLinkTarget, ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toEqual([]);
+    expect(applyAllFixes(doc, violations)).toBe(doc);
+  });
+});
