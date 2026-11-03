@@ -8656,3 +8656,24 @@ describe("autofix: a described image with no other findings", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+describe("rule:invalid-link-target — invalid link beside a valid link", () => {
+  it.each([
+    ["invalid first", "[broken]()", "[fine](https://example.com/ok)"],
+    ["valid first", "[fine](https://example.com/ok)", "[broken](   )"],
+  ])("sets only the invalid href to TODO and leaves the valid link unchanged (%s)", (_name, a, b) => {
+    const doc = `Links: ${a} and ${b}.\n`;
+    const expected = doc
+      .replace("[broken]()", "[broken](TODO)")
+      .replace("[broken](   )", "[broken](TODO)");
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain("[broken](TODO)");
+    expect(fixed).toContain("[fine](https://example.com/ok)");
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
