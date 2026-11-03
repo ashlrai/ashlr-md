@@ -12429,3 +12429,20 @@ describe("autofix keeps [TODO] prose at document edges, in tables and in fences"
     expect(fixPass(doc)).toBe("[TODO] mid [bad](TODO) end [TODO]");
   });
 });
+
+describe("autofix: plain-text paragraph is a no-op", () => {
+  const rules = [ruleInvalidLinkTarget, ruleMissingAltText];
+  const fixPass = (text: string) => applyAllFixes(text, lintDocument(text, { rules }));
+
+  it.each([
+    ["one line", "A plain paragraph with no links or images.\n"],
+    ["wrapped lines", "A plain paragraph that wraps\nacross two lines.\n"],
+    ["exclamation marks and parentheses", "Wow! (really) -- that is it!\n"],
+    ["trailing spaces kept (rule not enabled)", "plain text with two trailing spaces  \n"],
+    ["no final newline", "plain text, no newline"],
+  ])("returns %s byte-for-byte", (_label, doc) => {
+    const violations = lintDocument(doc, { rules });
+    expect(violations).toEqual([]);
+    expect(fixPass(doc)).toBe(doc);
+  });
+});
