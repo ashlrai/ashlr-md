@@ -9839,3 +9839,25 @@ describe("autofix: invalid link at the end of a document", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+// ─── Valid HTTPS link preservation ────────────────────────────────────────────
+
+describe("autofix: valid HTTPS link preservation", () => {
+  it("leaves a complete https link unchanged while fixing a neighbouring empty link", () => {
+    const link =
+      '[spec](https://example.com/docs/v2/spec.html?a=1&b=two#section "The spec")';
+    const rules = [ruleInvalidLinkTarget];
+    const doc = `Read the ${link} or see [empty]().\n`;
+    const violations = lintDocument(doc, { rules });
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toContain(link);
+    expect(fixed).toBe(`Read the ${link} or see [empty](TODO).\n`);
+  });
+
+  it("returns a document containing only a valid https link byte-for-byte", () => {
+    const doc = "[home](https://example.com/)\n";
+    const rules = [ruleInvalidLinkTarget];
+    expect(lintDocument(doc, { rules })).toEqual([]);
+    expect(applyAllFixes(doc, lintDocument(doc, { rules }))).toBe(doc);
+  });
+});
