@@ -8532,6 +8532,41 @@ describe("autofix: invalid links in a blockquote with mixed content", () => {
   });
 });
 
+describe("autofix: an invalid link inside a list item", () => {
+  const rules = [ruleInvalidLinkTarget];
+
+  it.each([
+    ["*", "\n"],
+    ["+", "\n"],
+    ["1)", "\n"],
+    ["10.", "\r\n"],
+    ["  -", "\n"],
+  ])("sets the href to TODO and keeps marker %j, the text around the link and line ending %j", (marker, nl) => {
+    const lines = (href: string) => [
+      "Intro.",
+      "",
+      `${marker} Before text [the **label**](${href}) after text, then more.`,
+      `${marker} Untouched [ok](./a.md) item.`,
+      "",
+    ];
+    const doc = lines("").join(nl);
+    const expected = lines("TODO").join(nl);
+
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("invalid-link-target");
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain(
+      `${marker} Before text [the **label**](TODO) after text, then more.`,
+    );
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+});
+
 describe("autofix: a described image with no other findings", () => {
   const defaultRules = BUILTIN_RULES.filter((rule) =>
     LINTER_DEFAULT_ENABLED_RULES.includes(rule.id),
