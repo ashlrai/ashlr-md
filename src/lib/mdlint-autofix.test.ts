@@ -11705,3 +11705,18 @@ describe("rule:missing-alt-text undescribed image in a loose ordered list with c
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+describe("autofix preserves [TODO] prose in tables, task lists, fences and footnotes", () => {
+  const rules = [ruleInvalidLinkTarget, ruleMissingAltText, ruleNoTrailingSpaces];
+  const fixPass = (text: string) => applyAllFixes(text, lintDocument(text, { rules }));
+
+  it.each([
+    ["a table cell", "| a | b |\n| - | - |\n| [TODO] | [todo] |\n"],
+    ["a task list", "- [ ] [TODO] ship it\n- [x] [TODO] done\n"],
+    ["a fenced code block", "```md\n[TODO]() ![](x.png)\n```\n"],
+    ["a footnote", "Text[^1] [TODO]\n\n[^1]: [TODO] note\n"],
+    ["a shortcut image reference", "![TODO] and ![TODO][img]\n\n[img]: ./a.png\n"],
+  ])("leaves [TODO] untouched in %s", (_label, doc) => {
+    expect(fixPass(doc)).toBe(doc);
+  });
+});
