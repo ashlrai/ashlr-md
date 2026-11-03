@@ -1894,6 +1894,27 @@ describe("rule:invalid-link-target", () => {
   it.each([
     "\n",
     "\r\n",
+  ])("describes two undescribed images in one document and keeps each source with %j line endings", (newline) => {
+    const doc = `Intro.${newline}${newline}![](images/one.png) and ![](images/two.png "Two")${newline}`;
+    const expected = `Intro.${newline}${newline}![TODO: describe image](images/one.png) and ![TODO: describe image](images/two.png "Two")${newline}`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(2);
+    expect(violations.map((v) => v.ruleId)).toEqual([
+      "missing-alt-text",
+      "missing-alt-text",
+    ]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain("![TODO: describe image](images/one.png)");
+    expect(fixed).toContain('![TODO: describe image](images/two.png "Two")');
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
+    "\n",
+    "\r\n",
   ])("describes an undescribed image at the end of a line and keeps the preceding text unchanged with %j line endings", (newline) => {
     const lead = "Preceding café text, see:  ";
     const doc = `Intro.${newline}${newline}${lead}![](images/chart.png)${newline}Next line.${newline}`;
