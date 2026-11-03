@@ -10182,6 +10182,27 @@ describe("autofix preserves bracketed numeric reference prose like [1]", () => {
   });
 });
 
+describe("autofix preserves bracketed TODO prose like [TODO]", () => {
+  const rules = [ruleInvalidLinkTarget, ruleMissingAltText, ruleNoTrailingSpaces];
+  const fixPass = (text: string) => applyAllFixes(text, lintDocument(text, { rules }));
+
+  it("keeps [TODO] prose intact while fixing a real invalid link violation", () => {
+    const doc = "Remember to [TODO] before shipping. See [broken]() for the guide.\n";
+    const fixed = fixPass(doc);
+
+    expect(fixed).toBe(
+      "Remember to [TODO] before shipping. See [broken](TODO) for the guide.\n",
+    );
+    expect(fixPass(fixed)).toBe(fixed);
+  });
+
+  it("leaves a document containing only [TODO] prose byte-for-byte unchanged", () => {
+    const doc = "Fix this [TODO] item and that [TODO] task.\n";
+    expect(lintDocument(doc, { rules })).toEqual([]);
+    expect(fixPass(doc)).toBe(doc);
+  });
+});
+
 describe("autofix of an undescribed image between two paragraphs", () => {
   it.each([
     "\n",
