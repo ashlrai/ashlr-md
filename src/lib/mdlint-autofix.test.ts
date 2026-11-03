@@ -2382,6 +2382,21 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 
+  it("fixes the undescribed image at document start and a later one, leaving a described image and following text untouched", () => {
+    const doc =
+      '![](a.png) lead café.\n\nKept ![Chart](b.png) here.\n\nThen ![ ](c.png "T") end.\n';
+    const expected =
+      '![TODO: describe image](a.png) lead café.\n\nKept ![Chart](b.png) here.\n\nThen ![TODO: describe image](c.png "T") end.\n';
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(2);
+    expect(violations[0].range?.from.offset).toBe(0);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
   it("describes an undescribed image at the start of a document when prose follows on the same line", () => {
     const doc = "![](a.png) then prose continues.\nNext line.\n";
     const expected =
