@@ -1879,6 +1879,21 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+  ])("replaces a whitespace-only image description inside a list item and keeps an angle-bracket source (%s)", (_name, nl) => {
+    const rules = [ruleMissingAltText];
+    const doc = `- ![  ](<my images/a b.png> "T")${nl}- ![kept](b.png)${nl}`;
+    const expected = `- ![TODO: describe image](<my images/a b.png> "T")${nl}- ![kept](b.png)${nl}`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
     "\n",
     "\r\n",
   ])("is idempotent: a second autofix pass over undescribed images equals the first pass (line ending %j)", (newline) => {
