@@ -1535,6 +1535,24 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    "\n",
+    "\r\n",
+  ])("leaves a described HTTPS image and the prose around it unchanged with %j line endings", (newline) => {
+    const image =
+      '![Release chart](https://cdn.example.com/img/chart.png?size=2&v=1#top "Chart")';
+    const doc = `Intro café.${newline}${newline}See the ${image} for *details*, then continue.${newline}`;
+
+    for (const rules of [[ruleInvalidLinkTarget, ruleMissingAltText], BUILTIN_RULES]) {
+      const violations = lintDocument(doc, { rules }).filter(
+        (v) => v.ruleId === "invalid-link-target" || v.ruleId === "missing-alt-text",
+      );
+      expect(violations).toEqual([]);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(doc);
+    }
+  });
+
+  it.each([
     ["relative SVG with a bare fragment", "![Logo](assets/logo.svg#icon)"],
     ["fragment-only source", "![Figure one](#figure-1)"],
     ["angle-bracket source with a fragment", "![Spaced](<my images/a b.svg#part>)"],
