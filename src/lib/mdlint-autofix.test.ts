@@ -8915,3 +8915,29 @@ describe("autofix preserves plain prose (no links or images)", () => {
     expect(fixPass(fixPass(doc))).toBe(doc);
   });
 });
+
+describe("autofix preserves plain numeric bracket annotations", () => {
+  const linkRules = [ruleInvalidLinkTarget, ruleMissingAltText];
+  const linkFix = (text: string) =>
+    applyAllFixes(text, lintDocument(text, { rules: linkRules }));
+
+  it.each([
+    ["lone [1]", "[1]\n"],
+    ["[1] inside a sentence", "As shown in prior work [1], results hold.\n"],
+    ["multiple numeric markers", "See [1], [2] and [10].\n"],
+    ["adjacent numeric markers", "Cited by [1][2] together.\n"],
+    ["range marker", "Refs [1-3] apply.\n"],
+    ["numeric marker before parens", "value [1] (approx) here\n"],
+    ["numeric marker at line start and end", "[1] starts and ends [2]\n"],
+  ])("leaves %s byte-for-byte unchanged", (_name, doc) => {
+    expect(lintDocument(doc, { rules: linkRules })).toEqual([]);
+    expect(linkFix(doc)).toBe(doc);
+    expect(linkFix(linkFix(doc))).toBe(doc);
+  });
+
+  it("preserves [1] while still fixing a real violation on the same line", () => {
+    const doc = "Claim [1] here.   \n";
+    const fixed = applyAllFixes(doc, lintDocument(doc));
+    expect(fixed).toContain("Claim [1] here.\n");
+  });
+});
