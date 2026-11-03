@@ -7308,6 +7308,21 @@ describe("invalid-link-target autofix: link label preservation", () => {
     expect(fixed).toBe(expected);
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
+
+  it("preserves the entire multiword label and replaces the invalid destination with TODO", () => {
+    const doc = "Please visit [the documentation page]() for more info.\n";
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("invalid-link-target");
+    expect(violations[0].fix).not.toBeNull();
+
+    const fixed = applyFix(doc, violations[0]);
+    expect(fixed).toBe("Please visit [the documentation page](TODO) for more info.\n");
+    expect(applyAllFixes(doc, violations)).toBe(fixed);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
 });
 
 describe("invalid-link-target autofix: preserves surrounding content", () => {
