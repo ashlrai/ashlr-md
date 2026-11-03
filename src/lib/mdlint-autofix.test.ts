@@ -10109,3 +10109,22 @@ describe("autofix preserves bracketed numeric reference prose like [1]", () => {
     expect(fixPass(doc)).toBe(doc);
   });
 });
+
+describe("autofix preserves a valid described image", () => {
+  const rules = [ruleInvalidLinkTarget, ruleMissingAltText, ruleNoTrailingSpaces];
+  const fixPass = (text: string) => applyAllFixes(text, lintDocument(text, { rules }));
+
+  it("leaves the alt text and relative source unchanged when nothing else is wrong", () => {
+    const doc = "![Quarterly revenue chart](./assets/revenue.png)\n";
+    expect(lintDocument(doc, { rules })).toEqual([]);
+    expect(fixPass(doc)).toBe(doc);
+  });
+
+  it("keeps the image byte-for-byte while fixing an unrelated violation on the same line", () => {
+    const image = "![Quarterly revenue chart](../assets/revenue.png)";
+    const fixed = fixPass(`${image} and [bad]()\n`);
+
+    expect(fixed).toBe(`${image} and [bad](TODO)\n`);
+    expect(fixPass(fixed)).toBe(fixed);
+  });
+});
