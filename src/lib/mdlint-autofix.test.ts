@@ -272,6 +272,21 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(expected, { rules: [ruleInvalidLinkTarget] })).toEqual([]);
   });
 
+  it("fixes two invalid hrefs inside list items and emphasis, keeping markers, nesting and a valid neighbour intact", () => {
+    const doc =
+      "- **[bold one]()** then [ok](./ok.md)\n- _see [second](  )_ and done\n";
+    const expected =
+      "- **[bold one](TODO)** then [ok](./ok.md)\n- _see [second](TODO)_ and done\n";
+    const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
+
+    expect(violations).toHaveLength(2);
+    expect(violations.every((v) => v.ruleId === "invalid-link-target")).toBe(true);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain("[ok](./ok.md)");
+    expect(lintDocument(fixed, { rules: [ruleInvalidLinkTarget] })).toEqual([]);
+  });
+
   it("replaces only the invalid destination inside multi-sentence prose and leaves the surrounding text untouched", () => {
     const before =
       "Intro with *emphasis*, a `code span` and a [bracketed note] that is not a link. Then see ";
