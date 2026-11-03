@@ -9861,3 +9861,22 @@ describe("autofix: valid HTTPS link preservation", () => {
     expect(applyAllFixes(doc, lintDocument(doc, { rules }))).toBe(doc);
   });
 });
+
+describe("rule:missing-alt-text undescribed image in an ordered list", () => {
+  it.each([
+    ["dot marker", "1. ", "images/chart.png"],
+    ["paren marker", "2) ", "images/a%20b.png?v=2#top"],
+    ["multi-digit marker", "10. ", 'images/chart.png "Chart"'],
+  ])("adds the description placeholder and keeps the list marker and image source (%s)", (_name, marker, dest) => {
+    const doc = `Steps:\n\n${marker}See ![](${dest}) here.\n${marker}Second item.\n`;
+    const expected = `Steps:\n\n${marker}See ![TODO: describe image](${dest}) here.\n${marker}Second item.\n`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].fix).not.toBeNull();
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
