@@ -7909,3 +7909,29 @@ describe("valid image with Unicode alt text", () => {
     }
   });
 });
+
+describe("missing-alt-text autofix idempotence", () => {
+  it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+  ])("applying autofix twice equals applying it once for an undescribed image (%s)", (_label, nl) => {
+    const doc = `# Title${nl}${nl}Before ![](images/chart.png "Chart") after.${nl}`;
+    const expected = `# Title${nl}${nl}Before ![TODO: describe image](images/chart.png "Chart") after.${nl}`;
+    const rules = [ruleMissingAltText];
+
+    const once = applyAllFixes(doc, lintDocument(doc, { rules }));
+    expect(once).toBe(expected);
+
+    const twice = applyAllFixes(once, lintDocument(once, { rules }));
+    expect(twice).toBe(once);
+  });
+
+  it("is idempotent with every default rule enabled and no final newline", () => {
+    const doc = "---\ntitle: Guide\n---\n\n# Title\n\n![](a.png) and ![](b.png)";
+    const once = applyAllFixes(doc, lintDocument(doc));
+    expect(once).toBe(
+      "---\ntitle: Guide\n---\n\n# Title\n\n![TODO: describe image](a.png) and ![TODO: describe image](b.png)",
+    );
+    expect(applyAllFixes(once, lintDocument(once))).toBe(once);
+  });
+});
