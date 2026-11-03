@@ -10648,3 +10648,27 @@ describe("autofix: bracketed-word prose preservation", () => {
     expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
   });
 });
+
+describe("described image preservation across line endings and rule sets", () => {
+  it.each([
+    ["LF, final newline", "\n", "\n"],
+    ["CRLF, final newline", "\r\n", "\r\n"],
+    ["LF, no final newline", "\n", ""],
+    ["CRLF, no final newline", "\r\n", ""],
+  ])("leaves a described image with a Unicode alt and titled destination byte-identical (%s)", (_name, nl, tail) => {
+    const image =
+      '![Diagramme 📈 des coûts *Q3*](img/co%C3%BBts.png?s=2#top "Coûts (v2)")';
+    const doc = `# Report${nl}${nl}${image}${tail}`;
+
+    for (const rules of [
+      [ruleMissingAltText],
+      [ruleInvalidLinkTarget, ruleMissingAltText],
+    ]) {
+      const violations = lintDocument(doc, { rules });
+      expect(violations).toEqual([]);
+      expect(applyAllFixes(doc, violations)).toBe(doc);
+    }
+    // The image itself is never altered by any built-in rule's autofix.
+    expect(applyAllFixes(doc, lintDocument(doc))).toContain(image);
+  });
+});
