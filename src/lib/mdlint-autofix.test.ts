@@ -9628,6 +9628,21 @@ describe("autofix: invalid link at the end of a document", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 
+  it.each([
+    "",
+    "   ",
+    "#",
+    "?",
+  ])("repairs an invalid href %j in the final line without adding a newline", (href) => {
+    const doc = `Intro.\n\nRead [broken](${href}) and [valid](./guide.md).`;
+    const expected = "Intro.\n\nRead [broken](TODO) and [valid](./guide.md).";
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+
   it("fixes a document that is only an invalid link", () => {
     const doc = "[only]()";
     expect(applyAllFixes(doc, lintDocument(doc, { rules }))).toBe("[only](TODO)");
