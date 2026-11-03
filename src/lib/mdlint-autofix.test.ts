@@ -10226,3 +10226,45 @@ describe("autofix of an undescribed image between two paragraphs", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+describe("autofix of an undescribed image at the end of the document", () => {
+  const rules = [ruleMissingAltText];
+
+  it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+  ])("inserts the description placeholder and preserves the preceding text (%s)", (_name, nl) => {
+    const before = `Intro paragraph with café text${nl}wrapped over two lines.${nl}${nl}## Figures`;
+    const doc = `${before}${nl}${nl}![](images/final.png "Last")${nl}`;
+    const expected = `${before}${nl}${nl}![TODO: describe image](images/final.png "Last")${nl}`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("missing-alt-text");
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.startsWith(before)).toBe(true);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it("fixes an image that ends the document with no trailing newline", () => {
+    const doc = "Preceding text stays put.\n\n![](last.png)";
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].range?.to.offset).toBe(doc.length);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(
+      "Preceding text stays put.\n\n![TODO: describe image](last.png)",
+    );
+    expect(applyFix(doc, violations[0])).toBe(fixed);
+  });
+
+  it("fixes an image directly after text on the final line and is idempotent", () => {
+    const doc = "Closing remark: ![](end.png)";
+    const fixed = applyAllFixes(doc, lintDocument(doc, { rules }));
+
+    expect(fixed).toBe("Closing remark: ![TODO: describe image](end.png)");
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+});
