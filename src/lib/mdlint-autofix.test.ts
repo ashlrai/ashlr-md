@@ -12280,3 +12280,21 @@ describe("autofix: valid mailto link preserved next to a broken link", () => {
     }
   });
 });
+
+describe("autofix keeps [TODO] prose at document edges, in tables and in fences", () => {
+  const rules = [ruleInvalidLinkTarget, ruleMissingAltText, ruleNoTrailingSpaces];
+  const fixPass = (text: string) => applyAllFixes(text, lintDocument(text, { rules }));
+
+  it.each([
+    ["start and end with no final newline", "[TODO] first and last [TODO]"],
+    ["a table cell", "| a | b |\n|---|---|\n| [TODO] | done |\n"],
+    ["a fenced code block", "```md\n[TODO] [bad]()\n```\n\nAfter [TODO].\n"],
+  ])("leaves [TODO] byte-for-byte unchanged in %s", (_label, doc) => {
+    expect(fixPass(doc)).toBe(doc);
+  });
+
+  it("fixes a broken link beside [TODO] at both document edges", () => {
+    const doc = "[TODO] mid [bad]() end [TODO]";
+    expect(fixPass(doc)).toBe("[TODO] mid [bad](TODO) end [TODO]");
+  });
+});
