@@ -7450,3 +7450,37 @@ describe("autofix: undescribed image at the end of a document", () => {
     expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(expected);
   });
 });
+
+// ─── Invalid link as the last thing in a document with no final newline ──────
+
+describe("autofix: invalid link in a document without a final newline", () => {
+  it.each([
+    ["empty href", "Intro line.\n\nSee [draft]()", "Intro line.\n\nSee [draft](TODO)"],
+    [
+      "blank href",
+      "Intro line.\n\nSee [draft](  )",
+      "Intro line.\n\nSee [draft](TODO)",
+    ],
+    [
+      "CRLF",
+      "Intro line.\r\n\r\nSee [draft]()",
+      "Intro line.\r\n\r\nSee [draft](TODO)",
+    ],
+    [
+      "Unicode label",
+      "Intro.\n\nSee [café guide]()",
+      "Intro.\n\nSee [café guide](TODO)",
+    ],
+  ])("sets the href to TODO and adds no final newline (%s)", (_name, doc, expected) => {
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(doc.endsWith("\n")).toBe(false);
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.endsWith("\n")).toBe(false);
+    expect(fixed.endsWith("](TODO)")).toBe(true);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
