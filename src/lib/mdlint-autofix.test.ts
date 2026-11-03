@@ -183,6 +183,28 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(expected)).toEqual([]);
   });
 
+  it("replaces only the invalid destination inside multi-sentence prose and leaves the surrounding text untouched", () => {
+    const before =
+      "Intro with *emphasis*, a `code span` and a [bracketed note] that is not a link. Then see ";
+    const after =
+      " (really!) — thanks; see you soon.\n\nSecond paragraph stays exactly as written.\n";
+    const doc = `${before}[the guide]()${after}`;
+    const expected = `${before}[the guide](TODO)${after}`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("invalid-link-target");
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe("[the guide]()");
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // Prose on both sides of the link is byte-for-byte identical.
+    expect(fixed.startsWith(before)).toBe(true);
+    expect(fixed.endsWith(after)).toBe(true);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
   it.each([
     ["CJK, combining mark and ZWJ emoji", "日本語ガイド café 👩🏽‍💻"],
     ["right-to-left script", "دليل المستخدم"],
