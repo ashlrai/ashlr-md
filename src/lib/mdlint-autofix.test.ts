@@ -12429,3 +12429,37 @@ describe("autofix keeps [TODO] prose at document edges, in tables and in fences"
     expect(fixPass(doc)).toBe("[TODO] mid [bad](TODO) end [TODO]");
   });
 });
+
+describe("autofix adds the placeholder only to the undescribed image beside a described one", () => {
+  const rules = [ruleMissingAltText];
+  const described = '![Quarterly chart](images/q1.png?v=2#top "Q1")';
+
+  it.each([
+    ["a list item", (a: string, b: string) => `- Intro\n- ${a} and ${b}\n`],
+    ["a heading", (a: string, b: string) => `# ${a} ${b}\n\nBody.\n`],
+    [
+      "a table row",
+      (a: string, b: string) => `| A | B |\n| --- | --- |\n| ${a} | ${b} |\n`,
+    ],
+  ])("in %s, in either order, with LF and CRLF line endings", (_name, build) => {
+    for (const nl of ["\n", "\r\n"]) {
+      for (const describedFirst of [true, false]) {
+        const bare = "![](images/raw data.png?v=1)";
+        const fixedBare = "![TODO: describe image](images/raw data.png?v=1)";
+        const [a, b] = describedFirst ? [described, bare] : [bare, described];
+        const [ea, eb] = describedFirst
+          ? [described, fixedBare]
+          : [fixedBare, described];
+        const doc = build(a, b).replace(/\n/g, nl);
+        const expected = build(ea, eb).replace(/\n/g, nl);
+        const violations = lintDocument(doc, { rules });
+
+        expect(violations).toHaveLength(1);
+        const fixed = applyAllFixes(doc, violations);
+        expect(fixed).toBe(expected);
+        expect(fixed.split("TODO: describe image")).toHaveLength(2);
+        expect(lintDocument(fixed, { rules })).toEqual([]);
+      }
+    }
+  });
+});
