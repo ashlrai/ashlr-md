@@ -2210,6 +2210,23 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    ["spaces", "   "],
+    ["tab", "\t"],
+    ["no-break space", " "],
+  ])("replaces a whitespace-only description (%s) with the placeholder and keeps the image source", (_name, blank) => {
+    const src = 'images/chart.png?size=2#data "Title"';
+    const doc = `Before ![${blank}](${src}) after.\n`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("missing-alt-text");
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(`Before ![TODO: describe image](${src}) after.\n`);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
     "\n",
     "\r\n",
   ])("inserts the placeholder for an undescribed image without adding a final newline with %j line endings", (newline) => {
