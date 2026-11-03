@@ -11260,4 +11260,20 @@ describe("autofix on an undescribed image amid multiline text", () => {
     });
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("describes two undescribed images in one table row, including a repeated source, and keeps both sources (line endings %j)", (nl) => {
+    const doc = `| A | B |${nl}| --- | --- |${nl}| ![](img/x.png?v=1#a) | ![](img/x.png?v=1#a "Same") |${nl}`;
+    const expected = `| A | B |${nl}| --- | --- |${nl}| ![TODO: describe image](img/x.png?v=1#a) | ![TODO: describe image](img/x.png?v=1#a "Same") |${nl}`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(2);
+    expect(violations.every((v) => v.ruleId === "missing-alt-text")).toBe(true);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
 });
