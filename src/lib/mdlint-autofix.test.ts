@@ -11150,6 +11150,36 @@ describe("autofix idempotence for undescribed images under the default rules", (
   });
 });
 
+describe("autofix idempotence for undescribed images: exact output", () => {
+  const rules = [ruleMissingAltText];
+  const fixPass = (text: string) => applyAllFixes(text, lintDocument(text, { rules }));
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("fixing twice equals fixing once, byte for byte, for repeated and whitespace-only images with %j line endings", (nl) => {
+    const doc = [
+      "![](same.png) and ![](same.png)",
+      '![   ](same.png?v=1#top "T")',
+      "[![](badge.svg)](https://example.com) ![kept](ok.png)",
+      "",
+    ].join(nl);
+    const expected = [
+      "![TODO: describe image](same.png) and ![TODO: describe image](same.png)",
+      '![TODO: describe image](same.png?v=1#top "T")',
+      "[![TODO: describe image](badge.svg)](https://example.com) ![kept](ok.png)",
+      "",
+    ].join(nl);
+
+    const once = fixPass(doc);
+    const twice = fixPass(once);
+
+    expect(once).toBe(expected);
+    expect(twice).toBe(once);
+    expect(lintDocument(twice, { rules })).toEqual([]);
+  });
+});
+
 // ─── Valid anchor links survive the default autofix pipeline ─────────────────
 
 describe("autofix: valid anchor-link preservation (default rules)", () => {
