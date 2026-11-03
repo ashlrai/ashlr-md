@@ -249,6 +249,39 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(expected, { rules })).toEqual([]);
   });
 
+  it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+  ])("gives every invalid href its own TODO placeholder across several lines and keeps all surrounding text (%s)", (_name, nl) => {
+    const doc = [
+      "# Links",
+      "",
+      "First [one]() and second [two](#) on a line, **bold [three](  )** done.",
+      "",
+      "- item with [four](?) and trailing text",
+      "> quote [five]() end",
+      "",
+    ].join(nl);
+    const expected = [
+      "# Links",
+      "",
+      "First [one](TODO) and second [two](TODO) on a line, **bold [three](TODO)** done.",
+      "",
+      "- item with [four](TODO) and trailing text",
+      "> quote [five](TODO) end",
+      "",
+    ].join(nl);
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(5);
+    expect(violations.every((v) => v.ruleId === "invalid-link-target")).toBe(true);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.match(/\]\(TODO\)/g)).toHaveLength(5);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
   it("applyFix on the single invalid link in a list and table row leaves the valid links beside it untouched", () => {
     const doc =
       "- [good](./good.md)\n- [bad]()\n\n| a | b |\n| - | - |\n| [ok](https://example.com) | [bad2](?) |\n";
