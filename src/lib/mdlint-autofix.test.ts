@@ -2176,6 +2176,22 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    "\n",
+    "\r\n",
+  ])("fills each undescribed image across the lines of one blockquote and leaves the described one alone with %j line endings", (newline) => {
+    const described = "![Chart](images/ok.png)";
+    const doc = `> ![](images/a.png)${newline}> > ${described} and ![](images/b.png "B")${newline}>${newline}> end${newline}`;
+    const expected = `> ![TODO: describe image](images/a.png)${newline}> > ${described} and ![TODO: describe image](images/b.png "B")${newline}>${newline}> end${newline}`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(2);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
     ["bare filename", "chart.png"],
     ["dot-slash", "./chart.png"],
     ["parent directory", "../chart.jpeg"],
