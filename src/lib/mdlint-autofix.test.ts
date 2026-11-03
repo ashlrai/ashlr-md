@@ -2246,6 +2246,34 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 
+  it.each([
+    [
+      "image is the entire document",
+      "![](a b.png)",
+      "![TODO: describe image](a b.png)",
+    ],
+    [
+      "angle-bracket destination",
+      "![](<my pics/a.png>)\nText.\n",
+      "![TODO: describe image](<my pics/a.png>)\nText.\n",
+    ],
+    [
+      "leading BOM",
+      "\uFEFF![](a.png)\nText.\n",
+      "\uFEFF![TODO: describe image](a.png)\nText.\n",
+    ],
+  ])("inserts the placeholder for an undescribed image at document start and preserves the source (%s)", (_name, doc, expected) => {
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
   it("describes an undescribed image at the start of a document when prose follows on the same line", () => {
     const doc = "![](a.png) then prose continues.\nNext line.\n";
     const expected =
