@@ -214,6 +214,24 @@ describe("rule:invalid-link-target", () => {
         expect(applyAllFixes(doc, lintDocument(doc))).toBe(doc);
       }
     });
+
+    it("leaves mailto links and their surrounding text unchanged in lists, quotes and repeats", () => {
+      const doc = [
+        "---",
+        "title: Contact",
+        "---",
+        "",
+        "Ask [sales](mailto:sales@example.com) or [support](mailto:support@example.com?subject=Hi), thanks.",
+        "",
+        "- Mail [me](MAILTO:me@example.com) today (really).",
+        "> **Note:** write to [the team](mailto:team@example.com) _soon_.",
+        "",
+      ].join("\n");
+      const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
+      expect(violations).toEqual([]);
+      expect(applyAllFixes(doc, violations)).toBe(doc);
+      expect(applyAllFixes(doc, lintDocument(doc))).toBe(doc);
+    });
   });
 
   it.each([
