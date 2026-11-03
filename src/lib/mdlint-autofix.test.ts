@@ -8179,3 +8179,46 @@ describe("autofix: invalid links in CRLF list and blockquote lines", () => {
     expect(lintDocument(expected, { rules })).toEqual([]);
   });
 });
+
+describe("autofix: multiple undescribed images across block types", () => {
+  const rules = [ruleMissingAltText];
+
+  it("gives every undescribed image an alt placeholder, retains each source, and leaves described images alone", () => {
+    const sources = [
+      "hero.png",
+      "img/table-a.svg",
+      'img/table-b.webp "B title"',
+      "hero.png",
+      "https://example.com/pic.jpg?w=2#x",
+    ];
+    const doc = [
+      `# Title ![](${sources[0]})`,
+      "",
+      "| A | B |",
+      "| - | - |",
+      `| ![](${sources[1]}) | ![Kept](kept.png) ![](${sources[2]}) |`,
+      "",
+      `Para ![](${sources[3]}) and ![ ](${sources[4]}).`,
+      "",
+    ].join("\n");
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(sources.length);
+    expect(
+      violations.every((v) => v.ruleId === "missing-alt-text" && v.fix !== null),
+    ).toBe(true);
+
+    const fixed = applyAllFixes(doc, violations);
+    for (const src of sources) {
+      expect(fixed).toContain(`![TODO: describe image](${src})`);
+    }
+    expect(fixed).toContain("![Kept](kept.png)");
+    expect(fixed.match(/!\[TODO: describe image\]/g)).toHaveLength(sources.length);
+    // Only the alt text changed: stripping the placeholder restores the original sources/prose.
+    expect(
+      fixed.replace(/!\[TODO: describe image\]/g, "![]").replace("![ ](", "![]("),
+    ).toBe(doc.replace("![ ](", "![]("));
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+});
