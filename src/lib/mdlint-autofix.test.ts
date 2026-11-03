@@ -249,6 +249,25 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(expected, { rules })).toEqual([]);
   });
 
+  it("preserves bracketed prose beside an invalid link while repairing only the link", () => {
+    const doc =
+      "Note [see below] and [sic] stay as written, but [broken]() is fixed; also [1] and [ ] remain.\n";
+    const expected =
+      "Note [see below] and [sic] stay as written, but [broken](TODO) is fixed; also [1] and [ ] remain.\n";
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(
+      doc.slice(violations[0].range!.from.offset, violations[0].range!.to.offset),
+    ).toBe("[broken]()");
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    for (const prose of ["[see below]", "[sic]", "[1]", "[ ]"])
+      expect(fixed).toContain(prose);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
   it.each([
     ["LF", "\n"],
     ["CRLF", "\r\n"],
