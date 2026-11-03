@@ -313,6 +313,25 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    " ",
+    "　 ",
+    "\n  ",
+    "#",
+    "?",
+  ])("is idempotent for a single invalid href %j: the fixed link lints clean and re-fixing is a no-op", (href) => {
+    const rules = [ruleInvalidLinkTarget];
+    const doc = `Intro café.\n\nRead [guide](${href}) now.\n`;
+    const violations = lintDocument(doc, { rules });
+    expect(violations).toHaveLength(1);
+
+    const once = applyFix(doc, violations[0]);
+    expect(once).toBe("Intro café.\n\nRead [guide](TODO) now.\n");
+    expect(lintDocument(once, { rules })).toEqual([]);
+    expect(applyAllFixes(once, [])).toBe(once);
+    expect(applyAllFixes(once, lintDocument(once, { rules }))).toBe(once);
+  });
+
+  it.each([
     "\n",
     "\r\n",
   ])("is idempotent for invalid links in a full document with frontmatter and every default rule (%j)", (nl) => {
