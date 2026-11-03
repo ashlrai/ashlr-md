@@ -1653,6 +1653,23 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 
+  it.each([
+    "images/my-chart.png",
+    "my-multi-part-chart-v2.png",
+    "./assets/hero-image-2x.png?size=2#preview",
+  ])("leaves a described image with the hyphenated filename %j unchanged", (src) => {
+    const doc = `# Title\n\nSee ![A described chart](${src} "Chart") here.\n`;
+    const defaultRules = BUILTIN_RULES.filter((rule) =>
+      LINTER_DEFAULT_ENABLED_RULES.includes(rule.id),
+    );
+
+    for (const rules of [[ruleMissingAltText], defaultRules]) {
+      const violations = lintDocument(doc, { rules });
+      expect(violations).toEqual([]);
+      expect(applyAllFixes(doc, violations)).toBe(doc);
+    }
+  });
+
   it("preserves surrounding blank lines and the final newline when fixing a link", () => {
     const doc =
       "\nOpening paragraph.\n\n\nRead [draft]() here.\n\nClosing paragraph.\n\n";
