@@ -7994,3 +7994,28 @@ describe("autofix: invalid link at the end of a document", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+describe("autofix: invalid link surrounded by mixed-script Unicode prose", () => {
+  const rules = [ruleInvalidLinkTarget];
+
+  it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+  ])("rewrites only the invalid href; astral, RTL, full-width and NBSP prose stays identical (%s)", (_name, nl) => {
+    const before = `これは「テスト」です。　𝒜𝓁𝓅𝒽𝒶 😀 مرحبا שלום — `;
+    const after = ` ！終わり、Ünïcödé ✓ 🇯🇵 é.`;
+    const doc = `${before}[ガイド 📖](   )${after}${nl}Second line [ok](./a.md).${nl}`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(
+      `${before}[ガイド 📖](TODO)${after}${nl}Second line [ok](./a.md).${nl}`,
+    );
+    // Prose on both sides is byte-for-byte unchanged (UTF-16 offsets stay aligned past astral chars).
+    expect(fixed.startsWith(`${before}[ガイド 📖](`)).toBe(true);
+    expect(fixed.endsWith(`)${after}${nl}Second line [ok](./a.md).${nl}`)).toBe(true);
+    expect(applyFix(doc, violations[0])).toBe(fixed);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
