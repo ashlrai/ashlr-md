@@ -12099,6 +12099,25 @@ describe("invalid-link autofix idempotence across markdown contexts", () => {
     expect(secondViolations).toEqual([]);
     expect(applyAllFixes(once, secondViolations)).toBe(once);
   });
+
+  it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+  ])("inserts the description for an undescribed image ending a paragraph and keeps the preceding prose (%s)", (_name, nl) => {
+    const prose = "Café notes, with *emphasis* and a [kept link](./kept.md), end with";
+    const src = 'images/chart.png?size=2#data "Title"';
+    const doc = `Intro.${nl}${nl}${prose} ![](${src})${nl}${nl}Next paragraph.${nl}`;
+    const expected = `Intro.${nl}${nl}${prose} ![TODO: describe image](${src})${nl}${nl}Next paragraph.${nl}`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("missing-alt-text");
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.startsWith(`Intro.${nl}${nl}${prose} `)).toBe(true);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
 });
 
 // ─── [sic] followed by parenthesised prose, code, and the default rule set ───
