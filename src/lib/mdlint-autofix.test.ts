@@ -278,6 +278,32 @@ describe("rule:invalid-link-target", () => {
   it.each([
     ["LF", "\n"],
     ["CRLF", "\r\n"],
+  ])("inserts the TODO placeholder for a punctuated-label link that opens the document and keeps the label and later paragraphs (%s)", (_name, nl) => {
+    const rest = ["", "Second paragraph with **bold** and [ok](./a.md).", "- item", ""];
+    const doc = ["[Start here, now: 1]()", ...rest].join(nl);
+    const expected = ["[Start here, now: 1](TODO)", ...rest].join(nl);
+    const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
+
+    expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+    expect(violations[0].range!.from.offset).toBe(0);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(
+      applyAllFixes(fixed, lintDocument(fixed, { rules: [ruleInvalidLinkTarget] })),
+    ).toBe(fixed);
+  });
+
+  it("inserts the TODO placeholder when the whole document is one invalid link with no trailing newline", () => {
+    const doc = "[only link]()";
+    const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
+
+    expect(violations).toHaveLength(1);
+    expect(applyAllFixes(doc, violations)).toBe("[only link](TODO)");
+  });
+
+  it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
   ])("replaces an invalid href at column 1 of a later line with TODO and keeps the following text unchanged (%s)", (_name, nl) => {
     const before = "Intro line with a [valid](./ok.md) link.";
     const tail = " then *emphasis*, `code` and [ok](./a.md) follow.";
