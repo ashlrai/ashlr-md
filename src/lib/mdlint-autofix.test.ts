@@ -10094,3 +10094,25 @@ describe("autofix preserves bracketed numeric reference prose like [1]", () => {
     expect(fixPass(doc)).toBe(doc);
   });
 });
+
+describe("autofix of an undescribed image between two paragraphs", () => {
+  it.each([
+    "\n",
+    "\r\n",
+  ])("inserts the description placeholder and keeps both paragraphs byte-for-byte with %j line endings", (newline) => {
+    const before = `First paragraph, with café text${newline}wrapped over two lines.`;
+    const after = `Second paragraph follows${newline}and also wraps.`;
+    const doc = `${before}${newline}${newline}![](images/chart.png "Chart")${newline}${newline}${after}${newline}`;
+    const expected = `${before}${newline}${newline}![TODO: describe image](images/chart.png "Chart")${newline}${newline}${after}${newline}`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("missing-alt-text");
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain(before);
+    expect(fixed).toContain(after);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
