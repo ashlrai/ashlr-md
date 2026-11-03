@@ -3051,6 +3051,41 @@ describe("rule:missing-alt-text", () => {
   });
 
   it.each([
+    ["plain", "![Chart](a.png)"],
+    ["single character", "![x](a.png)"],
+    ["Unicode", "![Café diagram](a.png)"],
+    ["emphasis and code", "![A *bar* `chart`](a.png)"],
+    ["escaped brackets", "![Figure \\[1\\]](a.png)"],
+    ["placeholder text already present", "![TODO: describe image](a.png)"],
+    ["with title", '![Chart](a.png "Title")'],
+    ["with query and fragment", "![Chart](a.png?x=1#y)"],
+  ])("control: autofix leaves an image with a nonempty description unchanged (%s)", (_name, image) => {
+    const doc = `---\ntitle: Gallery\n---\n\n# Gallery\n\nBefore ${image} after.\n`;
+
+    for (const rules of [[ruleMissingAltText], BUILTIN_RULES]) {
+      const violations = lintDocument(doc, { rules });
+      expect(violations.filter(({ ruleId }) => ruleId === "missing-alt-text")).toEqual(
+        [],
+      );
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(doc);
+      expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(doc);
+    }
+  });
+
+  it("fixes only the undescribed image when it sits beside a described one", () => {
+    const described = "![Chart](a.png)";
+    const doc = `Both ${described} and ![](b.png) here.\n`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    expect(applyAllFixes(doc, violations)).toBe(
+      `Both ${described} and ![TODO: describe image](b.png) here.\n`,
+    );
+  });
+
+  it.each([
     "\n",
     "\r\n",
   ])("inserts a placeholder in both undescribed images repeated on one line and keeps their sources (line endings %j)", (nl) => {
