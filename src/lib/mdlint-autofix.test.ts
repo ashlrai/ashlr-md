@@ -11577,3 +11577,37 @@ describe("rule:missing-alt-text trailing newline preservation", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+// ─── Described image with a relative source under the default rule set ──────
+
+describe("autofix: described image with a relative source (default rules)", () => {
+  it.each([
+    ["dot-slash", "![Architecture overview](./img/arch.png)"],
+    ["parent directory", "![Architecture overview](../img/arch.png)"],
+    [
+      "nested path with title",
+      '![Architecture overview](docs/img/arch.png "Overview")',
+    ],
+  ])("preserves the image and surrounding text exactly (%s)", (_name, image) => {
+    const doc = `---\ntitle: T\n---\n\n# Title\n\nSee the diagram ${image} below, café.\n\nMore text.\n`;
+    const violations = lintDocument(doc);
+
+    expect(violations).toEqual([]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(doc);
+    expect(fixed).toContain(image);
+  });
+
+  it("fixes only an unrelated trailing-space violation and keeps the image intact", () => {
+    const image = "![Architecture overview](./img/arch.png)";
+    const doc = `---\ntitle: T\n---\n\n# Title\n\nSee ${image} here.\n\nTrailing   \n`;
+    const violations = lintDocument(doc);
+
+    expect(violations.map((v) => v.ruleId)).toEqual(["no-trailing-spaces"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(
+      `---\ntitle: T\n---\n\n# Title\n\nSee ${image} here.\n\nTrailing\n`,
+    );
+    expect(lintDocument(fixed)).toEqual([]);
+  });
+});
