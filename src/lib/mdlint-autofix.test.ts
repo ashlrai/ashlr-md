@@ -8066,3 +8066,38 @@ describe("autofix: empty href on a link with an empty label", () => {
     expect(lintDocument(expected, { rules })).toEqual([]);
   });
 });
+
+describe("autofix: several invalid links in a document with no final newline", () => {
+  const rules = [ruleInvalidLinkTarget];
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("puts TODO in every invalid href, keeps the valid link, and adds no final newline with %j line endings", (newline) => {
+    const doc = [
+      "# Notes",
+      "",
+      "Start [first]() then [ok](./ok.md).",
+      "",
+      "End [last](   )",
+    ].join(newline);
+    const expected = [
+      "# Notes",
+      "",
+      "Start [first](TODO) then [ok](./ok.md).",
+      "",
+      "End [last](TODO)",
+    ].join(newline);
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual([
+      "invalid-link-target",
+      "invalid-link-target",
+    ]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.endsWith("\n")).toBe(false);
+    expect(fixed.match(/TODO/g)).toHaveLength(2);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
