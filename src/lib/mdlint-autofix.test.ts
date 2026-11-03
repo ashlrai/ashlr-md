@@ -1952,6 +1952,23 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    ["spaces", "   "],
+    ["a tab", "\t"],
+    ["mixed spaces and tabs", " \t "],
+  ])("replaces whitespace-only alt text (%s) with the placeholder and preserves the image source", (_name, alt) => {
+    const doc = `Intro.\n\nSee ![${alt}](images/chart.png "Chart") here.\n`;
+    const expected = `Intro.\n\nSee ![TODO: describe image](images/chart.png "Chart") here.\n`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("missing-alt-text");
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
     [true, "\n"],
     [false, "\n"],
     [true, "\r\n"],
