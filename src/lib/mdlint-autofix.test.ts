@@ -8376,6 +8376,21 @@ describe("invalid-link-target autofix: idempotence", () => {
     expect(fixPass(once)).toBe(once);
     expect(lintDocument(once, { rules: [ruleInvalidLinkTarget] })).toEqual([]);
   });
+
+  it("is idempotent with applyFix: applying the captured fix twice on the original equals applying it once", () => {
+    const doc = "Read [guide]() for details.\n";
+    const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
+    expect(violations).toHaveLength(1);
+    expect(violations[0].fix).not.toBeNull();
+
+    const fixFn = violations[0].fix!;
+    const once = fixFn(doc);
+    const twice = fixFn(doc);
+
+    expect(twice).toBe(once);
+    expect(once).toBe("Read [guide](TODO) for details.\n");
+    expect(lintDocument(once, { rules: [ruleInvalidLinkTarget] })).toEqual([]);
+  });
 });
 
 describe("invalid-link-target autofix: repeated application", () => {
