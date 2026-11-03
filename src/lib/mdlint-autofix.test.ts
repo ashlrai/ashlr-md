@@ -3004,6 +3004,22 @@ describe("rule:missing-alt-text", () => {
   it.each([
     "\n",
     "\r\n",
+  ])("preserves bracketed prose like [1] while describing an undescribed image (line endings %j)", (nl) => {
+    const doc = `Results [1] show growth, see ![](fig.png) and note [2].${nl}Also [1] again.${nl}`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(
+      `Results [1] show growth, see ![TODO: describe image](fig.png) and note [2].${nl}Also [1] again.${nl}`,
+    );
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
+    "\n",
+    "\r\n",
   ])("inserts a placeholder in each of two undescribed images on separate lines without changing intervening text (line endings %j)", (nl) => {
     const doc = [
       "# Gallery",
