@@ -11023,3 +11023,24 @@ describe("autofix: an invalid link on a wrapped line of a bulleted list item", (
     expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
   });
 });
+
+// ─── Empty document ──────────────────────────────────────────────────────────
+
+describe("autofix on an empty document", () => {
+  it("finds nothing to fix and returns empty content without placeholders", () => {
+    const violations = lintDocument("");
+
+    expect(violations).toEqual([]);
+    const fixed = applyAllFixes("", violations);
+    expect(fixed).toBe("");
+    expect(fixed).not.toContain("TODO");
+    expect(applyAllFixes(fixed, lintDocument(fixed))).toBe("");
+  });
+
+  it("returns empty content when every built-in rule is enabled", () => {
+    const violations = lintDocument("", { rules: BUILTIN_RULES });
+
+    expect(violations).toEqual([]);
+    expect(applyAllFixes("", violations)).toBe("");
+  });
+});
