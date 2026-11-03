@@ -10442,3 +10442,22 @@ describe("autofix preserves bracketed [sic] prose", () => {
     expect(fixPass(doc)).toBe(doc);
   });
 });
+
+describe("autofix on a whitespace-only document", () => {
+  const rules = [ruleInvalidLinkTarget, ruleMissingAltText];
+
+  it.each([
+    ["spaces", "   "],
+    ["tabs", "\t\t"],
+    ["blank lines", "\n\n\n"],
+    ["CRLF blank lines", "\r\n\r\n"],
+    ["mixed", " \t\n  \r\n\t "],
+  ])("preserves the input and reports no link or image fix (%s)", (_name, doc) => {
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.filter((v) => v.ruleId === "invalid-link-target")).toEqual([]);
+    expect(violations.filter((v) => v.ruleId === "missing-alt-text")).toEqual([]);
+    expect(violations).toEqual([]);
+    expect(applyAllFixes(doc, violations)).toBe(doc);
+  });
+});
