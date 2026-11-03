@@ -2908,6 +2908,21 @@ describe("rule:missing-alt-text", () => {
   it.each([
     "\n",
     "\r\n",
+  ])("inserts the placeholder for an undescribed image with a hyphenated filename and keeps its destination (line endings %j)", (nl) => {
+    const doc = ["# Gallery", "", "Before ![](images/my-chart-v2.png) after.", ""].join(nl);
+    const expected = ["# Gallery", "", "Before ![TODO: describe image](images/my-chart-v2.png) after.", ""].join(nl);
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
+    "\n",
+    "\r\n",
   ])("leaves a described image and its surrounding text unchanged (line endings %j)", (nl) => {
     const doc = [
       "# Gallery",
