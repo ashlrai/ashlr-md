@@ -9719,6 +9719,31 @@ describe("autofix: invalid links in an ordered list", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
     expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
   });
+
+  it.each([
+    ["\n"],
+    ["\r\n"],
+  ])("keeps indentation, a non-1 start number when fixing an ordered item with a nested child (line ending %j)", (nl) => {
+    const doc = [
+      "3. Configure [the env file](?) before running.",
+      "   - Nested: see [notes]() and [ok](./ok.md).",
+      "4. Done.",
+      "",
+    ].join(nl);
+    const expected = [
+      "3. Configure [the env file](TODO) before running.",
+      "   - Nested: see [notes](TODO) and [ok](./ok.md).",
+      "4. Done.",
+      "",
+    ].join(nl);
+
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(2);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
 });
 
 describe("invalid-link-target autofix: idempotence inside blockquotes, tables and headings", () => {
