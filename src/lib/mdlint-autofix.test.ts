@@ -338,6 +338,22 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    "-",
+    "*",
+    "+",
+  ])("replaces an invalid destination in an unordered list item with TODO and keeps the %s marker", (marker) => {
+    const rules = [ruleInvalidLinkTarget];
+    const doc = `${marker} first\n${marker} [broken link]()\n${marker} [ok](./a.md)\n`;
+    const expected = `${marker} first\n${marker} [broken link](TODO)\n${marker} [ok](./a.md)\n`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+
+  it.each([
     ["blockquote", "> Quote [a b](  ) end\n", "> Quote [a b](TODO) end\n", "[a b](  )"],
     [
       "table cell",
