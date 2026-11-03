@@ -2546,6 +2546,27 @@ describe("rule:invalid-link-target", () => {
     }
   });
 
+  it.each([
+    ["\n", "\n"],
+    ["\r\n", "\r\n"],
+    ["\n", ""],
+  ])("autofix leaves a valid described image and its surrounding text unchanged (line ending %j, final newline %j)", (newline, final) => {
+    const image = '![Café *latency* chart](images/latency.png?v=2#top "Latency")';
+    const doc = `# Report${newline}${newline}Before the chart.${newline}${newline}${image}${newline}${newline}After the chart, with ${image} inline.${final}`;
+    const defaultRules = BUILTIN_RULES.filter((rule) =>
+      LINTER_DEFAULT_ENABLED_RULES.includes(rule.id),
+    );
+
+    for (const rules of [[ruleMissingAltText], defaultRules]) {
+      const violations = lintDocument(doc, { rules });
+      expect(violations).toEqual([]);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(doc);
+      expect(fixed.split(image)).toHaveLength(3);
+      expect(fixed).not.toContain("TODO");
+    }
+  });
+
   it("preserves surrounding blank lines and the final newline when fixing a link", () => {
     const doc =
       "\nOpening paragraph.\n\n\nRead [draft]() here.\n\nClosing paragraph.\n\n";
