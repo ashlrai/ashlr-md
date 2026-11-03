@@ -649,6 +649,19 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(expected)).toEqual([]);
   });
 
+  it("replaces a whitespace-only destination with TODO and keeps a label that has emphasis and punctuation", () => {
+    const label = "the **bold** and _italic_ guide, v2";
+    const doc = `Read [${label}](  \t ) now, then [ok](./a.md).\n`;
+    const expected = `Read [${label}](TODO) now, then [ok](./a.md).\n`;
+    const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
+
+    expect(violations).toHaveLength(1);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain(`[${label}]`);
+    expect(lintDocument(fixed, { rules: [ruleInvalidLinkTarget] })).toEqual([]);
+  });
+
   it("replaces every kind of invalid destination (empty, lone # and lone ?) with TODO and keeps the labels in order", () => {
     const doc = "Go [alpha]() then [beta](#) then [gamma](?) done.\n";
     const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
