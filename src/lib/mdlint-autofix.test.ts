@@ -187,6 +187,22 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(expected, { rules })).toEqual([]);
   });
 
+  it("mixed valid and invalid links: autofix rewrites only the invalid destinations", () => {
+    const doc =
+      "[docs](./docs.md) and [empty]() then [web](https://example.com/a?b=1#c) and [hash](#) and [anchor](#top).\n";
+    const expected =
+      "[docs](./docs.md) and [empty](TODO) then [web](https://example.com/a?b=1#c) and [hash](TODO) and [anchor](#top).\n";
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(2);
+    expect(
+      violations.map((v) => doc.slice(v.range!.from.offset, v.range!.to.offset)),
+    ).toEqual(["[empty]()", "[hash](#)"]);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+
   it.each([
     "\n",
     "\r\n",
