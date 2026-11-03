@@ -8488,6 +8488,23 @@ describe("invalid-link-target autofix: preserves surrounding content", () => {
     // Re-lint is clean
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("leaves a valid HTTPS link and its surrounding text unchanged with %j line endings", (nl) => {
+    const doc = [
+      "# Links",
+      "",
+      "Read the (very) good [guide](https://example.com/guide?topic=lint#links), then relax.",
+      "",
+    ].join(nl);
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toEqual([]);
+    expect(applyAllFixes(doc, violations)).toBe(doc);
+  });
 });
 
 describe("invalid-link-target autofix: invalid link in a blockquote", () => {
