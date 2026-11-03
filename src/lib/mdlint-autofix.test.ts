@@ -9483,3 +9483,38 @@ describe("autofix: invalid links in an ordered list", () => {
     expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
   });
 });
+
+describe("missing-alt-text autofix: idempotence for undescribed images in table cells and list items", () => {
+  const rules = [ruleMissingAltText];
+  const fixPass = (text: string) => applyAllFixes(text, lintDocument(text, { rules }));
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("applying autofix twice equals applying it once with %j line endings", (nl) => {
+    const doc = [
+      "| Name | Preview |",
+      "| ---- | ------- |",
+      "| Chart | ![](images/chart.png) |",
+      "",
+      "- Item ![](a.png) and ![ok](b.png)",
+      "1. Numbered ![](c.png?v=1#top)",
+      "",
+    ].join(nl);
+    const expected = [
+      "| Name | Preview |",
+      "| ---- | ------- |",
+      "| Chart | ![TODO: describe image](images/chart.png) |",
+      "",
+      "- Item ![TODO: describe image](a.png) and ![ok](b.png)",
+      "1. Numbered ![TODO: describe image](c.png?v=1#top)",
+      "",
+    ].join(nl);
+
+    const once = fixPass(doc);
+    expect(once).toBe(expected);
+    expect(lintDocument(once, { rules })).toEqual([]);
+    expect(fixPass(once)).toBe(once);
+    expect(fixPass(fixPass(doc))).toBe(once);
+  });
+});
