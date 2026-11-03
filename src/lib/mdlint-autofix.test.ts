@@ -9317,6 +9317,15 @@ describe("autofix: empty document", () => {
     expect(getLintHistory()).toEqual([]);
   });
 
+  it("does not throw when fixes computed from earlier content are applied to a cleared document", () => {
+    // A stale lint result (the user deleted everything after linting) must not
+    // crash autofix; whatever it returns is still a string the editor can use.
+    const stale = lintDocument("See [x]() and ![](a.png)\n", { rules: BUILTIN_RULES });
+    expect(stale.some((v) => v.fix !== null)).toBe(true);
+    expect(() => applyAllFixes("", stale)).not.toThrow();
+    expect(typeof applyAllFixes("", stale)).toBe("string");
+  });
+
   it("applyFix returns an empty document unchanged", () => {
     const violation: LintViolation = {
       ruleId: "test-rule",
