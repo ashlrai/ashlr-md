@@ -9350,3 +9350,32 @@ describe("rule:missing-alt-text image alone in an unordered list item", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+describe("rule:missing-alt-text image alone in an ordered list item", () => {
+  it.each([
+    ["1.", "\n"],
+    ["42.", "\r\n"],
+  ])("adds the placeholder and keeps marker %j, destination and neighbouring items (line ending %j)", (marker, nl) => {
+    const dest = "images/architecture%20v2.svg?theme=dark#overview";
+    const doc = [
+      `${marker} First step: read the docs`,
+      `${marker} ![](${dest})`,
+      `${marker} ![Architecture diagram](images/arch.png)`,
+      "",
+    ].join(nl);
+    const expected = [
+      `${marker} First step: read the docs`,
+      `${marker} ![TODO: describe image](${dest})`,
+      `${marker} ![Architecture diagram](images/arch.png)`,
+      "",
+    ].join(nl);
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain(`${marker} ![TODO: describe image](${dest})`);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
