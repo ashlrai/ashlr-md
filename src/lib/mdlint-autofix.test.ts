@@ -563,6 +563,42 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(expected, { rules })).toEqual([]);
   });
 
+  it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+  ])("inserts the TODO placeholder for an empty href inside a multi-line nested blockquote and keeps every quote prefix and the surrounding text (%s)", (_name, nl) => {
+    const rules = [ruleInvalidLinkTarget];
+    const doc = [
+      "> Intro with [ok](./a.md) link.",
+      "> Quote **bold** then [broken link]() and `code` after.",
+      ">> Nested [other](#) tail.",
+      "> End.",
+      "",
+    ].join(nl);
+    const expected = [
+      "> Intro with [ok](./a.md) link.",
+      "> Quote **bold** then [broken link](TODO) and `code` after.",
+      ">> Nested [other](TODO) tail.",
+      "> End.",
+      "",
+    ].join(nl);
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(2);
+    expect(
+      doc.slice(violations[0].range!.from.offset, violations[0].range!.to.offset),
+    ).toBe("[broken link]()");
+    // A single fix touches only its own link; the other stays for the next pass.
+    expect(applyFix(doc, violations[0])).toBe(
+      doc.replace("[broken link]()", "[broken link](TODO)"),
+    );
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    for (const line of fixed.split(nl).slice(0, 4))
+      expect(line.startsWith(">")).toBe(true);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
   it("replaces a whitespace-only href with TODO while preserving the link text", () => {
     const doc =
       "---\ntitle: Guide\n---\n\nRead [café guide](   ) and [reference](./guide.md).\n";
