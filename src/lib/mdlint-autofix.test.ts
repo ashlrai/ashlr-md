@@ -9740,3 +9740,28 @@ describe("autofix: valid HTTP links", () => {
     expect(fixed).toContain("(http://example.com/docs?a=1#top)");
   });
 });
+
+describe("autofix: valid image with relative source", () => {
+  it("preserves the image description and source exactly", () => {
+    const alt = "System architecture diagram";
+    const src = "images/architecture-v2.png";
+    const doc = [
+      "# Overview",
+      "",
+      `![${alt}](${src})`,
+      "",
+      "This diagram shows the system components.",
+      "",
+    ].join("\n");
+
+    const violations = lintDocument(doc, { disabledRules: ["frontmatter-required"] });
+    expect(violations.filter((v) => v.ruleId === "missing-alt-text")).toHaveLength(0);
+    expect(violations.filter((v) => v.ruleId === "invalid-link-target")).toHaveLength(
+      0,
+    );
+
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(doc);
+    expect(fixed).toContain(`![${alt}](${src})`);
+  });
+});
