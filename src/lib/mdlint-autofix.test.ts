@@ -2151,6 +2151,23 @@ describe("rule:invalid-link-target", () => {
   it.each([
     "\n",
     "\r\n",
+  ])("adds a description only to the undescribed image and keeps the described image exactly with %j line endings", (newline) => {
+    const described = '![Quarterly chart](images/q1.png?v=2#top "Q1")';
+    const doc = `Intro.${newline}${newline}${described} then ![](images/q2.png) and ![ ](images/q3.png).${newline}`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(2);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(
+      `Intro.${newline}${newline}${described} then ![TODO: describe image](images/q2.png) and ![TODO: describe image](images/q3.png).${newline}`,
+    );
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
+    "\n",
+    "\r\n",
   ])("inserts the placeholder when the undescribed image is the last text of the document with %j line endings", (newline) => {
     const doc = `Intro.${newline}${newline}![](images/chart.png "Chart")`;
     const expected = `Intro.${newline}${newline}![TODO: describe image](images/chart.png "Chart")`;
