@@ -313,6 +313,22 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(expected)).toEqual([]);
   });
 
+  it("keeps a valid link unchanged and turns the invalid href into TODO when both share one line", () => {
+    const valid = '[docs](https://example.com/docs "Docs")';
+    const doc = `Read ${valid}, then [broken]() and [more](./more.md).\n`;
+    const expected = `Read ${valid}, then [broken](TODO) and [more](./more.md).\n`;
+    const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
+
+    expect(violations).toHaveLength(1);
+    expect(
+      doc.slice(violations[0].range!.from.offset, violations[0].range!.to.offset),
+    ).toBe("[broken]()");
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain(valid);
+    expect(lintDocument(fixed, { rules: [ruleInvalidLinkTarget] })).toEqual([]);
+  });
+
   it.each([
     ["LF", "\n"],
     ["CRLF", "\r\n"],
