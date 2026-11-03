@@ -8962,3 +8962,26 @@ describe("autofix preserves plain numeric bracket annotations", () => {
     expect(fixed).toContain("Claim [1] here.\n");
   });
 });
+
+// ─── Valid relative links survive autofix untouched ──────────────────────────
+
+describe("autofix: valid relative link preservation", () => {
+  const rules = [ruleInvalidLinkTarget, ruleMissingAltText, ruleNoTrailingSpaces];
+  const fix = (doc: string) => applyAllFixes(doc, lintDocument(doc, { rules }));
+
+  it.each([
+    ["sibling file", "See the [guide](./guide.md) for details.\n"],
+    ["parent directory", "Back to [index](../index.md) now.\n"],
+    ["nested path with anchor", "Read [setup](docs/setup/install.md#linux) first.\n"],
+    ["bare anchor", "Jump to [below](#section) quickly.\n"],
+    ["link with title", 'Use [api](./api.md "API ref") daily.\n'],
+  ])("leaves a %s link and surrounding text byte-for-byte unchanged", (_name, doc) => {
+    expect(lintDocument(doc, { rules })).toEqual([]);
+    expect(fix(doc)).toBe(doc);
+  });
+
+  it("keeps the relative link exact while fixing trailing spaces elsewhere", () => {
+    const doc = "# Title\n\nSee [guide](./docs/guide.md) here.\nTrailing   \n";
+    expect(fix(doc)).toBe("# Title\n\nSee [guide](./docs/guide.md) here.\nTrailing\n");
+  });
+});
