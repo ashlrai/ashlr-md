@@ -145,6 +145,17 @@ describe("rule:invalid-link-target", () => {
     expect(applyAllFixes(doc, lintDocument(doc))).toContain(link);
   });
 
+  it.each([
+    ["relative path with fragment", "Install", "./guide.md#install"],
+    ["relative path with query", "Search", "../search.md?q=lint"],
+  ])("preserves a relative link with CRLF endings (%s)", (_name, text, href) => {
+    const link = `[${text}](${href})`;
+    const doc = `# Links\r\n\r\nSee ${link} for details.\r\n`;
+
+    expect(lintDocument(doc, { rules: [ruleInvalidLinkTarget] })).toEqual([]);
+    expect(applyAllFixes(doc, lintDocument(doc))).toContain(link);
+  });
+
   it("preserves a valid fragment link [section](#section) alongside its target heading", () => {
     for (const nl of ["\n", "\r\n"]) {
       const doc = `---${nl}title: Guide${nl}---${nl}${nl}# Guide${nl}${nl}Jump to [section](#section) first.${nl}${nl}## Section${nl}${nl}Body text.${nl}`;
