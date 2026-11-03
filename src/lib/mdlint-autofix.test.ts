@@ -8403,3 +8403,29 @@ describe("autofix: invalid links in a blockquote with mixed content", () => {
     expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
   });
 });
+
+describe("autofix: a described image with no other findings", () => {
+  const defaultRules = BUILTIN_RULES.filter((rule) =>
+    LINTER_DEFAULT_ENABLED_RULES.includes(rule.id),
+  );
+
+  it.each([
+    ["no final newline", "![Quarterly revenue chart](images/revenue.png)"],
+    ["LF final newline", "![Quarterly revenue chart](images/revenue.png)\n"],
+    ["CRLF final newline", "![Quarterly revenue chart](images/revenue.png)\r\n"],
+    [
+      "title and Unicode alt",
+      '![Café revenue *chart*](images/café.png?v=2#top "Revenue")\n',
+    ],
+    [
+      "heading and prose around it",
+      "# Report\n\nIntro text.\n\n![Revenue by quarter](rev.png)\n\nClosing text.\n",
+    ],
+  ])("reports nothing and returns the complete input unchanged (%s)", (_name, doc) => {
+    for (const rules of [[ruleMissingAltText], defaultRules]) {
+      const violations = lintDocument(doc, { rules });
+      expect(violations).toEqual([]);
+      expect(applyAllFixes(doc, violations)).toBe(doc);
+    }
+  });
+});
