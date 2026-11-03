@@ -7450,3 +7450,31 @@ describe("autofix: undescribed image at the end of a document", () => {
     expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(expected);
   });
 });
+
+describe("autofix: undescribed image idempotence across repeated passes", () => {
+  const rules = [ruleMissingAltText];
+  const fixPass = (text: string) => applyAllFixes(text, lintDocument(text, { rules }));
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("applying autofix twice or three times equals applying it once for images in lists, links and titles with parentheses (%j)", (nl) => {
+    const doc = [
+      "- Item ![](list.png)",
+      '  1. Nested ![ ](nested.png "Title (v2)")',
+      "",
+      "[![](badge.svg)](https://example.com/a_(b))",
+      "Cafe ☕ ![](caf%C3%A9.png?x=1#y) and ![kept](ok.png) `![](code.png)`",
+      "",
+    ].join(nl);
+
+    const once = fixPass(doc);
+    expect(once).not.toBe(doc);
+    expect(once.match(/!\[TODO: describe image\]/g)).toHaveLength(4);
+    expect(once).toContain("`![](code.png)`");
+    expect(once).toContain("![kept](ok.png)");
+    expect(lintDocument(once, { rules })).toEqual([]);
+    expect(fixPass(once)).toBe(once);
+    expect(fixPass(fixPass(once))).toBe(once);
+  });
+});
