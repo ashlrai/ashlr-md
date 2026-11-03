@@ -248,6 +248,25 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(expected)).toEqual([]);
   });
 
+  it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+  ])("replaces the invalid href on a line between two unaffected lines and preserves both neighbors (%s)", (_name, nl) => {
+    const before = "Line before has *emphasis* and a [valid](./ok.md) link.";
+    const after = "Line after has `code` and trailing text.";
+    const doc = [before, "Read [guide](  ) here.", after, ""].join(nl);
+    const expected = [before, "Read [guide](TODO) here.", after, ""].join(nl);
+    const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
+
+    expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+    expect(violations[0].range!.from.line).toBe(2);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.split(nl)[0]).toBe(before);
+    expect(fixed.split(nl)[2]).toBe(after);
+    expect(lintDocument(fixed, { rules: [ruleInvalidLinkTarget] })).toEqual([]);
+  });
+
   it("fixes two invalid hrefs on separate lines around a valid link and leaves all surrounding text unchanged", () => {
     const doc =
       "# Notes\n\nFirst, read [alpha]() before *anything* else.\n\nThen [kept](./kept.md) stays.\n\nLast, open [beta](   ) and `code` too.\n";
