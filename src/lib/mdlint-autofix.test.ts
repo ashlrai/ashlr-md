@@ -11261,3 +11261,32 @@ describe("autofix on an undescribed image amid multiline text", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+describe("rule:missing-alt-text undescribed image beside a described image in a table row", () => {
+  it.each([
+    "\n",
+    "\r\n",
+  ])("describes only the undescribed cell image and keeps the described one exactly with %j line endings", (newline) => {
+    const described = '![Chart](images/a.png?v=2#top "Q1")';
+    const doc =
+      [
+        "| Before | After |",
+        "| ------ | ----- |",
+        `| ${described} | ![](images/b.png) |`,
+      ].join(newline) + newline;
+    const expected = doc.replace(
+      "![](images/b.png)",
+      "![TODO: describe image](images/b.png)",
+    );
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "missing-alt-text",
+    ]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain(described);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
