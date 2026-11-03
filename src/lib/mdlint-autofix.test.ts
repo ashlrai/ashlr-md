@@ -2963,6 +2963,24 @@ describe("rule:missing-alt-text", () => {
   });
 
   it.each([
+    ["raw Unicode filename", "images/日本語-café-📊.png"],
+    ["raw Unicode filename with query and fragment", "images/Ünïcödé-図.png?v=2#top"],
+    ["percent-encoded Unicode filename", "images/caf%C3%A9-%E6%97%A5%E6%9C%AC.png"],
+  ])("preserves a Unicode image filename while inserting the placeholder (%s)", (_label, source) => {
+    const image = `![](${source})`;
+    const doc = `# Galerie\n\nBild café ${image} Ende.\n`;
+    const expected = doc.replace("![]", "![TODO: describe image]");
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain(`](${source})`);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
     "\n",
     "\r\n",
   ])("leaves a described image and its surrounding text unchanged (line endings %j)", (nl) => {
