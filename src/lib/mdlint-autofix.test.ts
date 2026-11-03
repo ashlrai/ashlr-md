@@ -7909,3 +7909,35 @@ describe("valid image with Unicode alt text", () => {
     }
   });
 });
+
+describe("autofix: invalid link at the end of a document", () => {
+  const rules = [ruleInvalidLinkTarget];
+
+  it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+  ])("sets the final paragraph's empty href to TODO and keeps all preceding prose byte-identical (%s)", (_name, nl) => {
+    const prose = [
+      "# Release notes",
+      "",
+      "Café déjà vu — see [changelog](./CHANGELOG.md) for *details*.",
+      "",
+      "```md",
+      "[ignored]()",
+      "```",
+      "",
+      "Last words, then the [broken link]()",
+    ].join(nl);
+    const doc = `${prose}${nl}`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+    const fixed = applyAllFixes(doc, violations);
+    // Everything before the destination is untouched; only `()` became `(TODO)`.
+    expect(fixed).toBe(`${prose.slice(0, -1)}TODO)${nl}`);
+    expect(fixed.startsWith(prose.slice(0, prose.lastIndexOf("()") + 1))).toBe(true);
+    expect(fixed).toContain("[ignored]()");
+    expect(applyFix(doc, violations[0])).toBe(fixed);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
