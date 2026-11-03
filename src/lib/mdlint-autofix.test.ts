@@ -12195,6 +12195,7 @@ describe("rule:missing-alt-text undescribed image on the last line without a fin
       "Text.\n\n![](a.png)  ",
       "Text.\n\n![TODO: describe image](a.png)  ",
     ],
+    ["image-only document", "![](a.png)", "![TODO: describe image](a.png)"],
   ])("adds the description and no final newline (%s)", (_name, doc, expected) => {
     const rules = [ruleMissingAltText];
     const violations = lintDocument(doc, { rules });
