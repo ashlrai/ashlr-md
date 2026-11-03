@@ -10517,3 +10517,31 @@ describe("autofix: valid anchor-link preservation (default rules)", () => {
     expect(fixDefault(fixed)).toBe(fixed);
   });
 });
+
+describe("rule:missing-alt-text undescribed image in a loose unordered list", () => {
+  const rules = [ruleMissingAltText];
+
+  it.each([
+    ["-", "  "],
+    ["*", "  "],
+    ["+", "  "],
+  ])("fills the placeholder in an item and its continuation paragraph and keeps marker %j and source", (marker, indent) => {
+    const build = (alt: string) =>
+      [
+        `${marker} First item with ![${alt}](<img/my pic.png> "Pic") inline`,
+        "",
+        `${indent}Continuation ![${alt}](img/b.png?v=2#top) text`,
+        "",
+        `${marker} Last item`,
+        "",
+      ].join("\n");
+    const doc = build("");
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(2);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(build("TODO: describe image"));
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+});
