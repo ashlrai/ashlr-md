@@ -321,6 +321,22 @@ describe("rule:invalid-link-target", () => {
     ).toBe(fixed);
   });
 
+  it.each([
+    ["lone #", "#"],
+    ["lone ?", "?"],
+    ["whitespace only", "   "],
+  ])("replaces a %s href at document start with TODO and preserves the following text", (_name, href) => {
+    const tail = " then *emphasis* and [ok](./a.md) follow.\n";
+    const doc = `[first](${href})${tail}`;
+    const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].range!.from.offset).toBe(0);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(`[first](TODO)${tail}`);
+    expect(lintDocument(fixed, { rules: [ruleInvalidLinkTarget] })).toEqual([]);
+  });
+
   it("inserts the TODO placeholder when the whole document is one invalid link with no trailing newline", () => {
     const doc = "[only link]()";
     const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
