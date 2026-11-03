@@ -1781,6 +1781,23 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    "\n",
+    "\r\n",
+  ])("inserts the placeholder when the undescribed image is the last text of the document with %j line endings", (newline) => {
+    const doc = `Intro.${newline}${newline}![](images/chart.png "Chart")`;
+    const expected = `Intro.${newline}${newline}![TODO: describe image](images/chart.png "Chart")`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.endsWith("\n")).toBe(false);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
     ["precomposed accent", "images/café.png"],
     ["decomposed accent", "images/café.png"],
     ["CJK", "images/日本語ガイド.png"],
