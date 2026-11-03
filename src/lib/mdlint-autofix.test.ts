@@ -7329,3 +7329,25 @@ describe("autofix: undescribed image with a nested relative path", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+// ─── Undescribed image as the last block of a document ───────────────────────
+
+describe("autofix: undescribed image at the end of a document", () => {
+  it.each([
+    "\n",
+    "\r\n",
+  ])("inserts the placeholder and keeps all preceding text (line endings %j)", (nl) => {
+    const preceding = `# Café guide${nl}${nl}Intro with *emphasis* and [docs](./guide.md).${nl}${nl}Final figure:${nl}`;
+    const doc = `${preceding}${nl}![](images/final.png)${nl}`;
+    const expected = `${preceding}${nl}![TODO: describe image](images/final.png)${nl}`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.startsWith(preceding)).toBe(true);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(expected);
+  });
+});
