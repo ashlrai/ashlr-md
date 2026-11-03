@@ -1598,6 +1598,27 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    ["precomposed accent", "images/café.png"],
+    ["decomposed accent", "images/café.png"],
+    ["CJK", "images/日本語ガイド.png"],
+    ["ZWJ emoji", "images/👩🏽‍💻 diagram.png"],
+    ["percent-encoded in angle brackets", "<images/caf%C3%A9 図.png>"],
+  ])("inserts the placeholder for an undescribed image and preserves a Unicode filename byte-for-byte (%s)", (_name, target) => {
+    const doc = `Intro café.\n\n![](${target} "Título") tail.\n`;
+    const expected = `Intro café.\n\n![TODO: describe image](${target} "Título") tail.\n`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("missing-alt-text");
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain(target);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
     "\n",
     "\r\n",
   ])("describes an undescribed image that ends the document with no final newline with %j line endings", (newline) => {
