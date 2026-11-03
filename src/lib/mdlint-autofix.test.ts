@@ -9905,3 +9905,15 @@ describe("rule:missing-alt-text undescribed image in an ordered list", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+describe("rule:missing-alt-text described image", () => {
+  it("leaves an image with meaningful alt text and its surrounding prose unchanged", () => {
+    const doc =
+      "Intro paragraph.\n\nSee ![Bar chart of monthly revenue](images/revenue.png) for details.\n\nClosing words.\n";
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toEqual([]);
+    expect(applyAllFixes(doc, violations)).toBe(doc);
+  });
+});
