@@ -228,6 +228,21 @@ describe("rule:invalid-link-target", () => {
     expect(fixed).not.toContain("TODO");
   });
 
+  it.each([
+    ["titled link", 'Read [the guide](./guide.md "Guide title") first.'],
+    ["fragment-only link", "Jump to [setup](#setup) first."],
+    ["link with angle-bracket href", "Read [the guide](<./my guide.md>) first."],
+    ["reference-style link", "Read [the guide][g] first.\n\n[g]: ./guide.md"],
+    ["autolink", "Visit <https://example.com/guide> first."],
+  ])("autofix leaves a valid %s and its surrounding prose unchanged", (_name, body) => {
+    const doc = `---\ntitle: Intro\n---\n\n# Intro\n\nBefore text. ${body} After text.\n`;
+    const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
+
+    expect(violations).toEqual([]);
+    expect(applyAllFixes(doc, violations)).toBe(doc);
+    expect(applyAllFixes(doc, lintDocument(doc))).toBe(doc);
+  });
+
   it("replaces an invalid href at offset 0 of the document with TODO and preserves the following prose", () => {
     const doc =
       "[start link]() opens the doc, then **prose** and [ok](./a.md) follow.\n";
