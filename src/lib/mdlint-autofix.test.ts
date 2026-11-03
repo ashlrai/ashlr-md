@@ -10442,3 +10442,20 @@ describe("autofix preserves bracketed [sic] prose", () => {
     expect(fixPass(doc)).toBe(doc);
   });
 });
+
+describe("invalid-link-target autofix: adjacent and emphasized links", () => {
+  const rules = [ruleInvalidLinkTarget];
+  const fixPass = (text: string) => applyAllFixes(text, lintDocument(text, { rules }));
+
+  it("running autofix twice produces the same output as once", () => {
+    const doc =
+      "**[bold]()** and *[it](#)* then [a]()[b]() beside [ok](https://example.com).\n";
+    const once = fixPass(doc);
+
+    expect(once).toBe(
+      "**[bold](TODO)** and *[it](TODO)* then [a](TODO)[b](TODO) beside [ok](https://example.com).\n",
+    );
+    expect(lintDocument(once, { rules })).toEqual([]);
+    expect(fixPass(once)).toBe(once);
+  });
+});
