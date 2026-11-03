@@ -459,6 +459,16 @@ describe("rule:invalid-link-target", () => {
     }
   });
 
+  it("preserves a link with empty text and a valid destination, and changes no surrounding text", () => {
+    const doc =
+      "---\ntitle: Links\n---\n\n# Links\n\nBefore [](https://example.com/page) and [named](docs/guide.md) after.\n";
+    const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
+
+    expect(violations).toEqual([]);
+    expect(applyAllFixes(doc, violations)).toBe(doc);
+    expect(applyAllFixes(doc, lintDocument(doc))).toBe(doc);
+  });
+
   it("replaces an invalid href at offset 0 of the document with TODO and preserves the following prose", () => {
     const doc =
       "[start link]() opens the doc, then **prose** and [ok](./a.md) follow.\n";
