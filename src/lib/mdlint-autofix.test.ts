@@ -646,6 +646,51 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 
+  it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+  ])("repairs an invalid link in a quoted list item and a lazy continuation line, keeping the quote prefixes, a code span and a quoted fence untouched (%s)", (_name, nl) => {
+    const rules = [ruleInvalidLinkTarget];
+    const doc = [
+      "Before the quote.",
+      "",
+      "> - Item with [bad]() link and `[code]()` span",
+      "> - Second [fine](./fine.md) item",
+      "lazy continuation with [lazy](?) link",
+      ">",
+      "> ```",
+      "> [fenced]()",
+      "> ```",
+      "",
+      "After the quote.",
+      "",
+    ].join(nl);
+    const expected = [
+      "Before the quote.",
+      "",
+      "> - Item with [bad](TODO) link and `[code]()` span",
+      "> - Second [fine](./fine.md) item",
+      "lazy continuation with [lazy](TODO) link",
+      ">",
+      "> ```",
+      "> [fenced]()",
+      "> ```",
+      "",
+      "After the quote.",
+      "",
+    ].join(nl);
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(2);
+    expect(
+      violations.map((v) => doc.slice(v.range!.from.offset, v.range!.to.offset)),
+    ).toEqual(["[bad]()", "[lazy](?)"]);
+    expect(applyFix(doc, violations[0])).toBe(doc.replace("[bad]()", "[bad](TODO)"));
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
   it("replaces a whitespace-only href with TODO while preserving the link text", () => {
     const doc =
       "---\ntitle: Guide\n---\n\nRead [café guide](   ) and [reference](./guide.md).\n";
