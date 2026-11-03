@@ -7829,3 +7829,20 @@ describe("autofix: bracketed prose preservation", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+describe("valid image with Unicode alt text", () => {
+  it.each([
+    ["accented Latin", "Café résumé naïve"],
+    ["CJK", "東京タワーの図 图表"],
+    ["emoji and ZWJ sequence", "Team 👩‍💻 launch 🚀"],
+    ["RTL", "رسم بياني"],
+  ])("autofix leaves the image and its %s alt text unchanged", (_label, alt) => {
+    const rules = [ruleMissingAltText, ruleInvalidLinkTarget];
+    for (const nl of ["\n", "\r\n"]) {
+      const doc = `# Title${nl}${nl}Intro ![${alt}](images/pic.png "Caption") end.${nl}`;
+      const violations = lintDocument(doc, { rules });
+      expect(violations).toEqual([]);
+      expect(applyAllFixes(doc, violations)).toBe(doc);
+    }
+  });
+});
