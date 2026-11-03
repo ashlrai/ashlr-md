@@ -11092,6 +11092,22 @@ describe("autofix of an undescribed image between two paragraphs", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 
+  it("keeps irregular paragraph spacing (extra and whitespace-only blank lines) and changes only the description", () => {
+    const doc =
+      "Above paragraph.\n\n\n\n![](images/gap.png)\n  \t\n\n\nBelow paragraph.\n";
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(
+      "Above paragraph.\n\n\n\n![TODO: describe image](images/gap.png)\n  \t\n\n\nBelow paragraph.\n",
+    );
+    // Removing the inserted placeholder restores the original byte-for-byte.
+    expect(fixed.replace("TODO: describe image", "")).toBe(doc);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
   it("gives each of three undescribed images the placeholder, keeps every source, and leaves a described image alone", () => {
     const doc =
       "- ![](images/one.png)\n" +
