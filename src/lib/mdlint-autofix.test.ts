@@ -3867,6 +3867,98 @@ describe("rule:invalid-link-target", () => {
     expect(applyAllFixes(doc, violations)).toBe(expected);
     expect(lintDocument(expected, { rules })).toEqual([]);
   });
+
+  it("fixes six invalid links across a full document with heading, list and blockquote, keeping every label and surrounding prose", () => {
+    const doc = [
+      "---",
+      "title: Changelog",
+      "version: 2.0",
+      "---",
+      "",
+      "# Changelog",
+      "",
+      "## Overview",
+      "",
+      "This release adds features. See [summary]() and [notes](  ).",
+      "",
+      "## Changes",
+      "",
+      "- Fixed [issue one](#)",
+      "- Added [issue two](?)",
+      "- See [docs](./docs.md) for the full reference.",
+      "",
+      "## Known issues",
+      "",
+      "> [workaround a]() may help with crash reports.",
+      "> Also check [workaround b](   ) for memory leaks.",
+      "",
+      "Please file bugs at [tracker](https://example.com/issues).",
+      "",
+    ].join("\n");
+
+    const expected = [
+      "---",
+      "title: Changelog",
+      "version: 2.0",
+      "---",
+      "",
+      "# Changelog",
+      "",
+      "## Overview",
+      "",
+      "This release adds features. See [summary](TODO) and [notes](TODO).",
+      "",
+      "## Changes",
+      "",
+      "- Fixed [issue one](TODO)",
+      "- Added [issue two](TODO)",
+      "- See [docs](./docs.md) for the full reference.",
+      "",
+      "## Known issues",
+      "",
+      "> [workaround a](TODO) may help with crash reports.",
+      "> Also check [workaround b](TODO) for memory leaks.",
+      "",
+      "Please file bugs at [tracker](https://example.com/issues).",
+      "",
+    ].join("\n");
+
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(6);
+    expect(violations.every((v) => v.ruleId === "invalid-link-target")).toBe(true);
+
+    // Each invalid href becomes TODO.
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+
+    // All link labels are preserved in order.
+    expect([...fixed.matchAll(/\[([^\]]+)\]/g)].map((m) => m[1])).toEqual([
+      "summary",
+      "notes",
+      "issue one",
+      "issue two",
+      "docs",
+      "workaround a",
+      "workaround b",
+      "tracker",
+    ]);
+
+    // Surrounding prose is intact.
+    expect(fixed).toContain("This release adds features.");
+    expect(fixed).toContain("- Fixed [issue one](TODO)");
+    expect(fixed).toContain("> [workaround a](TODO) may help with crash reports.");
+    expect(fixed).toContain(
+      "Please file bugs at [tracker](https://example.com/issues).",
+    );
+
+    // Clean after fix.
+    expect(lintDocument(expected, { rules })).toEqual([]);
+
+    // Idempotent.
+    expect(applyAllFixes(expected, lintDocument(expected, { rules }))).toBe(expected);
+  });
 });
 
 // ─── 3. Rule: missing-alt-text ────────────────────────────────────────────────
