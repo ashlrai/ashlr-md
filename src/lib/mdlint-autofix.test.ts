@@ -10257,6 +10257,23 @@ describe("autofix: invalid links in an ordered list", () => {
     expect(fixed).toBe(expected);
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
+
+  it.each([
+    ["0."],
+    ["7."],
+    ["100."],
+    ["2)"],
+  ])("fixes a lone ? href in a loose numbered list item with marker %j and keeps the marker, blank lines and text", (marker) => {
+    const doc = `${marker} Intro, see [ok](./ok.md).\n\n${marker} Visit [the **docs**](?), then [home](./) today.\n\n${marker} Last item.\n`;
+    const expected = `${marker} Intro, see [ok](./ok.md).\n\n${marker} Visit [the **docs**](TODO), then [home](./) today.\n\n${marker} Last item.\n`;
+
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
 });
 
 describe("invalid-link-target autofix: idempotence inside blockquotes, tables and headings", () => {
