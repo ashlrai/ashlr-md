@@ -9320,6 +9320,22 @@ describe("autofix: valid relative link preservation", () => {
     const doc = "# Title\n\nSee [guide](./docs/guide.md) here.\nTrailing   \n";
     expect(fix(doc)).toBe("# Title\n\nSee [guide](./docs/guide.md) here.\nTrailing\n");
   });
+
+  it.each([
+    ["query string", "Open [view](./page.md?tab=2) now.\n"],
+    ["CRLF line endings", "Read [guide](../docs/guide.md) now.\r\n"],
+    ["inside a list item", "- Read [guide](./a/b.md#x) then stop.\n"],
+  ])("leaves a relative link with %s unchanged", (_name, doc) => {
+    expect(lintDocument(doc, { rules })).toEqual([]);
+    expect(fix(doc)).toBe(doc);
+  });
+
+  it("fixes an empty link while preserving a relative link on the same line", () => {
+    const doc = "See [broken]() and [guide](./docs/guide.md) both.\n";
+    const fixed = fix(doc);
+    expect(fixed).toBe("See [broken](TODO) and [guide](./docs/guide.md) both.\n");
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
 });
 
 // ─── Fragment links survive autofix untouched ──────────────────────────────
