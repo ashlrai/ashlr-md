@@ -12461,3 +12461,46 @@ describe("invalid-link autofix idempotence in task lists and nested ordered list
     expect(lintDocument(once, opts)).toEqual([]);
   });
 });
+
+describe("autofix idempotence for undescribed images: inline wrappers, attributes and skipped forms", () => {
+  const rules = [ruleMissingAltText];
+  const fixPass = (text: string) => applyAllFixes(text, lintDocument(text, { rules }));
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("fixing twice equals fixing once for emphasis-wrapped, attribute-suffixed and nested-list images, leaving comments, code and reference images alone (%j)", (nl) => {
+    const doc = [
+      "~~![](a.png)~~ **![](b.png)**",
+      "![](c.png){width=50}",
+      "1. ![](d.png)",
+      "   - ![](e.png)",
+      "<!-- ![](hidden.png) -->",
+      "`![](code.png)` ![](f.png)",
+      "![][ref]",
+      "",
+      "[ref]: ref.png",
+      "",
+    ].join(nl);
+    const fixed = "![TODO: describe image]";
+    const expected = [
+      `~~${fixed}(a.png)~~ **${fixed}(b.png)**`,
+      `${fixed}(c.png){width=50}`,
+      `1. ${fixed}(d.png)`,
+      `   - ${fixed}(e.png)`,
+      "<!-- ![](hidden.png) -->",
+      `\`![](code.png)\` ${fixed}(f.png)`,
+      "![][ref]",
+      "",
+      "[ref]: ref.png",
+      "",
+    ].join(nl);
+
+    const once = fixPass(doc);
+    const twice = fixPass(once);
+
+    expect(once).toBe(expected);
+    expect(twice).toBe(once);
+    expect(lintDocument(twice, { rules })).toEqual([]);
+  });
+});
