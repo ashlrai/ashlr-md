@@ -7692,6 +7692,31 @@ describe("rule:missing-alt-text two undescribed images", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
     expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
   });
+
+  it("fixAllViolations under the default rules describes both images, keeps both sources and records two history entries", () => {
+    clearLintHistory();
+    const doc =
+      "# Gallery\n\nSee the photos below.\n\n![](img/a.png)\n![](img/b.png)\n";
+    const expected =
+      "# Gallery\n\nSee the photos below.\n\n" +
+      "![TODO: describe image](img/a.png)\n![TODO: describe image](img/b.png)\n";
+    const rules = BUILTIN_RULES.filter((rule) =>
+      LINTER_DEFAULT_ENABLED_RULES.includes(rule.id),
+    );
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+      "missing-alt-text",
+      "missing-alt-text",
+    ]);
+    const fixed = fixAllViolations(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(getLintHistory().map((entry) => entry.ruleId)).toEqual([
+      "missing-alt-text",
+      "missing-alt-text",
+    ]);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
 });
 
 describe("autofix: empty document", () => {
