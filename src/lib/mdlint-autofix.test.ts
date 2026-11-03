@@ -3732,6 +3732,24 @@ describe("rule:invalid-link-target", () => {
 // ─── 3. Rule: missing-alt-text ────────────────────────────────────────────────
 
 describe("rule:missing-alt-text", () => {
+  it.each([
+    ["plain destination", "![Quarterly revenue chart](charts/q3.png)"],
+    [
+      "query, fragment and title",
+      '![Café *plan*](img/caf%C3%A9.png?s=2#top "Plan (v2)")',
+    ],
+    ["angle-bracket destination", "![Site map](<img/site map.png>)"],
+  ])("leaves an already-described image untouched, markup and destination (%s)", (_name, image) => {
+    const doc = `# Report\n\nSee ${image} for details.\n`;
+    const rules = [ruleMissingAltText];
+
+    expect(lintDocument(doc, { rules })).toEqual([]);
+    expect(applyAllFixes(doc, lintDocument(doc, { rules }))).toBe(doc);
+    // Also unchanged when every built-in rule runs.
+    const all = lintDocument(doc);
+    expect(applyAllFixes(doc, all)).toContain(image);
+  });
+
   it("autofixes an undescribed image at the start of a document", () => {
     const doc = "![](chart.png)\nSome text follows.\n";
     const rules = [ruleMissingAltText];
