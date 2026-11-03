@@ -1161,6 +1161,28 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    ["\n", [ruleInvalidLinkTarget, ruleMissingAltText]],
+    ["\r\n", [ruleMissingAltText, ruleInvalidLinkTarget]],
+  ])("applies both fixes in document order for an invalid link followed by an undescribed image (line ending %j)", (newline, rules) => {
+    const doc = `Read [draft](#) then see ![](images/a b.png "T") today.${newline}`;
+    const expected = `Read [draft](TODO) then see ![TODO: describe image](images/a b.png "T") today.${newline}`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(2);
+    expect(violations.map((violation) => violation.ruleId).sort()).toEqual([
+      "invalid-link-target",
+      "missing-alt-text",
+    ]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // Link fix lands before the image fix, matching the original order.
+    expect(fixed.indexOf("[draft](TODO)")).toBeLessThan(
+      fixed.indexOf("![TODO: describe image]"),
+    );
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
     "\n",
     "\r\n",
   ])("preserves an absolute URL and surrounding text when fixing another link with %j line endings", (newline) => {
