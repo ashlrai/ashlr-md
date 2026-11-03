@@ -9624,6 +9624,33 @@ describe("rule:missing-alt-text image alone in an unordered list item", () => {
   });
 });
 
+describe("rule:missing-alt-text undescribed image mixed into nested unordered list items", () => {
+  const rules = [ruleMissingAltText];
+
+  it.each([
+    ["-", "  ", "\n"],
+    ["*", "    ", "\r\n"],
+    ["+", "\t", "\n"],
+  ])("fills the placeholder and keeps marker %j and indent in a nested item with text and a task box (indent %j, line ending %j)", (marker, indent, nl) => {
+    const build = (alt: string) =>
+      [
+        `${marker} Top item`,
+        `${indent}${marker} Chart: ![${alt}](img/a.png "A") and ![Kept](img/k.png)`,
+        `${indent}${marker} [x] Done ![${alt}](img/b.png?v=2#top)`,
+        "",
+      ].join(nl);
+    const doc = build(" ");
+    const expected = build("TODO: describe image");
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(2);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+});
+
 describe("autofix: invalid links in an ordered list", () => {
   const rules = [ruleInvalidLinkTarget];
 
