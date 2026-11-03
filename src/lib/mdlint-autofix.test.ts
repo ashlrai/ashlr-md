@@ -1284,6 +1284,20 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 
+  it("preserves a described image with an HTTPS source and its query, fragment and title", () => {
+    const image =
+      '![Release chart](https://cdn.example.com/img/chart.png?size=2&v=1#top "Chart")';
+    const doc = `Intro café.\n\n${image}\n`;
+    const rules = [ruleInvalidLinkTarget, ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toEqual([]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(doc);
+    expect(fixed).toContain(image);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
   it.each([
     "\n",
     "\r\n",
