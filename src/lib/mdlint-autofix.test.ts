@@ -126,6 +126,25 @@ describe("rule:invalid-link-target", () => {
     }
   });
 
+  it.each([
+    ["bare filename", "Setup Guide", "setup.md"],
+    ["subdirectory path", "API reference", "docs/api/index.md"],
+    ["parent traversal", "Changelog", "../CHANGELOG.md"],
+    ["percent-encoded space", "My notes", "notes/my%20notes.md"],
+    ["trailing slash directory", "Docs home", "./docs/"],
+  ])("preserves a valid relative link's href and text exactly (%s)", (_name, text, href) => {
+    const link = `[${text}](${href})`;
+    const doc = `# Links\n\nSee ${link} for details.\n`;
+    const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
+
+    expect(violations).toEqual([]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(doc);
+    expect(fixed).toContain(link);
+    // The full default rule set must not rewrite the href or the text either.
+    expect(applyAllFixes(doc, lintDocument(doc))).toContain(link);
+  });
+
   it("preserves a valid fragment link [section](#section) alongside its target heading", () => {
     for (const nl of ["\n", "\r\n"]) {
       const doc = `---${nl}title: Guide${nl}---${nl}${nl}# Guide${nl}${nl}Jump to [section](#section) first.${nl}${nl}## Section${nl}${nl}Body text.${nl}`;
