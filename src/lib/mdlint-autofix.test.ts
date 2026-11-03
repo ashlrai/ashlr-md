@@ -8655,4 +8655,23 @@ describe("autofix: a described image with no other findings", () => {
     expect(fixed.split("TODO: describe image")).toHaveLength(2);
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("describes an undescribed image and leaves unrelated prose and line breaks on separate lines untouched (%j)", (newline) => {
+    const image = '![](images/chart.png "Chart")';
+    const repaired = '![TODO: describe image](images/chart.png "Chart")';
+    const prose = "Unrelated café prose, with *emphasis* and trailing spaces.  ";
+    const doc = `${prose}${newline}${image}${newline}${prose}${newline}`;
+    const expected = `${prose}${newline}${repaired}${newline}${prose}${newline}`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.split(newline)).toHaveLength(doc.split(newline).length);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
 });
