@@ -9247,6 +9247,82 @@ describe("autofix: a described image with no other findings", () => {
   });
 });
 
+describe("autofix: mixed described and undescribed images across paragraphs", () => {
+  it.each([
+    "\n",
+    "\r\n",
+  ])("fixes the undescribed image and leaves the described image byte-identical in separate paragraphs (%j)", (newline) => {
+    const described = '![Quarterly revenue chart](images/revenue.png "Q3 results")';
+    const undescribed = "![](images/roadmap.png)";
+    const repaired = "![TODO: describe image](images/roadmap.png)";
+    const doc =
+      `# Report${newline}${newline}` +
+      `Here is the ${described} from last quarter.${newline}${newline}` +
+      `And the ${undescribed} for next quarter.${newline}${newline}`;
+    const expected =
+      `# Report${newline}${newline}` +
+      `Here is the ${described} from last quarter.${newline}${newline}` +
+      `And the ${repaired} for next quarter.${newline}${newline}`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    // Only the undescribed image is flagged.
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("missing-alt-text");
+    expect(violations[0].range?.from.offset).toBe(doc.indexOf(undescribed));
+
+    // Autofix changes only the undescribed image.
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+
+    // Described image is byte-for-byte identical.
+    expect(fixed.slice(0, fixed.indexOf(repaired))).toBe(
+      doc.slice(0, doc.indexOf(undescribed)),
+    );
+    expect(fixed.slice(fixed.indexOf(repaired) + repaired.length)).toBe(
+      doc.slice(doc.indexOf(undescribed) + undescribed.length),
+    );
+
+    expect(fixed.split("TODO: describe image")).toHaveLength(2);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it("fixes multiple undescribed images while preserving described ones in different sections", () => {
+    const described1 = "![Team photo](images/team.jpg)";
+    const undescribed1 = "![](images/chart.png)";
+    const described2 = '![Logo](https://cdn.example.com/logo.svg "Company logo")';
+    const undescribed2 = "![](images/flow.png)";
+    const repaired1 = "![TODO: describe image](images/chart.png)";
+    const repaired2 = "![TODO: describe image](images/flow.png)";
+    const doc = [
+      "# Agenda",
+      "",
+      `Photo: ${described1}.`,
+      "",
+      `Chart: ${undescribed1}.`,
+      "",
+      `## Next`,
+      "",
+      `${described2} and ${undescribed2}.`,
+      "",
+    ].join("\n");
+
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(2);
+    expect(violations.every((v) => v.ruleId === "missing-alt-text")).toBe(true);
+
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toContain(described1);
+    expect(fixed).toContain(described2);
+    expect(fixed).toContain(repaired1);
+    expect(fixed).toContain(repaired2);
+    expect(fixed.split("TODO: describe image")).toHaveLength(3);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
+
 describe("rule:invalid-link-target — invalid link beside a valid link", () => {
   it.each([
     ["invalid first", "[broken]()", "[fine](https://example.com/ok)"],
