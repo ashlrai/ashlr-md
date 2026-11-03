@@ -3085,6 +3085,31 @@ describe("rule:missing-alt-text", () => {
   });
 
   it.each([
+    ["\n", false],
+    ["\r\n", false],
+    ["\n", true],
+    ["\r\n", true],
+  ])("leaves a described image unchanged while describing the undescribed one (line endings %j, described first: %s)", (nl, describedFirst) => {
+    const described = '![Sales chart](images/sales.png?v=2#top "Sales")';
+    const undescribed = "![](images/costs.png)";
+    const [first, second] = describedFirst
+      ? [described, undescribed]
+      : [undescribed, described];
+    const doc = `# Report${nl}${nl}Figures: ${first} and ${second}.${nl}`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(
+      doc.replace("![](images/costs.png)", "![TODO: describe image](images/costs.png)"),
+    );
+    expect(fixed).toContain(described);
+    expect(fixed.match(/TODO: describe image/g)).toHaveLength(1);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
     ["raw Unicode filename", "images/日本語-café-📊.png"],
     ["raw Unicode filename with query and fragment", "images/Ünïcödé-図.png?v=2#top"],
     ["percent-encoded Unicode filename", "images/caf%C3%A9-%E6%97%A5%E6%9C%AC.png"],
