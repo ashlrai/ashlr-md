@@ -3836,6 +3836,18 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 
+  it("replaces an invalid target in the last list item before trailing blank lines with TODO and keeps the label", () => {
+    const doc = "# Links\n\n- [valid](./ok.md)\n- [Last item]( )\n\n\n";
+    const expected = "# Links\n\n- [valid](./ok.md)\n- [Last item](TODO)\n\n\n";
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+
   it("fixes an invalid link at document end without adding unrelated text", () => {
     const doc = [
       "# Installation Guide",
