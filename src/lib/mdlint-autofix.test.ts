@@ -359,6 +359,22 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(fixed, { rules: [ruleInvalidLinkTarget] })).toEqual([]);
   });
 
+  it("fixes only the start-of-document link with applyFix and leaves a later invalid link and inline code for the next pass", () => {
+    const doc = "[head]() then `[code]()` and [later](#) end.\n";
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(2);
+    expect(violations[0].range!.from.offset).toBe(0);
+
+    const once = applyFix(doc, violations[0]);
+    expect(once).toBe("[head](TODO) then `[code]()` and [later](#) end.\n");
+    expect(lintDocument(once, { rules })).toHaveLength(1);
+    expect(applyAllFixes(doc, violations)).toBe(
+      "[head](TODO) then `[code]()` and [later](TODO) end.\n",
+    );
+  });
+
   it("inserts the TODO placeholder when the whole document is one invalid link with no trailing newline", () => {
     const doc = "[only link]()";
     const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
