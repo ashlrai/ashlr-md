@@ -427,6 +427,21 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(fixed, { rules: [ruleInvalidLinkTarget] })).toEqual([]);
   });
 
+  it("rewrites an invalid link that sits alone between two paragraphs to TODO and keeps both paragraphs intact", () => {
+    const before = "First paragraph, with *emphasis* and a [valid](./ok.md) link.";
+    const after = "Last paragraph stays exactly as written.";
+    const doc = `${before}\n\nSee [broken target]().\n\n${after}\n`;
+    const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("invalid-link-target");
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(`${before}\n\nSee [broken target](TODO).\n\n${after}\n`);
+    expect(fixed).toContain(before);
+    expect(fixed).toContain(after);
+    expect(lintDocument(fixed, { rules: [ruleInvalidLinkTarget] })).toEqual([]);
+  });
+
   it("gives two invalid links in one document a TODO href each and keeps both labels", () => {
     const fm = "---\ntitle: Guide\n---\n\n";
     const doc = `${fm}See [first label]() and [second label](  ) for details.\n`;
