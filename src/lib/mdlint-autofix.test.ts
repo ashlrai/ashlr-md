@@ -125,6 +125,21 @@ describe("rule:invalid-link-target", () => {
     }
   });
 
+  describe("preserves valid mailto links", () => {
+    it.each([
+      ["plain address", "[contact](mailto:team@example.com)"],
+      ["with subject", "[help](mailto:support@example.com?subject=Help)"],
+    ])("autofix leaves %s mailto link unchanged", (_name, link) => {
+      for (const nl of ["\n", "\r\n"]) {
+        const doc = `---${nl}title: Contact${nl}---${nl}${nl}Email ${link} for details.${nl}`;
+        const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
+        expect(violations).toEqual([]);
+        expect(applyAllFixes(doc, violations)).toBe(doc);
+        expect(applyAllFixes(doc, lintDocument(doc))).toBe(doc);
+      }
+    });
+  });
+
   it.each([
     "Guide: setup, usage & tips!",
     'What\'s new? (v2.0) - see "notes"; ok...',
