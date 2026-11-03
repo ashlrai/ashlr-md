@@ -9175,3 +9175,33 @@ describe("autofix: invalid link at the end of a document", () => {
     expect(applyAllFixes(doc, lintDocument(doc, { rules }))).toBe("[only](TODO)");
   });
 });
+
+describe("rule:missing-alt-text image alone in an unordered list item", () => {
+  it.each([
+    ["-", "\n"],
+    ["*", "\r\n"],
+    ["+", "\n"],
+  ])("adds the placeholder and keeps marker %j, destination and neighbouring items (line ending %j)", (marker, nl) => {
+    const dest = 'images/diagram%20one.png?view=full#data "Diagram"';
+    const doc = [
+      `${marker} Intro item`,
+      `${marker} ![](${dest})`,
+      `${marker} ![Existing alt](images/other.png)`,
+      "",
+    ].join(nl);
+    const expected = [
+      `${marker} Intro item`,
+      `${marker} ![TODO: describe image](${dest})`,
+      `${marker} ![Existing alt](images/other.png)`,
+      "",
+    ].join(nl);
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain(`${marker} ![TODO: describe image](${dest})`);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
