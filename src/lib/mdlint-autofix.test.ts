@@ -10381,3 +10381,24 @@ describe("autofix of an undescribed image at the end of the document", () => {
     expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
   });
 });
+
+describe("autofix preserves bracketed [sic] prose", () => {
+  const rules = [ruleInvalidLinkTarget, ruleMissingAltText, ruleNoTrailingSpaces];
+  const fixPass = (text: string) => applyAllFixes(text, lintDocument(text, { rules }));
+
+  it("keeps [sic] and its surrounding text while fixing a real violation", () => {
+    const doc = "He wrote that they was [sic] late. See [broken]() for details.\n";
+    const fixed = fixPass(doc);
+
+    expect(fixed).toBe(
+      "He wrote that they was [sic] late. See [broken](TODO) for details.\n",
+    );
+    expect(fixPass(fixed)).toBe(fixed);
+  });
+
+  it("leaves a document containing only [sic] prose byte-for-byte unchanged", () => {
+    const doc = 'The quote said "teh [sic] cat" and "recieve [sic]".\n';
+    expect(lintDocument(doc, { rules })).toEqual([]);
+    expect(fixPass(doc)).toBe(doc);
+  });
+});
