@@ -11117,3 +11117,41 @@ describe("autofix on an empty document", () => {
     expect(applyAllFixes("", violations)).toBe("");
   });
 });
+
+// ─── Undescribed image with multiline surrounding text ───────────────────────
+
+describe("autofix on an undescribed image amid multiline text", () => {
+  it.each([
+    "\n",
+    "\r\n",
+  ])("inserts the placeholder and keeps every surrounding line in order (line ending %j)", (newline) => {
+    const lines = [
+      "# Gallery",
+      "",
+      "Intro line one.",
+      "Intro line two with café.",
+      "![](images/chart.png)",
+      "Closing line one.",
+      "",
+      "Closing paragraph.",
+    ];
+    const doc = lines.join(newline) + newline;
+    const expectedLines = [...lines];
+    expectedLines[4] = "![TODO: describe image](images/chart.png)";
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "missing-alt-text",
+    ]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expectedLines.join(newline) + newline);
+    // Only the image line changed; the rest keep their text and order.
+    const fixedLines = fixed.split(newline);
+    expect(fixedLines).toHaveLength(lines.length + 1);
+    fixedLines.forEach((line, index) => {
+      if (index !== 4 && index < lines.length) expect(line).toBe(lines[index]);
+    });
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
