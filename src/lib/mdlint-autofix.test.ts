@@ -2943,6 +2943,32 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    "\n",
+    "\r\n",
+  ])("repairs a final undescribed image with all built-in rules without adding a trailing newline (%j)", (newline) => {
+    const prefix = [
+      "---",
+      "title: Guide",
+      "---",
+      "",
+      "# Guide",
+      "",
+      "See [docs](./guide.md):",
+      "",
+      "",
+    ].join(newline);
+    const doc = `${prefix}![](images/chart.png "Chart")`;
+    const violations = lintDocument(doc);
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(`${prefix}![TODO: describe image](images/chart.png "Chart")`);
+    expect(fixed.endsWith("\n")).toBe(false);
+    expect(lintDocument(fixed)).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed))).toBe(fixed);
+  });
+
+  it.each([
     "",
     " ",
     "#",
