@@ -8879,3 +8879,24 @@ describe("invalid-link-target autofix: idempotence across document shapes", () =
     expect(fixPass(fixPass(doc))).toBe(doc);
   });
 });
+
+describe("autofix preserves plain prose (no links or images)", () => {
+  const rules = [ruleInvalidLinkTarget, ruleMissingAltText];
+  const fixPass = (text: string) => applyAllFixes(text, lintDocument(text, { rules }));
+
+  it.each([
+    ["single sentence", "Just a plain sentence.\n"],
+    [
+      "multi-paragraph",
+      "First paragraph.\n\nSecond paragraph, with commas; and more.\n",
+    ],
+    ["brackets and parens without link syntax", "see [1] and (note) or [a] (b) here\n"],
+    ["no trailing newline", "no newline at end"],
+    ["CRLF line endings", "line one\r\nline two\r\n"],
+    ["unicode and emoji", "café — naïve 日本語 🎉\n"],
+  ])("leaves %s byte-for-byte unchanged", (_name, doc) => {
+    expect(lintDocument(doc, { rules })).toEqual([]);
+    expect(fixPass(doc)).toBe(doc);
+    expect(fixPass(fixPass(doc))).toBe(doc);
+  });
+});
