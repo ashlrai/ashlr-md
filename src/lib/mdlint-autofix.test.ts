@@ -7653,6 +7653,24 @@ describe("invalid-link-target autofix: link label preservation", () => {
     expect(applyAllFixes(doc, violations)).toBe(fixed);
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
+
+  it("retains a multiword link label when fixing an empty destination", () => {
+    const doc = "Read [user setup guide]() before getting started.\n";
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("invalid-link-target");
+    expect(violations[0].fix).not.toBeNull();
+
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe("Read [user setup guide](TODO) before getting started.\n");
+    // Verify the multiword label is byte-for-byte preserved
+    expect(fixed).toContain("[user setup guide](TODO)");
+    expect(fixed).not.toContain("[user setup guide]()");
+    // Idempotence: fixing again produces the same result
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
 });
 
 describe("invalid-link-target autofix: preserves surrounding content", () => {
