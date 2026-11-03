@@ -12150,3 +12150,29 @@ describe("autofix: [sic] beside parentheses and code under the fixable rules", (
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+// ─── valid mailto links beside real violations ───────────────────────────────
+
+describe("autofix: valid mailto link preserved next to a broken link", () => {
+  const rules = [ruleInvalidLinkTarget];
+
+  it.each([
+    ["plain address", "[Email the team](mailto:team@example.com)"],
+    [
+      "multiple recipients",
+      "[Write us](mailto:a@example.com,b@example.com?subject=Hi)",
+    ],
+    ["uppercase scheme", "[Contact](MAILTO:Team@Example.com)"],
+  ])("keeps the %s address and link text while fixing only the broken link", (_name, mail) => {
+    for (const nl of ["\n", "\r\n"]) {
+      const doc = `Mail ${mail} or see [guide]().${nl}`;
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(`Mail ${mail} or see [guide](TODO).${nl}`);
+      expect(fixed).toContain(mail);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+    }
+  });
+});
