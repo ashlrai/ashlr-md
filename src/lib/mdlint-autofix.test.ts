@@ -187,6 +187,23 @@ describe("rule:invalid-link-target", () => {
     expect(fixed).not.toContain("TODO");
   });
 
+  it("replaces an invalid href at offset 0 of the document with TODO and preserves the following prose", () => {
+    const doc =
+      "[start link]() opens the doc, then **prose** and [ok](./a.md) follow.\n";
+    const expected =
+      "[start link](TODO) opens the doc, then **prose** and [ok](./a.md) follow.\n";
+    const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("invalid-link-target");
+    const { from, to } = violations[0].range!;
+    expect(from.offset).toBe(0);
+    expect(doc.slice(from.offset, to.offset)).toBe("[start link]()");
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules: [ruleInvalidLinkTarget] })).toEqual([]);
+  });
+
   it("replaces a whitespace-only href with TODO while preserving the link text", () => {
     const doc =
       "---\ntitle: Guide\n---\n\nRead [café guide](   ) and [reference](./guide.md).\n";
