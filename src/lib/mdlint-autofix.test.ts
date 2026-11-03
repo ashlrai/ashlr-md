@@ -8978,3 +8978,35 @@ describe("autofix preserves plain numeric bracket annotations", () => {
     expect(fixed).toContain("Claim [1] here.\n");
   });
 });
+
+describe("autofix preserves a plain [TODO] annotation", () => {
+  const linkRules = [ruleInvalidLinkTarget, ruleMissingAltText];
+  const linkFix = (text: string) =>
+    applyAllFixes(text, lintDocument(text, { rules: linkRules }));
+
+  it.each([
+    ["lone [TODO]", "[TODO]\n"],
+    ["[TODO] inside a sentence", "Finish the intro [TODO] before release.\n"],
+    ["[TODO] at line start and end", "[TODO] write tests [TODO]\n"],
+    ["[TODO] before parens", "Ship it [TODO] (soon) please.\n"],
+    ["[TODO] beside a valid link", "See [guide](./guide.md) [TODO] for more.\n"],
+    ["[TODO] in a list item", "- item one [TODO]\n- item two\n"],
+  ])("leaves %s byte-for-byte unchanged", (_name, doc) => {
+    expect(lintDocument(doc, { rules: linkRules })).toEqual([]);
+    expect(linkFix(doc)).toBe(doc);
+    expect(linkFix(linkFix(doc))).toBe(doc);
+  });
+
+  it("keeps [TODO] and surrounding prose exactly while fixing a real violation on the same line", () => {
+    const doc = "Draft [TODO] intro, see [more]() here.\n";
+    const expected = "Draft [TODO] intro, see [more](TODO) here.\n";
+    expect(linkFix(doc)).toBe(expected);
+    expect(linkFix(expected)).toBe(expected);
+  });
+
+  it("keeps [TODO] while the default rules strip trailing spaces", () => {
+    const doc = "Claim [TODO] here.   \n";
+    const fixed = applyAllFixes(doc, lintDocument(doc));
+    expect(fixed).toContain("Claim [TODO] here.\n");
+  });
+});
