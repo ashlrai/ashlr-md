@@ -26,6 +26,7 @@ import {
   applyFix,
   BUILTIN_RULES,
   LINTER_DEFAULT_ENABLED_RULES,
+  type LintViolation,
   lintDocument,
   ruleInvalidLinkTarget,
   ruleMissingAltText,
@@ -8181,6 +8182,17 @@ describe("autofix: empty document", () => {
     const violations = lintDocument("", { rules: BUILTIN_RULES });
     expect(fixAllViolations("", violations)).toBe("");
     expect(getLintHistory()).toEqual([]);
+  });
+
+  it("applyFix returns an empty document unchanged", () => {
+    const violation: LintViolation = {
+      ruleId: "test-rule",
+      message: "document-level issue",
+      severity: "info",
+      range: null,
+      fix: null,
+    };
+    expect(applyFix("", violation)).toBe("");
   });
 });
 
