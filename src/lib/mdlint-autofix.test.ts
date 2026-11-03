@@ -8066,3 +8066,24 @@ describe("autofix: empty href on a link with an empty label", () => {
     expect(lintDocument(expected, { rules })).toEqual([]);
   });
 });
+
+describe("missing-alt-text autofix with CRLF line endings", () => {
+  it("adds the placeholder to an undescribed image between CRLF lines and keeps every CRLF", () => {
+    const doc =
+      "# Title\r\n\r\nBefore.\r\n![](images/chart.png)\r\nAfter.\r\n\r\nEnd.\r\n";
+    const expected =
+      "# Title\r\n\r\nBefore.\r\n![TODO: describe image](images/chart.png)\r\nAfter.\r\n\r\nEnd.\r\n";
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("missing-alt-text");
+    expect(violations[0].fix).not.toBeNull();
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // No bare LF introduced, and the CRLF count is unchanged.
+    expect(fixed.replace(/\r\n/g, "")).not.toMatch(/[\r\n]/);
+    expect(fixed.split("\r\n")).toHaveLength(doc.split("\r\n").length);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
