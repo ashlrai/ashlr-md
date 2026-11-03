@@ -245,6 +245,30 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(expected, { rules: [ruleInvalidLinkTarget] })).toEqual([]);
   });
 
+  it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+  ])("replaces an invalid href at column 1 of a later line with TODO and keeps the following text unchanged (%s)", (_name, nl) => {
+    const before = "Intro line with a [valid](./ok.md) link.";
+    const tail = " then *emphasis*, `code` and [ok](./a.md) follow.";
+    const doc = [before, "", `[line start]()${tail}`, "Next line.", ""].join(nl);
+    const expected = [before, "", `[line start](TODO)${tail}`, "Next line.", ""].join(
+      nl,
+    );
+    const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
+
+    expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+    const { from, to } = violations[0].range!;
+    expect(from.line).toBe(3);
+    expect(from.col).toBe(0);
+    expect(doc.slice(from.offset, to.offset)).toBe("[line start]()");
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.split(nl)[2].endsWith(tail)).toBe(true);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(lintDocument(fixed, { rules: [ruleInvalidLinkTarget] })).toEqual([]);
+  });
+
   it("replaces a whitespace-only href with TODO while preserving the link text", () => {
     const doc =
       "---\ntitle: Guide\n---\n\nRead [café guide](   ) and [reference](./guide.md).\n";
