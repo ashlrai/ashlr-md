@@ -9317,6 +9317,24 @@ describe("autofix: whitespace-only document", () => {
   });
 
   it.each([
+    ["no-break space", "  "],
+    ["em space and ideographic space", " 　 \n"],
+    ["vertical tab and form feed", "\v\f \n"],
+    ["lone carriage returns", "\r\r \r"],
+    ["line and paragraph separators", "    "],
+    ["a long run of mixed whitespace", " \t\r\n".repeat(5000)],
+  ])("preserves %s byte-for-byte, without changing length", (_label, doc) => {
+    const fixed = applyAllFixes(doc, lintDocument(doc, { rules: BUILTIN_RULES }));
+    expect(fixed).toBe(doc);
+    expect(fixed).toHaveLength(doc.length);
+    clearLintHistory();
+    expect(fixAllViolations(doc, lintDocument(doc, { rules: BUILTIN_RULES }))).toBe(
+      doc,
+    );
+    expect(getLintHistory()).toEqual([]);
+  });
+
+  it.each([
     "   ",
     "\n\n",
     " \t \n\n  \n",
