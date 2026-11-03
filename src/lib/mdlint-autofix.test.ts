@@ -154,6 +154,19 @@ describe("rule:invalid-link-target", () => {
     expect(applyAllFixes(doc, lintDocument(doc))).toBe(doc);
   });
 
+  it("leaves a valid link byte-identical when autofix repairs another violation on the same line", () => {
+    const link = "[guide](https://example.com/a_(b)?q=1#top)";
+    const doc = `See ${link} and **[bold](./bold.md)** here.   \n`;
+    const violations = lintDocument(doc, {
+      rules: [ruleNoTrailingSpaces, ruleInvalidLinkTarget],
+    });
+
+    expect(violations.map((v) => v.ruleId)).toEqual(["no-trailing-spaces"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(`See ${link} and **[bold](./bold.md)** here.\n`);
+    expect(fixed).not.toContain("TODO");
+  });
+
   it("replaces a whitespace-only href with TODO while preserving the link text", () => {
     const doc =
       "---\ntitle: Guide\n---\n\nRead [café guide](   ) and [reference](./guide.md).\n";
