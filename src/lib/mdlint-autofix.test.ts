@@ -8252,6 +8252,13 @@ describe("rule:missing-alt-text two undescribed images", () => {
 });
 
 describe("autofix: empty document", () => {
+  it.each(BUILTIN_RULES)("leaves an empty document unchanged with rule $id", (rule) => {
+    const doc = "";
+    const violations = lintDocument(doc, { rules: [rule] });
+    expect(violations).toEqual([]);
+    expect(applyAllFixes(doc, violations)).toBe(doc);
+  });
+
   it("returns an empty document without throwing, across all built-in rules", () => {
     const violations = lintDocument("", { rules: BUILTIN_RULES });
     expect(() => applyAllFixes("", violations)).not.toThrow();
