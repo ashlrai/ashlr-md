@@ -11375,3 +11375,40 @@ describe("rule:missing-alt-text undescribed image beside a described image in a 
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+describe("invalid-link-target autofix: idempotence in block contexts", () => {
+  const rules = [ruleInvalidLinkTarget];
+  const fixPass = (text: string) => applyAllFixes(text, lintDocument(text, { rules }));
+
+  it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+  ])("applying autofix twice equals once for invalid links in a heading, quote, list, table and multi-line href (%s)", (_name, nl) => {
+    const doc =
+      [
+        "# Title [top](#)",
+        "",
+        "> Quoted [draft]() text",
+        "",
+        "- item [a](?)",
+        "",
+        "| Col | Link |",
+        "| --- | ---- |",
+        "| x | [b](  ) |",
+        "",
+        "Wrapped [c](",
+        ") link and `[code]()` stay.",
+      ].join(nl) + nl;
+
+    const violations = lintDocument(doc, { rules });
+    expect(violations).toHaveLength(5);
+
+    const once = applyAllFixes(doc, violations);
+    expect(once).not.toBe(doc);
+    expect(once).toContain("`[code]()`");
+    expect(once.match(/\]\(TODO\)/g)).toHaveLength(5);
+    expect(lintDocument(once, { rules })).toEqual([]);
+    expect(fixPass(once)).toBe(once);
+    expect(fixPass(fixPass(doc))).toBe(once);
+  });
+});
