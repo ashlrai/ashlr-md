@@ -10186,4 +10186,27 @@ describe("autofix of an undescribed image between two paragraphs", () => {
     expect(fixed).toContain(after);
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
+
+  it("gives each of three undescribed images the placeholder, keeps every source, and leaves a described image alone", () => {
+    const doc =
+      "- ![](images/one.png)\n" +
+      "- ![Kept description](images/two.png)\n" +
+      '- ![](<images/three four.png> "Third")\n' +
+      "- ![   ](https://example.com/five.png?x=1#y)\n";
+    const expected =
+      "- ![TODO: describe image](images/one.png)\n" +
+      "- ![Kept description](images/two.png)\n" +
+      '- ![TODO: describe image](<images/three four.png> "Third")\n' +
+      "- ![TODO: describe image](https://example.com/five.png?x=1#y)\n";
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(3);
+    expect(
+      violations.every((v) => v.ruleId === "missing-alt-text" && v.fix !== null),
+    ).toBe(true);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
 });
