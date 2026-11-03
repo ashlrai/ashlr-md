@@ -1554,6 +1554,40 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 
+  it.each([
+    ".",
+    ",",
+    ";",
+    ":",
+    "!",
+    "?",
+    "...",
+    ")",
+    '."',
+  ])("inserts the placeholder for an undescribed image followed by %j and keeps the punctuation", (punctuation) => {
+    const doc = `See the chart ![](images/chart.png)${punctuation} Next sentence.\n`;
+    const expected = `See the chart ![TODO: describe image](images/chart.png)${punctuation} Next sentence.\n`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("missing-alt-text");
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it("keeps punctuation after a titled undescribed image at the end of the document", () => {
+    const doc = 'Look: ![](images/chart.png "Chart").';
+    const expected = 'Look: ![TODO: describe image](images/chart.png "Chart").';
+    const rules = [ruleMissingAltText];
+    const fixed = applyAllFixes(doc, lintDocument(doc, { rules }));
+
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
   it("preserves surrounding blank lines and the final newline when fixing a link", () => {
     const doc =
       "\nOpening paragraph.\n\n\nRead [draft]() here.\n\nClosing paragraph.\n\n";
