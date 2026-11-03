@@ -8041,6 +8041,27 @@ describe("autofix: undescribed image at the end of a document", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
     expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(expected);
   });
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("inserts the placeholder and keeps all preceding text when there is no final newline (line endings %j)", (nl) => {
+    const preceding = `# End of notes${nl}${nl}Main text with [link](./ref.md) and *formatting*.${nl}${nl}Last paragraph before the figure:${nl}`;
+    const doc = `${preceding}${nl}![](images/end.png)`;
+    const expected = `${preceding}${nl}![TODO: describe image](images/end.png)`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("missing-alt-text");
+    expect(doc.endsWith("\n")).toBe(false);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.endsWith("\n")).toBe(false);
+    expect(fixed.startsWith(preceding)).toBe(true);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(expected);
+  });
 });
 
 // ─── Invalid link as the last thing in a document with no final newline ──────
