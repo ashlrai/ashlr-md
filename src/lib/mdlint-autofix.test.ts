@@ -7909,3 +7909,36 @@ describe("valid image with Unicode alt text", () => {
     }
   });
 });
+
+describe("invalid-link-target autofix: idempotence across block contexts", () => {
+  const rules = [ruleInvalidLinkTarget];
+
+  it.each([
+    [
+      "heading",
+      "## See [docs]( ) now\n\nBody.\n",
+      "## See [docs](TODO) now\n\nBody.\n",
+    ],
+    [
+      "table cell",
+      "| a | b |\n| - | - |\n| [x](#) | y |\n",
+      "| a | b |\n| - | - |\n| [x](TODO) | y |\n",
+    ],
+    [
+      "emphasis",
+      "Read **[bold](?)** and _[it]()_.\n",
+      "Read **[bold](TODO)** and _[it](TODO)_.\n",
+    ],
+    [
+      "task list",
+      "- [ ] ship [notes]()\n- [x] done\n",
+      "- [ ] ship [notes](TODO)\n- [x] done\n",
+    ],
+  ])("fixing an invalid link in a %s twice equals fixing it once", (_label, doc, expected) => {
+    const pass = (text: string) => applyAllFixes(text, lintDocument(text, { rules }));
+    const once = pass(doc);
+    expect(once).toBe(expected);
+    expect(pass(once)).toBe(once);
+    expect(lintDocument(once, { rules })).toEqual([]);
+  });
+});
