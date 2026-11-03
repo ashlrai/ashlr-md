@@ -9090,6 +9090,45 @@ describe("autofix: valid relative link preservation", () => {
   });
 });
 
+// ─── Fragment links survive autofix untouched ──────────────────────────────
+
+describe("autofix: fragment-link preservation", () => {
+  const rules = [ruleInvalidLinkTarget, ruleMissingAltText, ruleNoTrailingSpaces];
+  const fix = (doc: string) => applyAllFixes(doc, lintDocument(doc, { rules }));
+
+  it("verifies that a link such as [section](#section) remains unchanged", () => {
+    const doc = "See [section](#section) for details.\n";
+    const violations = lintDocument(doc, { rules });
+    expect(violations).toEqual([]);
+    expect(fix(doc)).toBe(doc);
+  });
+
+  it.each([
+    ["exact match", "Jump to [section](#section) quickly.\n"],
+    ["different text and anchor", "Go to [top](#top).\n"],
+    ["with heading prefix", "Read [Introduction](#introduction) first.\n"],
+    ["CRLF line endings", "Jump to [section](#section) now.\r\n"],
+  ])("leaves a fragment link %s and surrounding text byte-for-byte unchanged", (_name, doc) => {
+    expect(lintDocument(doc, { rules })).toEqual([]);
+    expect(fix(doc)).toBe(doc);
+  });
+
+  it("keeps the fragment link exact while fixing a trailing-space violation elsewhere", () => {
+    const doc = "# Title\n\nSee [section](#section) here.\nTrailing   \n";
+    expect(fix(doc)).toBe("# Title\n\nSee [section](#section) here.\nTrailing\n");
+  });
+
+  it("fixes an invalid empty link while preserving a valid fragment link on the same line", () => {
+    const doc = "See [broken]() and [section](#section) both.\n";
+    const violations = lintDocument(doc, { rules });
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("invalid-link-target");
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe("See [broken](TODO) and [section](#section) both.\n");
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
+
 // ─── [sic] prose annotation survives autofix untouched ───────────────────────
 
 describe("autofix: [sic] prose preservation", () => {
