@@ -9113,6 +9113,37 @@ describe("autofix: undescribed image at the end of a document", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
     expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(expected);
   });
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("describes only the undescribed images after a described image and a code fence (line endings %j)", (nl) => {
+    const preceding = [
+      "# Café",
+      "",
+      "![Chart of café sales](images/chart.png)",
+      "",
+      "```md",
+      "![](images/in-code.png)",
+      "```",
+      "",
+      "Early ![](images/early.png) figure.",
+      "",
+      "Closing:",
+      "",
+    ].join(nl);
+    const doc = `${preceding}![](images/last.png)`;
+    const expected = `${preceding.replace("![](images/early.png)", "![TODO: describe image](images/early.png)")}![TODO: describe image](images/last.png)`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(2);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain("![](images/in-code.png)");
+    expect(fixed.endsWith(`${nl}![TODO: describe image](images/last.png)`)).toBe(true);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
 });
 
 // ─── Invalid link as the last thing in a document with no final newline ──────
