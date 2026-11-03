@@ -12280,3 +12280,34 @@ describe("autofix: valid mailto link preserved next to a broken link", () => {
     }
   });
 });
+
+describe("autofix: multiple undescribed images", () => {
+  const first = "![](images/first.png)";
+  const second = '![](https://example.com/b.png?x=1#y "Second")';
+  const doc = `Intro.\n\n${first}\n\nMiddle text.\n\n${second}\n`;
+  const placeholder = "TODO: describe image";
+  const expected = `Intro.\n\n![${placeholder}](images/first.png)\n\nMiddle text.\n\n![${placeholder}](https://example.com/b.png?x=1#y "Second")\n`;
+  const rules = [ruleMissingAltText];
+
+  it("adds the placeholder to every image in one pass and keeps both destinations", () => {
+    const violations = lintDocument(doc, { rules });
+    expect(violations).toHaveLength(2);
+
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain("(images/first.png)");
+    expect(fixed).toContain('(https://example.com/b.png?x=1#y "Second")');
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it("reaches the same result fixing one image at a time", () => {
+    let current = doc;
+    for (let remaining = 2; remaining > 0; remaining--) {
+      const violations = lintDocument(current, { rules });
+      expect(violations).toHaveLength(remaining);
+      current = applyFix(current, violations[0]);
+    }
+    expect(current).toBe(expected);
+    expect(lintDocument(current, { rules })).toEqual([]);
+  });
+});
