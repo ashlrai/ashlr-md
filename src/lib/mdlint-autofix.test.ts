@@ -2986,6 +2986,22 @@ describe("rule:invalid-link-target", () => {
 
 describe("rule:missing-alt-text", () => {
   it.each([
+    "my_chart.png",
+    "images/my_chart_v2.png?size=2#a_b",
+    "_leading_and_trailing_.png",
+  ])("inserts the placeholder and preserves an underscore filename exactly (%s)", (file) => {
+    const doc = `Intro.\n\nSee ![](${file}) here.\n`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(`Intro.\n\nSee ![TODO: describe image](${file}) here.\n`);
+    expect(fixed).toContain(`](${file})`);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
     "\n",
     "\r\n",
   ])("inserts a placeholder in each of two undescribed images on separate lines without changing intervening text (line endings %j)", (nl) => {
