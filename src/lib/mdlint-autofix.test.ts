@@ -10852,3 +10852,37 @@ describe("invalid-link-target autofix: blockquote with code and lazy continuatio
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+describe("autofix: two undescribed images", () => {
+  it("adds both descriptions and preserves both image sources", () => {
+    const rules = [ruleMissingAltText];
+    const doc = [
+      "# Gallery",
+      "",
+      "![](./img/one.png?v=1#top)",
+      "",
+      '![   ](../img/two image.svg "Second")',
+      "",
+    ].join("\n");
+    const violations = lintDocument(doc, { rules });
+    expect(violations.map((v) => v.ruleId)).toEqual([
+      "missing-alt-text",
+      "missing-alt-text",
+    ]);
+
+    const fixed = applyAllFixes(doc, violations);
+
+    expect(fixed).toBe(
+      [
+        "# Gallery",
+        "",
+        "![TODO: describe image](./img/one.png?v=1#top)",
+        "",
+        '![TODO: describe image](../img/two image.svg "Second")',
+        "",
+      ].join("\n"),
+    );
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+});
