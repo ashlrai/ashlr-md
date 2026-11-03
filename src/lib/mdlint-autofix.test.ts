@@ -8894,3 +8894,25 @@ describe("invalid-link-target autofix: idempotence across document shapes", () =
     expect(fixPass(fixPass(doc))).toBe(doc);
   });
 });
+
+describe("combined invalid link + undescribed image: idempotence", () => {
+  const rules = [ruleInvalidLinkTarget, ruleMissingAltText];
+  const fixPass = (text: string) => applyAllFixes(text, lintDocument(text, { rules }));
+
+  it.each([
+    ["link before image", "See [docs]() and ![](pic.png) here.\n"],
+    ["image before link", "![](pic.png) then [docs](#)\n"],
+    ["same line, adjacent", "[x]()![ ](a.png)\n"],
+  ])("applying autofix twice equals once (%s)", (_name, doc) => {
+    const once = fixPass(doc);
+    expect(once).not.toBe(doc);
+    expect(fixPass(once)).toBe(once);
+    expect(lintDocument(once, { rules })).toEqual([]);
+  });
+
+  it("fixes both problems in one pass", () => {
+    expect(fixPass("[docs]() ![](pic.png)\n")).toBe(
+      "[docs](TODO) ![TODO: describe image](pic.png)\n",
+    );
+  });
+});
