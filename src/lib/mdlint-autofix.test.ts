@@ -11532,3 +11532,30 @@ describe("rule:missing-alt-text undescribed image on the last line without a fin
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+describe("rule:missing-alt-text trailing newline preservation", () => {
+  it.each([
+    ["LF", "Text.\n\n![](a.png)\n", "Text.\n\n![TODO: describe image](a.png)\n"],
+    [
+      "CRLF",
+      "Text.\r\n\r\n![](a.png)\r\n",
+      "Text.\r\n\r\n![TODO: describe image](a.png)\r\n",
+    ],
+    ["image-only document", "![](a.png)\n", "![TODO: describe image](a.png)\n"],
+    [
+      "several final newlines",
+      "![](a.png)\n\n\n",
+      "![TODO: describe image](a.png)\n\n\n",
+    ],
+  ])("inserts the description placeholder and retains the final newline (%s)", (_name, doc, expected) => {
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("missing-alt-text");
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.endsWith("\n")).toBe(true);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
