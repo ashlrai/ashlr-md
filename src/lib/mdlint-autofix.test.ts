@@ -7314,6 +7314,31 @@ describe("missing-alt-text autofix: idempotence for linked and angle-bracket ima
     expect(fixed.replace(/\r\n/g, "")).not.toMatch(/[\r\n]/);
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("autofixes a whitespace-only image description and is idempotent with %j line endings", (nl) => {
+    const doc = [
+      "# Gallery",
+      "",
+      `![  ](photo.jpg) and ![\t ](angle-bracket<chart.png>) done.`,
+      "Keep ![Described](ok.png) as is.",
+      "",
+    ].join(nl);
+    const expected = [
+      "# Gallery",
+      "",
+      `![TODO: describe image](photo.jpg) and ![TODO: describe image](angle-bracket<chart.png>) done.`,
+      "Keep ![Described](ok.png) as is.",
+      "",
+    ].join(nl);
+
+    const once = fixPass(doc);
+    expect(once).toBe(expected);
+    expect(lintDocument(once, { rules })).toEqual([]);
+    expect(fixPass(once)).toBe(once);
+  });
 });
 
 describe("autofix: no-findings document", () => {
