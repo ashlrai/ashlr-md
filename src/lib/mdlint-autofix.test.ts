@@ -1598,6 +1598,42 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    "\n",
+    "\r\n",
+  ])("describes an undescribed image at the very start of the document and preserves the following prose with %j line endings", (newline) => {
+    const doc = `![](images/chart.png "Chart")${newline}${newline}Following paragraph, café.${newline}${newline}Last line.${newline}`;
+    const expected = `![TODO: describe image](images/chart.png "Chart")${newline}${newline}Following paragraph, café.${newline}${newline}Last line.${newline}`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("missing-alt-text");
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(
+      fixed.endsWith(
+        `Following paragraph, café.${newline}${newline}Last line.${newline}`,
+      ),
+    ).toBe(true);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it("describes an undescribed image at the start of a document when prose follows on the same line", () => {
+    const doc = "![](a.png) then prose continues.\nNext line.\n";
+    const expected =
+      "![TODO: describe image](a.png) then prose continues.\nNext line.\n";
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
     "images/my-chart.png",
     "my-multi-part-chart-v2.png",
     "./assets/hero-image-2x.png?size=2#preview",
