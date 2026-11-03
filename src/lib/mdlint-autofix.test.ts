@@ -284,6 +284,32 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(fixed, { rules: [ruleInvalidLinkTarget] })).toEqual([]);
   });
 
+  it.each([
+    ["blockquote", "> Quote [a b](  ) end\n", "> Quote [a b](TODO) end\n", "[a b](  )"],
+    [
+      "table cell",
+      "| h |\n|---|\n| [a b](  ) |\n",
+      "| h |\n|---|\n| [a b](TODO) |\n",
+      "[a b](  )",
+    ],
+    [
+      "newline inside the parentheses",
+      "See [a b](\n) x\n",
+      "See [a b](TODO) x\n",
+      "[a b](\n)",
+    ],
+  ])("inserts the TODO destination for a whitespace-only href in a %s and keeps the label", (_name, doc, expected, slice) => {
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(slice);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+
   it("replaces a whitespace-only href with TODO while preserving the link text", () => {
     const doc =
       "---\ntitle: Guide\n---\n\nRead [café guide](   ) and [reference](./guide.md).\n";
