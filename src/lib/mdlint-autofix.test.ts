@@ -10461,3 +10461,27 @@ describe("autofix on a whitespace-only document", () => {
     expect(applyAllFixes(doc, violations)).toBe(doc);
   });
 });
+
+describe("autofix idempotence for undescribed images", () => {
+  const rules = [ruleMissingAltText];
+  const fixPass = (text: string) => applyAllFixes(text, lintDocument(text, { rules }));
+
+  it.each([
+    ["empty alt", "![](images/a.png)"],
+    ["angle-bracket destination with spaces", '![](<images/a b.png> "Title")'],
+    ["several in one line", "![](a.png) and ![](b.png?v=2#top)"],
+    ["inside a list item", "- item ![](a.png)"],
+    ["inside a blockquote", "> quote ![](a.png)"],
+    ["beside a described image", "![ok](a.png) ![](b.png)"],
+  ])("a second autofix pass changes nothing and lints clean (%s)", (_name, body) => {
+    for (const nl of ["\n", "\r\n"]) {
+      const doc = `Intro.${nl}${nl}${body}${nl}`;
+      const once = fixPass(doc);
+
+      expect(once).not.toBe(doc);
+      expect(once).toContain("![TODO: describe image]");
+      expect(fixPass(once)).toBe(once);
+      expect(lintDocument(once, { rules })).toEqual([]);
+    }
+  });
+});
