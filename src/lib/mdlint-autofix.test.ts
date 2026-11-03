@@ -189,6 +189,32 @@ describe("rule:invalid-link-target", () => {
     expect(applyAllFixes(doc, lintDocument(doc))).toBe(doc);
   });
 
+  it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+  ])("leaves the complete input unchanged for a lone valid link with no other findings (%s)", (_name, nl) => {
+    const doc = `---${nl}title: Links${nl}---${nl}${nl}# Links${nl}${nl}See [the guide](./guide.md) for details.${nl}`;
+    const violations = lintDocument(doc);
+
+    // No finding from any default rule, so there is nothing to fix.
+    expect(violations).toEqual([]);
+    expect(applyAllFixes(doc, violations)).toBe(doc);
+    expect(
+      applyAllFixes(doc, lintDocument(doc, { rules: [ruleInvalidLinkTarget] })),
+    ).toBe(doc);
+    // Repeated autofix stays stable.
+    expect(applyAllFixes(applyAllFixes(doc, violations), lintDocument(doc))).toBe(doc);
+  });
+
+  it("leaves the complete input unchanged for a bare valid link line without a trailing newline", () => {
+    const doc = "[guide](https://example.com/guide)";
+
+    expect(lintDocument(doc, { rules: [ruleInvalidLinkTarget] })).toEqual([]);
+    expect(
+      applyAllFixes(doc, lintDocument(doc, { rules: [ruleInvalidLinkTarget] })),
+    ).toBe(doc);
+  });
+
   it("leaves a valid link byte-identical when autofix repairs another violation on the same line", () => {
     const link = "[guide](https://example.com/a_(b)?q=1#top)";
     const doc = `See ${link} and **[bold](./bold.md)** here.   \n`;
