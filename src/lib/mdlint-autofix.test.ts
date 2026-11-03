@@ -12317,3 +12317,45 @@ describe("autofix: valid mailto link preserved next to a broken link", () => {
     }
   });
 });
+
+// ─── invalid links across separate paragraphs ────────────────────────────────
+
+describe("autofix: invalid links in separate paragraphs", () => {
+  const rules = [ruleInvalidLinkTarget];
+
+  it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+  ])("repairs each link and keeps paragraph boundaries (%s)", (_name, nl) => {
+    const doc = [
+      "First [one]() paragraph.",
+      "",
+      "Second [two](#) paragraph with [ok](./a.md).",
+      "",
+      "",
+      "Third [three](   ) paragraph.",
+      "",
+    ].join(nl);
+    const expected = [
+      "First [one](TODO) paragraph.",
+      "",
+      "Second [two](TODO) paragraph with [ok](./a.md).",
+      "",
+      "",
+      "Third [three](TODO) paragraph.",
+      "",
+    ].join(nl);
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual([
+      "invalid-link-target",
+      "invalid-link-target",
+      "invalid-link-target",
+    ]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // Same number of blank-line separators as before.
+    expect(fixed.split(nl)).toHaveLength(doc.split(nl).length);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
