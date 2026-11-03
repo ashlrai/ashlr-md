@@ -12003,6 +12003,24 @@ describe("autofix of an invalid link between two paragraphs with varied separato
       "Alpha.\n\n\nSee [broken](TODO).\n\nOmega.\n",
     );
   });
+
+  it("replaces an invalid href in a multi-paragraph document and keeps the absence of a final newline", () => {
+    const doc =
+      "# Notes\n\nSee [broken]() for details.\n\nLast line stays [ok](./a.md)";
+    const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
+
+    expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(
+      "# Notes\n\nSee [broken](TODO) for details.\n\nLast line stays [ok](./a.md)",
+    );
+    expect(fixed.endsWith("\n")).toBe(false);
+    // A second pass finds nothing and changes nothing.
+    expect(lintDocument(fixed, { rules: [ruleInvalidLinkTarget] })).toEqual([]);
+    expect(
+      applyAllFixes(fixed, lintDocument(fixed, { rules: [ruleInvalidLinkTarget] })),
+    ).toBe(fixed);
+  });
 });
 
 describe("invalid-link autofix idempotence across markdown contexts", () => {
