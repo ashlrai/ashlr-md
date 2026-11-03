@@ -8345,4 +8345,35 @@ describe("autofix: invalid links in a blockquote with mixed content", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
     expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
   });
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("applying the undescribed-image autofix twice returns the same complete document as applying it once with %j line endings", (newline) => {
+    const rules = [ruleMissingAltText];
+    const doc = [
+      "# Gallery",
+      "",
+      "![](a.png) and ![ \t ](b.png \"B\") sit on one line.",
+      "",
+      "Keep ![Described](c.png) and `![](code.png)` as written.",
+      "",
+    ].join(newline);
+    const expected = [
+      "# Gallery",
+      "",
+      "![TODO: describe image](a.png) and ![TODO: describe image](b.png \"B\") sit on one line.",
+      "",
+      "Keep ![Described](c.png) and `![](code.png)` as written.",
+      "",
+    ].join(newline);
+    const fixOnce = (text: string) =>
+      applyAllFixes(text, lintDocument(text, { rules }));
+
+    const once = fixOnce(doc);
+    const twice = fixOnce(once);
+    expect(once).toBe(expected);
+    expect(twice).toBe(once);
+    expect(lintDocument(twice, { rules })).toEqual([]);
+  });
 });
