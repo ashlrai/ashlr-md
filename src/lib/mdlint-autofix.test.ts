@@ -7250,6 +7250,18 @@ describe("autofix: whitespace-only document", () => {
       expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(doc);
     }
   });
+
+  it.each([
+    "   ",
+    "\n\n",
+    " \t \n\n  \n",
+    "\r\n  \r\n",
+  ])("fixAllViolations returns whitespace-only document %j unchanged and records no history", (doc) => {
+    clearLintHistory();
+    const violations = lintDocument(doc, { rules: BUILTIN_RULES });
+    expect(fixAllViolations(doc, violations)).toBe(doc);
+    expect(getLintHistory()).toEqual([]);
+  });
 });
 
 describe("autofix: fenced-code preservation", () => {
