@@ -9654,3 +9654,18 @@ describe("invalid-link-target autofix: idempotence inside blockquotes, tables an
     expect(lintDocument(once, { rules })).toEqual([]);
   });
 });
+
+describe("autofix: plain-text preservation", () => {
+  it("returns ordinary multiline prose unchanged", () => {
+    const doc = [
+      "The quick brown fox jumps over the lazy dog.",
+      "It was a quiet morning, and nothing much happened.",
+      "",
+      "A second paragraph follows here, with punctuation; colons: and dashes - too.",
+      "",
+    ].join("\n");
+    // frontmatter-required is excluded: it deliberately inserts a block into any doc without one.
+    const violations = lintDocument(doc, { disabledRules: ["frontmatter-required"] });
+    expect(applyAllFixes(doc, violations)).toBe(doc);
+  });
+});
