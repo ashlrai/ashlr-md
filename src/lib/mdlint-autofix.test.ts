@@ -7977,3 +7977,22 @@ describe("autofix: invalid link at the end of a document", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+describe("autofix: empty href on a link with an empty label", () => {
+  const rules = [ruleInvalidLinkTarget];
+
+  it("replaces the empty href with TODO, keeps the empty label, and leaves neighbouring links alone", () => {
+    const doc = "Go [here]() or [](), then [ok](./a.md).\n";
+    const expected = "Go [here](TODO) or [](TODO), then [ok](./a.md).\n";
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual([
+      "invalid-link-target",
+      "invalid-link-target",
+    ]);
+    const { from, to } = violations[1].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe("[]()");
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+});
