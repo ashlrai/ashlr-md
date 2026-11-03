@@ -9350,3 +9350,16 @@ describe("rule:missing-alt-text image alone in an unordered list item", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+describe("autofix: valid HTTPS link with port and path preservation", () => {
+  it("leaves a valid HTTPS link unchanged under the link and whitespace rules", () => {
+    const doc =
+      "# Links\n\nRead [the API](https://api.example.com:8443/v1/items?id=7&sort=asc#top).\n";
+    const violations = lintDocument(doc, {
+      rules: [ruleInvalidLinkTarget, ruleMissingAltText, ruleNoTrailingSpaces],
+    });
+
+    expect(violations).toEqual([]);
+    expect(applyAllFixes(doc, violations)).toBe(doc);
+  });
+});
