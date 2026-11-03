@@ -8869,6 +8869,38 @@ describe("invalid-link-target autofix: link label preservation", () => {
   });
 });
 
+describe("invalid-link-target autofix: empty href case", () => {
+  const rules = [ruleInvalidLinkTarget];
+
+  it("replaces an empty href with TODO and keeps the link text", () => {
+    const doc = "Open [Settings page]() to continue.\n";
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe("Open [Settings page](TODO) to continue.\n");
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it("fixes every empty href on one line and keeps each link text", () => {
+    const doc = "[one]() and [two]() and [three](./three.md)\n";
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(2);
+    expect(applyAllFixes(doc, violations)).toBe(
+      "[one](TODO) and [two](TODO) and [three](./three.md)\n",
+    );
+  });
+
+  it("fixes an empty href inside a heading", () => {
+    const doc = "# See [the guide]()\n\nBody.\n";
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(applyAllFixes(doc, violations)).toBe("# See [the guide](TODO)\n\nBody.\n");
+  });
+});
+
 describe("invalid-link-target autofix: preserves surrounding content", () => {
   it.each([
     "\n",
