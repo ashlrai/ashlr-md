@@ -9106,6 +9106,37 @@ describe("autofix: [sic] prose preservation", () => {
     expect(fix(doc)).toBe(doc);
   });
 
+  it.each([
+    [
+      "after the link",
+      "See [the guide]() [sic] for details.\n",
+      "See [the guide](TODO) [sic] for details.\n",
+    ],
+    [
+      "before the link",
+      "Teh [sic] [the guide]() says so.\n",
+      "Teh [sic] [the guide](TODO) says so.\n",
+    ],
+    [
+      "on both sides",
+      "A [sic] [the guide]() [sic], then more.\n",
+      "A [sic] [the guide](TODO) [sic], then more.\n",
+    ],
+    [
+      "touching the link",
+      "Read [the guide]()[sic] now.\n",
+      "Read [the guide](TODO)[sic] now.\n",
+    ],
+  ])("repairs an invalid link and preserves a [sic] annotation %s", (_name, doc, expected) => {
+    const violations = lintDocument(doc, { rules });
+    expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.match(/\[sic\]/g)).toHaveLength(doc.match(/\[sic\]/g)!.length);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(fix(fixed)).toBe(fixed);
+  });
+
   it("keeps [sic] exact while fixing trailing spaces elsewhere", () => {
     const doc = 'Said "wich" [sic] again.   \nNext line.\n';
     expect(fix(doc)).toBe('Said "wich" [sic] again.\nNext line.\n');
