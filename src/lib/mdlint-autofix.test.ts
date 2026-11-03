@@ -11778,3 +11778,40 @@ describe("rule:missing-alt-text undescribed image in a loose ordered list with c
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+describe("autofix of an invalid link between two paragraphs with varied separators", () => {
+  it.each([
+    ["one blank line", "\n\n"],
+    ["three blank lines", "\n\n\n\n"],
+    ["CRLF blank lines", "\r\n\r\n"],
+    ["spaces on the blank line", "\n   \n"],
+    ["tab on the blank line", "\n\t\n"],
+  ])("changes only the invalid href and keeps the paragraph spacing (%s)", (_name, gap) => {
+    const first = "First paragraph with a [valid](./ok.md) link.";
+    const last = "Closing paragraph.";
+    const doc = `${first}${gap}Go to [broken]() now.${gap}${last}\n`;
+    const expected = doc.replace("[broken]()", "[broken](TODO)");
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    // Single-fix path and bulk path agree, and only the href bytes differ.
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.length - doc.length).toBe("TODO".length);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it("applying only the invalid-link violation from the default rule set keeps the spacing", () => {
+    const doc = "Alpha.\n\n\nSee [broken]().\n\nOmega.\n";
+    const violations = lintDocument(doc).filter(
+      (v) => v.ruleId === "invalid-link-target",
+    );
+
+    expect(violations).toHaveLength(1);
+    expect(applyAllFixes(doc, violations)).toBe(
+      "Alpha.\n\n\nSee [broken](TODO).\n\nOmega.\n",
+    );
+  });
+});
