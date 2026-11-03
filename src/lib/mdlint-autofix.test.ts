@@ -10354,6 +10354,39 @@ describe("rule:missing-alt-text undescribed image in a blockquote", () => {
     );
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
+
+  it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+  ])("fixes undescribed images on several quoted lines, a quoted list item and a lazy line, leaving described and unquoted images alone (%s)", (_name, nl) => {
+    const doc = [
+      "> - ![](list.png)",
+      "> - ![Kept](kept.png)",
+      "> ![](one.png) and ![](two.png)",
+      "lazy continuation ![](lazy.png)",
+      "",
+      "![](plain.png)",
+      "",
+    ].join(nl);
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(5);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(
+      [
+        "> - ![TODO: describe image](list.png)",
+        "> - ![Kept](kept.png)",
+        "> ![TODO: describe image](one.png) and ![TODO: describe image](two.png)",
+        "lazy continuation ![TODO: describe image](lazy.png)",
+        "",
+        "![TODO: describe image](plain.png)",
+        "",
+      ].join(nl),
+    );
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
 });
 
 describe("link and image autofix: invalid link wrapping an undescribed image", () => {
