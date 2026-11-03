@@ -8560,3 +8560,30 @@ describe("autofix: a described image with no other findings", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+describe("rule:invalid-link-target empty href inside a table cell", () => {
+  it.each([
+    ["\n"],
+    ["\r\n"],
+  ])("keeps the label, uses the TODO href and leaves the table row intact with %j line endings", (nl) => {
+    const doc = [
+      "| Name | Link |",
+      "| ---- | ---- |",
+      "| `code` label | [the guide page]() |",
+      "| ok | [ok](./ok.md) |",
+      "",
+    ].join(nl);
+    const expected = doc.replace("[the guide page]()", "[the guide page](TODO)");
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe("[the guide page]()");
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain("[the guide page](TODO) |");
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
