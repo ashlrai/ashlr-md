@@ -8378,6 +8378,36 @@ describe("invalid-link-target autofix: invalid link in a blockquote", () => {
   });
 });
 
+describe("invalid-link-target autofix: single fix in a blockquote list", () => {
+  it("applies one fix at a time, swapping only that href for TODO and keeping the quote, list markers and prose", () => {
+    const doc = [
+      "Before the quote.",
+      "",
+      "> Steps, see [setup]() first:",
+      "> - run [build](./build.md)",
+      "> - read [notes](?) carefully",
+      "",
+      "After the quote.",
+      "",
+    ].join("\n");
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+    expect(violations).toHaveLength(2);
+
+    const first = applyFix(doc, violations[0]);
+    expect(first).toBe(doc.replace("[setup]()", "[setup](TODO)"));
+    expect(first).toContain("> - read [notes](?) carefully");
+
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(
+      doc.replace("[setup]()", "[setup](TODO)").replace("[notes](?)", "[notes](TODO)"),
+    );
+    expect(fixed.startsWith("Before the quote.\n\n> Steps")).toBe(true);
+    expect(fixed.endsWith("\nAfter the quote.\n")).toBe(true);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
+
 describe("link and image autofix: mixed-fix idempotence", () => {
   const rules = [ruleInvalidLinkTarget, ruleMissingAltText];
   const fixPass = (text: string) => applyAllFixes(text, lintDocument(text, { rules }));
