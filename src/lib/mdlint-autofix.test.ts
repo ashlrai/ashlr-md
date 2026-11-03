@@ -12110,3 +12110,35 @@ describe("autofix: [sic] beside parentheses and code under the fixable rules", (
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+// ─── Plain paragraph preservation ────────────────────────────────────────────
+
+describe("autofix: plain paragraph preservation", () => {
+  const defaultRules = BUILTIN_RULES.filter((rule) =>
+    LINTER_DEFAULT_ENABLED_RULES.includes(rule.id),
+  );
+  // frontmatter-required deliberately inserts a block into any document without one.
+  const withoutFrontmatterRule = BUILTIN_RULES.filter(
+    (rule) => rule.id !== "frontmatter-required",
+  );
+  const paragraph =
+    'Well, that was "unexpected": isn\'t it? Yes -- (mostly); see e.g. [1], 3 < 5 & 7 > 2... Done!\n';
+
+  it.each([
+    ["every built-in rule except frontmatter-required", withoutFrontmatterRule],
+    ["the default rule set", defaultRules],
+  ])("leaves an ordinary paragraph and its final newline unchanged under %s", (_label, rules) => {
+    const violations = lintDocument(paragraph, { rules });
+    expect(violations).toEqual([]);
+    const fixed = applyAllFixes(paragraph, violations);
+    expect(fixed).toBe(paragraph);
+    expect(fixed.endsWith("\n")).toBe(true);
+    expect(fixed.endsWith("\n\n")).toBe(false);
+  });
+
+  it("does not add a newline when the paragraph has none", () => {
+    const doc = paragraph.trimEnd();
+    const violations = lintDocument(doc, { rules: withoutFrontmatterRule });
+    expect(applyAllFixes(doc, violations)).toBe(doc);
+  });
+});
