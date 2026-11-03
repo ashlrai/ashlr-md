@@ -419,6 +419,23 @@ describe("rule:invalid-link-target", () => {
   it.each([
     ["LF", "\n"],
     ["CRLF", "\r\n"],
+  ])("replaces the invalid href when the whole document is one invalid link and keeps the single final newline (%s)", (_name, nl) => {
+    const doc = `[only link]()${nl}`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(`[only link](TODO)${nl}`);
+    expect(applyFix(doc, violations[0])).toBe(fixed);
+    expect(fixed.endsWith(nl)).toBe(true);
+    expect(fixed.endsWith(`${nl}${nl}`)).toBe(false);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
   ])("replaces an invalid href at column 1 of a later line with TODO and keeps the following text unchanged (%s)", (_name, nl) => {
     const before = "Intro line with a [valid](./ok.md) link.";
     const tail = " then *emphasis*, `code` and [ok](./a.md) follow.";
