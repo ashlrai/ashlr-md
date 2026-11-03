@@ -9414,6 +9414,58 @@ describe("autofix: [sic] prose preservation", () => {
   });
 });
 
+// ─── [1] footnote reference survives autofix untouched ──────────────────────
+
+describe("autofix: [1] prose preservation", () => {
+  const rules = [ruleInvalidLinkTarget, ruleMissingAltText, ruleNoTrailingSpaces];
+  const fix = (doc: string) => applyAllFixes(doc, lintDocument(doc, { rules }));
+
+  it.each([
+    ["standalone sentence", "As shown in prior work [1], results hold.\n"],
+    ["multiple references", "See [1], [2] and [10] for details.\n"],
+    ["at line start and end", "[1] starts and ends [2]\n"],
+  ])("leaves a %s [1] annotation and surrounding prose unchanged", (_name, doc) => {
+    expect(lintDocument(doc, { rules })).toEqual([]);
+    expect(fix(doc)).toBe(doc);
+  });
+
+  it.each([
+    [
+      "after the link",
+      "See [the guide]() [1] for details.\n",
+      "See [the guide](TODO) [1] for details.\n",
+    ],
+    [
+      "before the link",
+      "Per [1] [the guide]() says so.\n",
+      "Per [1] [the guide](TODO) says so.\n",
+    ],
+    [
+      "on both sides",
+      "A [1] [the guide]() [2], then more.\n",
+      "A [1] [the guide](TODO) [2], then more.\n",
+    ],
+    [
+      "touching the link",
+      "Read [the guide]()[1] now.\n",
+      "Read [the guide](TODO)[1] now.\n",
+    ],
+  ])("repairs an invalid link and preserves a [1] annotation %s", (_name, doc, expected) => {
+    const violations = lintDocument(doc, { rules });
+    expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.match(/\[\d+\]/g)).toHaveLength(doc.match(/\[\d+\]/g)!.length);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(fix(fixed)).toBe(fixed);
+  });
+
+  it("keeps [1] intact while fixing trailing spaces elsewhere", () => {
+    const doc = "Claim [1] here.   \nNext line.\n";
+    expect(fix(doc)).toBe("Claim [1] here.\nNext line.\n");
+  });
+});
+
 describe("autofix: invalid link at the end of a document", () => {
   const rules = [ruleInvalidLinkTarget];
   const head = "# Notes\n\nSee [ok](./a.md) and *emphasis* first.\n\n";
