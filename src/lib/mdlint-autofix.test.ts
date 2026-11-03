@@ -11977,3 +11977,34 @@ describe("autofix of an invalid link between two paragraphs with varied separato
     );
   });
 });
+
+// ─── [sic] followed by parenthesised prose, code, and the default rule set ───
+
+describe("autofix: [sic] beside parentheses and code under the fixable rules", () => {
+  const rules = [ruleInvalidLinkTarget, ruleMissingAltText, ruleNoTrailingSpaces];
+  const fixDefault = (doc: string) => applyAllFixes(doc, lintDocument(doc, { rules }));
+
+  it.each([
+    ["space then parenthetical", "She wrote teh [sic] (as quoted) and moved on.\n"],
+    ["parenthetical around it", "The memo (it said recieve [sic]) was short.\n"],
+    ["inline code mentions it", "Editors add `[sic]` after errors, e.g. teh [sic].\n"],
+    [
+      "fenced code mentions it",
+      "Text [sic].\n\n```\nteh [sic] ()\n```\n\nEnd [sic].\n",
+    ],
+    ["CRLF endings", "He said teh [sic] (twice).\r\nNext [sic] line.\r\n"],
+  ])("leaves %s byte-for-byte unchanged", (_name, doc) => {
+    expect(lintDocument(doc, { rules })).toEqual([]);
+    expect(fixDefault(doc)).toBe(doc);
+  });
+
+  it("fixes only the real broken link and keeps [sic] (parenthetical) exact", () => {
+    const doc = "Teh [sic] (as quoted); see [guide]() and `[sic]`.\n";
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe("Teh [sic] (as quoted); see [guide](TODO) and `[sic]`.\n");
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
