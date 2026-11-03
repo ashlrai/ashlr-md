@@ -1814,6 +1814,25 @@ describe("rule:invalid-link-target", () => {
   it.each([
     "\n",
     "\r\n",
+  ])("describes an undescribed image at the end of a line and keeps the preceding text unchanged with %j line endings", (newline) => {
+    const lead = "Preceding café text, see:  ";
+    const doc = `Intro.${newline}${newline}${lead}![](images/chart.png)${newline}Next line.${newline}`;
+    const expected = `Intro.${newline}${newline}${lead}![TODO: describe image](images/chart.png)${newline}Next line.${newline}`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("missing-alt-text");
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain(`${lead}![TODO: describe image]`);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
+    "\n",
+    "\r\n",
   ])("describes an undescribed image at the very start of the document and preserves the following prose with %j line endings", (newline) => {
     const doc = `![](images/chart.png "Chart")${newline}${newline}Following paragraph, café.${newline}${newline}Last line.${newline}`;
     const expected = `![TODO: describe image](images/chart.png "Chart")${newline}${newline}Following paragraph, café.${newline}${newline}Last line.${newline}`;
