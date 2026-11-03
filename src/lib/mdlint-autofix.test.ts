@@ -8291,3 +8291,37 @@ describe("autofix: invalid link among valid links with repeated labels", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+describe("autofix: invalid links in a blockquote with mixed content", () => {
+  const rules = [ruleInvalidLinkTarget];
+
+  it("sets each invalid href to TODO and keeps every blockquote marker, list marker and valid link", () => {
+    const doc = [
+      "> ## Quoted [title]()",
+      ">",
+      "> See [first](   ) and [ok](./a.md).",
+      "> - item [second]()",
+      "> > nested [third](#)",
+      "",
+    ].join("\n");
+    const expected = [
+      "> ## Quoted [title](TODO)",
+      ">",
+      "> See [first](TODO) and [ok](./a.md).",
+      "> - item [second](TODO)",
+      "> > nested [third](TODO)",
+      "",
+    ].join("\n");
+
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(4);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    const markers = (text: string) =>
+      text.split("\n").map((l) => l.match(/^(?:> ?)*/)?.[0]);
+    expect(markers(fixed)).toEqual(markers(doc));
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+});
