@@ -137,6 +137,29 @@ describe("rule:invalid-link-target", () => {
     }
   });
 
+  it.each([
+    "./guide.md#install-steps",
+    "../docs/guide.md?view=full#install-steps",
+    "https://example.com/docs/guide#install-steps",
+    "#install-steps",
+  ])("preserves the link and fragment %j exactly while fixing a sibling empty link", (destination) => {
+    for (const nl of ["\n", "\r\n"]) {
+      const valid = `[install](${destination})`;
+      const doc = `Start at ${valid}, then fix [broken]().${nl}`;
+      const expected = `Start at ${valid}, then fix [broken](TODO).${nl}`;
+      const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
+
+      // Only the empty link is reported; the fragment link is never touched.
+      expect(violations).toHaveLength(1);
+      expect(applyAllFixes(doc, violations)).toBe(expected);
+      expect(applyAllFixes(doc, violations)).toContain(valid);
+      // A valid-only document is a fixed point under the full default rule set.
+      const clean = `---${nl}title: Guide${nl}---${nl}${nl}Start at ${valid} today.${nl}`;
+      expect(lintDocument(clean, { rules: [ruleInvalidLinkTarget] })).toEqual([]);
+      expect(applyAllFixes(clean, lintDocument(clean))).toBe(clean);
+    }
+  });
+
   describe("preserves valid mailto links", () => {
     it.each([
       ["plain address", "[contact](mailto:team@example.com)"],
