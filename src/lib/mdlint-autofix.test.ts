@@ -9722,3 +9722,21 @@ describe("autofix: plain-text preservation", () => {
     expect(fixed.match(/\[sic\]/g)).toHaveLength(3);
   });
 });
+
+describe("autofix: valid HTTP links", () => {
+  it("leaves a valid HTTP link unchanged", () => {
+    const doc = [
+      "# Links",
+      "",
+      "See [the docs](http://example.com/docs?a=1#top) for details.",
+      "",
+    ].join("\n");
+    const violations = lintDocument(doc, { disabledRules: ["frontmatter-required"] });
+    expect(violations.filter((v) => v.ruleId === "invalid-link-target")).toHaveLength(
+      0,
+    );
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(doc);
+    expect(fixed).toContain("(http://example.com/docs?a=1#top)");
+  });
+});
