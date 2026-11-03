@@ -141,6 +141,10 @@ describe("rule:invalid-link-target", () => {
     it.each([
       ["plain address", "[contact](mailto:team@example.com)"],
       ["with subject", "[help](mailto:support@example.com?subject=Help)"],
+      [
+        "with body and cc",
+        "[reply](mailto:author@example.com?subject=Feedback&body=Great%20article&cc=editor@example.com)",
+      ],
     ])("autofix leaves %s mailto link unchanged", (_name, link) => {
       for (const nl of ["\n", "\r\n"]) {
         const doc = `---${nl}title: Contact${nl}---${nl}${nl}Email ${link} for details.${nl}`;
