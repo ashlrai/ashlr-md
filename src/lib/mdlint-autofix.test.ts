@@ -8534,4 +8534,30 @@ describe("autofix: a described image with no other findings", () => {
     expect(fixed.endsWith(following)).toBe(true);
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
+
+  it.each([
+    [false, "\n"],
+    [true, "\n"],
+    [false, "\r\n"],
+    [true, "\r\n"],
+  ])("describes only the undescribed image and keeps a described image exactly beside it (described first: %s, %j)", (describedFirst, newline) => {
+    const described = '![Café *chart*](images/caf%C3%A9.png?size=2#a "Chart (v2)")';
+    const undescribed = '![](images/other.png "Other")';
+    const repaired = '![TODO: describe image](images/other.png "Other")';
+    const pair = (a: string, b: string) =>
+      describedFirst ? `${a} and ${b}` : `${b} and ${a}`;
+    const doc = `Intro café.${newline}${newline}See ${pair(described, undescribed)}, done.${newline}`;
+    const expected = `Intro café.${newline}${newline}See ${pair(described, repaired)}, done.${newline}`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    expect(violations[0].range?.from.offset).toBe(doc.indexOf(undescribed));
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain(described);
+    expect(fixed.split("TODO: describe image")).toHaveLength(2);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
 });
