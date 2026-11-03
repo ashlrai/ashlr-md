@@ -8613,3 +8613,30 @@ describe("autofix: a described image with no other findings", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+describe("invalid link and unrelated prose on separate lines", () => {
+  it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+  ])("changes only the invalid href: prose lines and breaks stay byte-identical (%s)", (_name, nl) => {
+    const prose1 = "Unrelated prose: café ☕, 100% *sure*, a_b_c & <b>tags</b>.";
+    const prose2 = "More prose; (parens) and [brackets] without a link.";
+    const link = "[the guide](   )";
+    const doc = [prose1, link, prose2, ""].join(nl);
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+    expect(violations[0].range!.from.line).toBe(2);
+    const fixed = applyAllFixes(doc, violations);
+
+    // Only the href differs: removing the changed span leaves identical text.
+    expect(fixed).toBe([prose1, "[the guide](TODO)", prose2, ""].join(nl));
+    expect(fixed.split(nl)).toHaveLength(doc.split(nl).length);
+    expect(fixed.split(nl)[0]).toBe(prose1);
+    expect(fixed.split(nl)[2]).toBe(prose2);
+    expect(fixed.length - doc.length).toBe("TODO".length - "   ".length);
+    expect(applyFix(doc, violations[0])).toBe(fixed);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
