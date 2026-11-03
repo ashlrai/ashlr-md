@@ -9085,3 +9085,36 @@ describe("autofix: [sic] prose preservation", () => {
     expect(fix(doc)).toBe('Said "wich" [sic] again.\nNext line.\n');
   });
 });
+
+describe("autofix: invalid link at the end of a document", () => {
+  const rules = [ruleInvalidLinkTarget];
+  const head = "# Notes\n\nSee [ok](./a.md) and *emphasis* first.\n\n";
+
+  it.each([
+    ["LF, trailing newline", "\n", "\n"],
+    ["LF, no trailing newline", "\n", ""],
+    ["CRLF, trailing newline", "\r\n", "\r\n"],
+    ["CRLF, no trailing newline", "\r\n", ""],
+  ])("replaces the empty href with TODO and changes nothing else (%s)", (_name, nl, end) => {
+    const prefix = head.replace(/\n/g, nl);
+    const doc = `${prefix}Last: [final link]()${end}`;
+    const expected = `${prefix}Last: [final link](TODO)${end}`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe("[final link]()");
+    expect(to.offset).toBe(doc.length - end.length);
+
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.length).toBe(doc.length + "TODO".length);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it("fixes a document that is only an invalid link", () => {
+    const doc = "[only]()";
+    expect(applyAllFixes(doc, lintDocument(doc, { rules }))).toBe("[only](TODO)");
+  });
+});
