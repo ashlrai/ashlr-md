@@ -3021,6 +3021,34 @@ describe("rule:missing-alt-text", () => {
   });
 
   it.each([
+    "\n",
+    "\r\n",
+  ])("inserts the placeholder for an undescribed image inside a prose paragraph and leaves every surrounding byte unchanged (line endings %j)", (nl) => {
+    const before = "Once upon a *time*, café **owners** wrote “notes” (see [guide](./guide.md)) and ";
+    const after = ", then — naturally — moved on; no-one minded!  ";
+    const image = '![](media/épure.png?v=2#top "Épure")';
+    const doc = [
+      "# Story",
+      "",
+      `${before}${image}${after}`,
+      "The next line of the same paragraph stays as it is.",
+      "",
+    ].join(nl);
+    const expected = doc.replace(image, '![TODO: describe image](media/épure.png?v=2#top "Épure")');
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // Prose on both sides of the image is byte-identical, including the
+    // trailing double space and the line ending.
+    expect(fixed).toContain(`${before}![TODO: describe image]`);
+    expect(fixed).toContain(`"Épure")${after}${nl}The next line`);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
     "",
     "Intro.\r\n",
   ])("fixes an image on a final line without a trailing newline (prefix %j)", (prefix) => {
