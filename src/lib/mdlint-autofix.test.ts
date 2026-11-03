@@ -816,6 +816,23 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    ["=== underline", "==="],
+    ["--- underline", "---"],
+  ])("replaces an empty href in a setext heading (%s) with TODO and keeps the heading text and underline", (_name, underline) => {
+    for (const nl of ["\n", "\r\n"]) {
+      const doc = `Intro.${nl}${nl}See [the guide]() now${nl}${underline}${nl}${nl}Body [ok](./a.md).${nl}`;
+      const expected = `Intro.${nl}${nl}See [the guide](TODO) now${nl}${underline}${nl}${nl}Body [ok](./a.md).${nl}`;
+      const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
+
+      expect(violations).toHaveLength(1);
+      const { from, to } = violations[0].range!;
+      expect(doc.slice(from.offset, to.offset)).toBe("[the guide]()");
+      expect(applyAllFixes(doc, violations)).toBe(expected);
+      expect(lintDocument(expected, { rules: [ruleInvalidLinkTarget] })).toEqual([]);
+    }
+  });
+
+  it.each([
     ["Korean and Hebrew", "안내서 מדריך"],
     ["astral math letters", "𝐆𝐮𝐢𝐝𝐞 𝟏"],
     ["fullwidth brackets and CJK punctuation", "【ガイド】（初級）"],
