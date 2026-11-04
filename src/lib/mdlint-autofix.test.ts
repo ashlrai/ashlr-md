@@ -104,6 +104,25 @@ describe("autofix: whitespace-only image description", () => {
   });
 });
 
+describe("autofix: empty image description", () => {
+  it.each([
+    ["a bare path", "a.png"],
+    ["a path with query, fragment and escapes", "images/a%20b.png?v=2#top"],
+    ["a path with a title", 'a.png "Chart"'],
+    ["a remote URL", "https://example.com/img.png?x=1&y=2"],
+    ["an angle-bracket path with spaces", '<my dir/a (1).png> "T"'],
+  ])("fills the placeholder and preserves the destination (%s)", (_kind, dest) => {
+    const rules = [ruleMissingAltText];
+    const doc = `Before ![](${dest}) after.\n`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(`Before ![TODO: describe image](${dest}) after.\n`);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
+
 describe("autofix: undescribed image at the start of a line", () => {
   it.each([
     "\n",
