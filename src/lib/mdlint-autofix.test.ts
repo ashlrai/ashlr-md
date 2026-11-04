@@ -13596,3 +13596,100 @@ describe("autofix describes two undescribed images", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+describe("autofix: described image beside an undescribed image", () => {
+  it.each([
+    [true, "\n"],
+    [false, "\n"],
+    [true, "\r\n"],
+    [false, "\r\n"],
+  ])("inserts the placeholder only into the undescribed image of a directly adjacent pair (described first: %s, %j line endings)", (describedFirst, nl) => {
+    const described = '![Architecture diagram](img/arch.svg "System overview")';
+    const undescribed = "![](img/screenshot.png?w=640#full)";
+    const repaired = "![TODO: describe image](img/screenshot.png?w=640#full)";
+    const pair = (a: string, b: string) => (describedFirst ? `${a}${b}` : `${b}${a}`);
+    const doc = `Gallery:${nl}${nl}See ${pair(described, undescribed)} end.${nl}`;
+    const expected = `Gallery:${nl}${nl}See ${pair(described, repaired)} end.${nl}`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    // Only the undescribed image is flagged, and its range covers it exactly.
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    expect(violations[0].range?.from.offset).toBe(doc.indexOf(undescribed));
+    expect(
+      doc.slice(violations[0].range!.from.offset, violations[0].range!.to.offset),
+    ).toBe(undescribed);
+    expect(violations[0].fix).not.toBeNull();
+
+    // The single-fix path and the batch path produce the same document.
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+
+    // The described image is byte-for-byte preserved; exactly one
+    // placeholder was inserted and the undescribed syntax is gone.
+    expect(fixed).toContain(described);
+    expect(fixed.split("TODO: describe image")).toHaveLength(2);
+    expect(fixed).not.toContain(undescribed);
+
+    // Clean after the fix and stable under a second pass.
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("describes both undescribed images flanking a described one and leaves the described image byte-identical (%j line endings)", (nl) => {
+    const first = "![](img/before.png)";
+    const described = "![Team photo](img/team.jpg)";
+    const second = "![](img/after.png)";
+    const doc = `Line one.${nl}${first}${described}${second} trailing.${nl}`;
+    const expected =
+      `Line one.${nl}![TODO: describe image](img/before.png)${described}` +
+      `![TODO: describe image](img/after.png) trailing.${nl}`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+      "missing-alt-text",
+      "missing-alt-text",
+    ]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain(described);
+    expect(fixed.match(/!\[TODO: describe image\]/g)).toHaveLength(2);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+
+  it("fixAllViolations under the default-enabled rules describes only the undescribed image beside a described one and records one history entry", () => {
+    clearLintHistory();
+    const described = "![Team photo](img/team.jpg)";
+    const undescribed = "![](img/chart.png)";
+    const doc = `# Report\n\nFigures: ${described} ${undescribed} done.\n`;
+    const expected = `# Report\n\nFigures: ${described} ![TODO: describe image](img/chart.png) done.\n`;
+    const rules = BUILTIN_RULES.filter((rule) =>
+      LINTER_DEFAULT_ENABLED_RULES.includes(rule.id),
+    );
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+
+    const fixed = fixAllViolations(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain(described);
+    expect(fixed.split("TODO: describe image")).toHaveLength(2);
+    expect(fixed).not.toContain(undescribed);
+
+    const history = [...getLintHistory()];
+    expect(history.map((entry) => entry.ruleId)).toEqual(["missing-alt-text"]);
+    expect(history[0].fixedAt).toBeGreaterThan(0);
+    expect(history[0].docSnippet).toContain("img/chart.png");
+
+    // Clean after the fix; a second Fix All pass changes nothing and logs nothing.
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(fixAllViolations(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+    expect(getLintHistory()).toEqual(history);
+  });
+});
