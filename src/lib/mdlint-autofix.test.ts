@@ -441,6 +441,49 @@ describe("rule:invalid-link-target", () => {
     }
   });
 
+  it("keeps [1] prose and a [draft]() literal in the frontmatter while repairing the same link in the body", () => {
+    for (const nl of ["\n", "\r\n"]) {
+      // Frontmatter lines are masked whole, so their "[1]" strings — and even
+      // a "[draft]()" literal — are property text there, not links. Only the
+      // body's copy of that same link is a violation, and only it is fixed.
+      const frontmatter = [
+        "---",
+        'title: "Study [1] notes"',
+        'refs: ["[1]", "[2]"]',
+        'draft: "[draft]() placeholder"',
+        "---",
+      ];
+      const doc = [
+        ...frontmatter,
+        "",
+        "Prior work [1] agrees; see [draft]() for ours.",
+        "",
+      ].join(nl);
+      const expected = [
+        ...frontmatter,
+        "",
+        "Prior work [1] agrees; see [draft](TODO) for ours.",
+        "",
+      ].join(nl);
+      const rules = [ruleInvalidLinkTarget];
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+      expect(violations[0].range!.from.offset).toBe(doc.lastIndexOf("[draft]()"));
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      // Two "[draft]()" literals went in; the frontmatter one survives.
+      expect(doc.match(/\[draft\]\(\)/g)).toHaveLength(2);
+      expect(fixed.match(/\[draft\]\(\)/g)).toHaveLength(1);
+      expect(fixed.match(/\[draft\]\(TODO\)/g)).toHaveLength(1);
+      expect(fixed.match(/\[1\]/g)).toHaveLength(3);
+      // The full default rule set flags only the body's link too.
+      expect(applyAllFixes(doc, lintDocument(doc))).toBe(expected);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+    }
+  });
+
   it("replaces an invalid href while preserving punctuation and surrounding text", () => {
     const doc =
       'Read it (see [guide]()), "[quote]()"; then [next](), — done! Really [end]()?\n';
