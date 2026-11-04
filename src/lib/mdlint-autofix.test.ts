@@ -300,6 +300,23 @@ describe("autofix: two undescribed images on one line", () => {
     expect(applyAllFixes(doc, [...violations].reverse())).toBe(expected);
     expect(lintDocument(expected, { rules })).toEqual([]);
   });
+
+  it("fixes two images under default rules without changing sources or CRLF", () => {
+    const doc =
+      '---\r\ntitle: Gallery\r\n---\r\n\r\n![](images/東京.png?size=2#view "First") and ![ ](images/a%20b.svg)\r\n';
+    const expected =
+      '---\r\ntitle: Gallery\r\n---\r\n\r\n![TODO: describe image](images/東京.png?size=2#view "First") and ![TODO: describe image](images/a%20b.svg)\r\n';
+    const violations = lintDocument(doc);
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+      "missing-alt-text",
+      "missing-alt-text",
+    ]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed)).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed))).toBe(fixed);
+  });
 });
 
 describe("autofix: undescribed images on separate lines", () => {
