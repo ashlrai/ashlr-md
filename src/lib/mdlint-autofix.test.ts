@@ -20623,3 +20623,58 @@ describe("invalid-link-target autofix: invalid link starting a blockquote line",
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+describe("invalid-link-target autofix: a valid link is never modified", () => {
+  const rules = [ruleInvalidLinkTarget];
+
+  it.each([
+    [
+      "an https URL with query and fragment",
+      "See [docs](https://example.com/a?x=1#top) here.\n",
+    ],
+    ["an http URL", "See [docs](http://example.com/page) here.\n"],
+    ["a relative path", "See [guide](./docs/guide.md) here.\n"],
+    ["a named fragment", "See [section](#setup) here.\n"],
+    ["a query-only target", "See [search](?page=2) here.\n"],
+    ["a padded '#' target", "See [padded]( # ) here.\n"],
+    ["a padded '?' target", "See [spaced]( ? ) here.\n"],
+    ["a titled link", 'See [api](./api.md "API ref") here.\n'],
+    ["a mailto link", "See [mail](mailto:user@example.com) here.\n"],
+    ["the TODO placeholder itself", "See [draft](TODO) here.\n"],
+    ["a single-character target", "See [x](a) here.\n"],
+    ["a link in a list item", "- See [docs](https://example.com) here.\n"],
+    ["a link in a blockquote", "> See [docs](https://example.com) here.\n"],
+    ["link-shaped text inside a code span", "Keep `[draft]()` literal in code.\n"],
+    ["a CRLF-delimited line", "See [docs](https://example.com) here.\r\n"],
+    ["no final newline", "See [docs](https://example.com) here."],
+  ])("reports no violation and returns the complete document unchanged for %s", (_name, doc) => {
+    const violations = lintDocument(doc, { rules });
+    expect(violations).toEqual([]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(doc);
+    // A second pass is equally inert.
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(doc);
+  });
+
+  it("fixes an invalid link while the valid link beside it stays byte-identical", () => {
+    const valid = '[docs](https://example.com/a?x=1#top "Docs")';
+    const doc = `See ${valid} and [broken]() too.\n`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("invalid-link-target");
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(`See ${valid} and [broken](TODO) too.\n`);
+    expect(fixed).toContain(valid);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+
+  it("returns the complete document unchanged under the default rule set", () => {
+    const doc =
+      "---\ntitle: Links\n---\n\n# Links\n\nSee [docs](https://example.com/a?x=1#top) and [guide](./g.md) here.\n";
+    const violations = lintDocument(doc);
+    expect(violations).toEqual([]);
+    expect(applyAllFixes(doc, violations)).toBe(doc);
+  });
+});
