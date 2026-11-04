@@ -12493,6 +12493,142 @@ describe("autofix: invalid link in a document without a final newline", () => {
   });
 });
 
+// ─── Undescribed image in a document without a final newline ─────────────────
+
+describe("autofix: undescribed image in a document without a final newline", () => {
+  it.each([
+    [
+      "whitespace-only alt mid-line",
+      "Intro.\n\nSee ![ ](a.png) here.",
+      "Intro.\n\nSee ![TODO: describe image](a.png) here.",
+    ],
+    [
+      "angle-bracket destination",
+      "Gallery.\n\nSee ![](<my dir/a.png>) last.",
+      "Gallery.\n\nSee ![TODO: describe image](<my dir/a.png>) last.",
+    ],
+    [
+      "CRLF",
+      "Intro line.\r\n\r\nSee ![](a.png) here.",
+      "Intro line.\r\n\r\nSee ![TODO: describe image](a.png) here.",
+    ],
+    [
+      "Unicode prose and source",
+      "Intro.\n\nVoir ![](café.png) ici.",
+      "Intro.\n\nVoir ![TODO: describe image](café.png) ici.",
+    ],
+    [
+      "image inside emphasis",
+      "Notes.\n\nSee *![](a.png)* there.",
+      "Notes.\n\nSee *![TODO: describe image](a.png)* there.",
+    ],
+  ])("inserts the placeholder and adds no final newline (%s)", (_name, doc, expected) => {
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(doc.endsWith("\n")).toBe(false);
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.endsWith("\n")).toBe(false);
+    expect(fixed.endsWith("\r")).toBe(false);
+    const remaining = lintDocument(fixed, { rules });
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(fixed, remaining)).toBe(expected);
+  });
+
+  it.each([
+    [
+      "described sibling precedes it",
+      "![ok](a.png) and ![](b.png)",
+      "![ok](a.png) and ![TODO: describe image](b.png)",
+    ],
+    [
+      "image at document start, prose tail",
+      "![](a.png)\n\nTail stays.",
+      "![TODO: describe image](a.png)\n\nTail stays.",
+    ],
+  ])("fixes through applyFix and the default rule set without adding a final newline (%s)", (_name, doc, expected) => {
+    // Default rules also report frontmatter-required here; only the image is fixed.
+    const violations = lintDocument(doc).filter(
+      ({ ruleId }) => ruleId === "missing-alt-text",
+    );
+
+    expect(violations).toHaveLength(1);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.endsWith("\n")).toBe(false);
+    expect(lintDocument(fixed).map(({ ruleId }) => ruleId)).not.toContain(
+      "missing-alt-text",
+    );
+  });
+
+  it.each([
+    [
+      "two undescribed images, the second ends the file",
+      "See ![](a.png) and ![](b.png)",
+      "See ![TODO: describe image](a.png) and ![TODO: describe image](b.png)",
+    ],
+    [
+      "whitespace alt and empty alt across CRLF lines",
+      "Top ![ ](a.png).\r\n\r\nEnd ![](b.png)",
+      "Top ![TODO: describe image](a.png).\r\n\r\nEnd ![TODO: describe image](b.png)",
+    ],
+  ])("fixes every undescribed image and still adds no final newline (%s)", (_name, doc, expected) => {
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(doc.endsWith("\n")).toBe(false);
+    expect(violations.length).toBeGreaterThan(1);
+    expect(violations.every((v) => v.ruleId === "missing-alt-text")).toBe(true);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.endsWith("\n")).toBe(false);
+    const remaining = lintDocument(fixed, { rules });
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(fixed, remaining)).toBe(expected);
+  });
+
+  it.each([
+    [
+      "image on an earlier line, before a plain-text tail",
+      "See ![](a.png) now.\n\nTail text stays",
+      "See ![TODO: describe image](a.png) now.\n\nTail text stays",
+      1,
+    ],
+    [
+      "a described image follows on the last line",
+      "Fix ![](a.png) then keep ![ok](b.png)",
+      "Fix ![TODO: describe image](a.png) then keep ![ok](b.png)",
+      1,
+    ],
+    [
+      "undescribed images on two lines before a CRLF tail",
+      "Fix ![](a.png) first.\r\n\r\nThen ![](b.png) mid-doc.\r\n\r\nEnd stays",
+      "Fix ![TODO: describe image](a.png) first.\r\n\r\nThen ![TODO: describe image](b.png) mid-doc.\r\n\r\nEnd stays",
+      2,
+    ],
+  ])("replaces the alt away from the end of the file and still adds no final newline (%s)", (_name, doc, expected, count) => {
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(doc.endsWith("\n")).toBe(false);
+    expect(violations).toHaveLength(count);
+    expect(violations.every((v) => v.ruleId === "missing-alt-text")).toBe(true);
+    expect(violations.every((v) => v.fix !== null)).toBe(true);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.endsWith("\n")).toBe(false);
+    // Everything after the last violation — including the absent final
+    // newline — is byte-identical; only the alt text changed.
+    const tailStart = violations[violations.length - 1].range!.to.offset;
+    expect(fixed.endsWith(doc.slice(tailStart))).toBe(true);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
+
 // ─── Bracketed prose ─────────────────────────────────────────────────────────
 
 describe("autofix: bracketed prose preservation", () => {
