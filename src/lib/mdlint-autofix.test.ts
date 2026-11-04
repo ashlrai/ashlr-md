@@ -20378,6 +20378,24 @@ describe("invalid-link autofix on separate lines", () => {
   });
 });
 
+describe("invalid-link autofix with an empty destination", () => {
+  it("replaces the destination and preserves surrounding Markdown", () => {
+    const rules = [ruleInvalidLinkTarget];
+    const doc =
+      "Intro.\n\nBefore **bold** [guide]() and [valid](./guide.md).\n\nTail.\n";
+    const expected =
+      "Intro.\n\nBefore **bold** [guide](TODO) and [valid](./guide.md).\n\nTail.\n";
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(expected);
+  });
+});
+
 describe("invalid-link autofix on the same line", () => {
   const rules = [ruleInvalidLinkTarget];
 
