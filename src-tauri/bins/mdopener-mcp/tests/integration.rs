@@ -17166,3 +17166,51 @@ fn export_text_keeps_bracketed_unicode_prose_across_pairs_labels_and_scripts() {
         json!([{ "level": 1, "text": "⟦式⟧ ⟨項⟩ ⁅注⁆" }])
     );
 }
+
+/// Bracketed prose in scripts and marks the other tests do not touch —
+/// Cyrillic, Greek, Indic, Thai, bidi and joiner controls, variation
+/// selectors, astral letters — renders with its brackets and every code
+/// point intact, on its own line, in a list, a quote, a heading and a cell,
+/// and beside real links and references that still collapse to their text.
+#[test]
+fn export_text_keeps_brackets_and_unicode_in_more_scripts_and_marks() {
+    let cases: &[(&str, &str)] = &[
+        (
+            "[Привет] [Ελληνικά] [हिन्दी] [ไทย]\n",
+            "[Привет] [Ελληνικά] [हिन्दी] [ไทย]",
+        ),
+        (
+            "[a\u{200d}b] [a\u{200c}b] [\u{200f}עב\u{200e}]\n",
+            "[a\u{200d}b] [a\u{200c}b] [\u{200f}עב\u{200e}]",
+        ),
+        (
+            "[\u{2764}\u{fe0f}] [1\u{fe0f}\u{20e3}] [🇯🇵] [𝒳𝒴]\n",
+            "[\u{2764}\u{fe0f}] [1\u{fe0f}\u{20e3}] [🇯🇵] [𝒳𝒴]",
+        ),
+        ("# [Заголовок] 日本\n", "[Заголовок] 日本"),
+        ("> [цитата]\n> [引用]\n", "[цитата]\n[引用]"),
+        ("- [δ] one\n- [ж] two\n", "[δ] one\n[ж] two"),
+        (
+            "| [α] | [β] |\n|---|---|\n| [ж] | [日] |\n",
+            "[α]\t[β]\n[ж]\t[日]",
+        ),
+        ("[Привет][日本](/u)[ελ]\n", "[Привет]日本[ελ]"),
+        (
+            "[Привет] and [see **ελ**][ref]\n\n[ref]: /r\n",
+            "[Привет] and see ελ",
+        ),
+        // Wiki links and footnote marks keep the ASCII behaviour; nested pairs stay.
+        ("[[Привет]] [^注] [日[本]語]\n", "Привет [注] [日[本]語]"),
+        ("\\[Привет\\] and [Привет]\n", "[Привет] and [Привет]"),
+    ];
+    for (markdown, expected) in cases {
+        let result = run_export_text_on(markdown);
+        assert_eq!(result["text"].as_str().unwrap(), *expected, "{markdown:?}");
+        assert_eq!(strip_markdown(markdown), *expected, "{markdown:?}");
+        assert_eq!(
+            result["char_count"].as_u64().unwrap() as usize,
+            expected.chars().count(),
+            "{markdown:?}"
+        );
+    }
+}
