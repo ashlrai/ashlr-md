@@ -20924,6 +20924,21 @@ describe("autofix: undescribed image at the end of a paragraph", () => {
     expect(applyAllFixes(doc, violations)).toBe(expected);
     expect(lintDocument(expected, { rules: [ruleMissingAltText] })).toEqual([]);
   });
+
+  it.each(["\n", "\r\n"])("preserves the paragraph boundary with %j", (newline) => {
+    const prose = `First line with *emphasis*.${newline}See the chart: `;
+    const suffix = `${newline}${newline}The next paragraph stays intact.${newline}`;
+    const doc = `${prose}![](chart.png)${suffix}`;
+    const expected = `${prose}![TODO: describe image](chart.png)${suffix}`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+    expect(applyAllFixes(expected, lintDocument(expected, { rules }))).toBe(expected);
+  });
 });
 
 describe("invalid-link-target autofix: invalid link starting a blockquote line", () => {
