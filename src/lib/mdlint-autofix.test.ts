@@ -387,6 +387,34 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    ["Japanese", "詳しくは", "[概要](", "を参照してください。"],
+    [
+      "German and Arabic",
+      "Siehe die Übersicht: ",
+      "[دليل المستخدم](",
+      " für Größe — مرحبًا.",
+    ],
+    ["emoji and combining marks", "C\u0327a va \u{1F680} ", "[cafe\u0301 \u2728](", " \u2014 fin\u0303."],
+  ])("keeps Unicode link text and Unicode prose intact while an empty destination becomes TODO (%s)", (_name, before, link, after) => {
+    const rules = [ruleInvalidLinkTarget];
+    for (const nl of ["\n", "\r\n"]) {
+      for (const href of ["", "  \t "]) {
+        const doc = `Intro ✓${nl}${nl}${before}${link}${href})${after}${nl}Next [ok](./a.md) line.${nl}`;
+        const expected = `Intro ✓${nl}${nl}${before}${link}TODO)${after}${nl}Next [ok](./a.md) line.${nl}`;
+        const violations = lintDocument(doc, { rules });
+
+        expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+        expect(applyFix(doc, violations[0])).toBe(expected);
+        const fixed = applyAllFixes(doc, violations);
+        expect(fixed).toBe(expected);
+        // Only the destination changed; the text and prose are byte-for-byte identical.
+        expect(fixed.replace("(TODO)", `(${href})`)).toBe(doc);
+        expect(lintDocument(fixed, { rules })).toEqual([]);
+      }
+    }
+  });
+
+  it.each([
     ["emoji", "Ship it 🚀👩‍💻"],
     ["parentheses and entity", "Guide (v2) &amp; notes"],
     ["underscores and angle text", "snake_case <b>bold</b> *x*"],
