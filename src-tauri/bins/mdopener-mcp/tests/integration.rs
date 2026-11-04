@@ -6636,6 +6636,14 @@ fn export_text_preserves_repeated_bracketed_phrase_and_surrounding_text() {
             "Préface [à revoir] milieu [à revoir] fin\n",
             "Préface [à revoir] milieu [à revoir] fin",
         ),
+        (
+            "Repeat [same][same] beside [same](/target) and [same].\n",
+            "Repeat [same][same] beside same and [same].",
+        ),
+        (
+            "[review] then [review], with [link](/target) between [review] and [review].\n",
+            "[review] then [review], with link between [review] and [review].",
+        ),
     ] {
         let result = run_export_text_on(markdown);
         let text = result["text"].as_str().unwrap();
