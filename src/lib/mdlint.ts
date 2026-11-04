@@ -591,15 +591,25 @@ export const ruleInvalidLinkTarget: LintRule = {
       if (/^\s*$/.test(href) || href === "#" || href === "?") {
         const from = m.index;
         const to = from + m[0].length;
-        const hrefEnd = to - 1;
-        const hrefStart = hrefEnd - href.length;
-        const text = m[1] || "link";
+        // ?? preserves empty strings (empty-label links like [](#));
+        // || would incorrectly convert them to "link".
+        const text = m[1] ?? "link";
+        const originalMatch = m[0];
         violations.push({
           ruleId: "invalid-link-target",
           message: `Invalid link target: [${text.slice(0, 30)}](${href || "empty"})`,
           severity: "warning",
           range: range(doc, from, to),
-          fix: (d) => `${d.slice(0, hrefStart)}TODO${d.slice(hrefEnd)}`,
+          fix: (d) => {
+            let idx = d.indexOf(originalMatch, from);
+            if (idx === -1) {
+              idx = d.indexOf(originalMatch);
+            }
+            if (idx === -1) return d;
+            return (
+              d.slice(0, idx) + `[${text}](TODO)` + d.slice(idx + originalMatch.length)
+            );
+          },
         });
       }
     }

@@ -11025,7 +11025,7 @@ describe("invalid-link-target autofix: idempotence", () => {
     expect(lintDocument(once, { rules: [ruleInvalidLinkTarget] })).toEqual([]);
   });
 
-  it("is idempotent with applyFix: applying the captured fix twice on the original equals applying it once", () => {
+  it("is idempotent with applyFix: applying the captured fix to an already-fixed document is a no-op", () => {
     const doc = "Read [guide]() for details.\n";
     const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
     expect(violations).toHaveLength(1);
@@ -11033,7 +11033,8 @@ describe("invalid-link-target autofix: idempotence", () => {
 
     const fixFn = violations[0].fix!;
     const once = fixFn(doc);
-    const twice = fixFn(doc);
+    // Applying the fix to the already-fixed text must be a no-op.
+    const twice = fixFn(once);
 
     expect(twice).toBe(once);
     expect(once).toBe("Read [guide](TODO) for details.\n");
