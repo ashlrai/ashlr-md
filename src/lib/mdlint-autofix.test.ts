@@ -2889,6 +2889,39 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    ["CJK", "日本語", "テキスト"],
+    ["accented Latin", "café", "naïve"],
+    ["decomposed-accent", "cafe\u0301", "re\u0301sume\u0301"],
+    ["RTL scripts", "שלום", "مرحبا"],
+    ["astral letters", "𠮷野", "字書"],
+  ])("fixes an empty href on a link directly between two %s words and keeps both words byte-for-byte", (_name, before, after) => {
+    for (const nl of ["\n", "\r\n"]) {
+      const link = "[guide]()";
+      const doc = `${before}${link}${after}${nl}`;
+      const expected = `${before}[guide](TODO)${after}${nl}`;
+      const rules = [ruleInvalidLinkTarget];
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations).toHaveLength(1);
+      expect(violations[0].ruleId).toBe("invalid-link-target");
+      // The reported range is the link alone, wedged between the two words:
+      // it starts where the first word ends and stops where the second begins.
+      const { from, to } = violations[0].range!;
+      expect(from.offset).toBe(before.length);
+      expect(to.offset).toBe(before.length + link.length);
+      expect(doc.slice(from.offset, to.offset)).toBe(link);
+      expect(violations[0].fix).not.toBeNull();
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      // The only edit is the placeholder inside the parentheses; taking it
+      // back out restores the words and the empty href exactly.
+      expect(fixed.replace("(TODO)", "()")).toBe(doc);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+    }
+  });
+
+  it.each([
     "\n",
     "\r\n",
   ])("preserves surrounding text and no final newline when fixing a link with %j line endings", (newline) => {
