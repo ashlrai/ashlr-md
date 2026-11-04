@@ -495,6 +495,45 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    ["empty", ""],
+    ["whitespace-only", " \t "],
+    ["bare fragment", "#"],
+    ["bare query", "?"],
+  ])("valid link next to an invalid link: only the %s destination changes", (_name, destination) => {
+    const valid = '[guide](./guide.md "Guide")';
+    const invalid = `[draft](${destination})`;
+    const repaired = "[draft](TODO)";
+    const rules = [ruleInvalidLinkTarget];
+
+    for (const nl of ["\n", "\r\n"]) {
+      // "Next to" in both geometries: touching, and across a soft line break.
+      for (const separator of ["", nl]) {
+        for (const validFirst of [true, false]) {
+          const links = validFirst ? [valid, invalid] : [invalid, valid];
+          const doc = `See ${links.join(separator)} end.${nl}`;
+          const expected = `See ${(validFirst ? [valid, repaired] : [repaired, valid]).join(separator)} end.${nl}`;
+          const violations = lintDocument(doc, { rules });
+
+          // Only the invalid link is reported, spanning exactly that link.
+          expect(violations).toHaveLength(1);
+          expect(violations[0].ruleId).toBe("invalid-link-target");
+          const { from, to } = violations[0].range!;
+          expect(doc.slice(from.offset, to.offset)).toBe(invalid);
+
+          expect(applyFix(doc, violations[0])).toBe(expected);
+          const fixed = applyAllFixes(doc, violations);
+          expect(fixed).toBe(expected);
+          // Every byte outside the invalid link's span is unchanged.
+          expect(
+            fixed.slice(0, from.offset) + fixed.slice(from.offset + repaired.length),
+          ).toBe(doc.slice(0, from.offset) + doc.slice(to.offset));
+          expect(lintDocument(fixed, { rules })).toEqual([]);
+        }
+      }
+    }
+  });
+
+  it.each([
     ".",
     ",",
     ";",
