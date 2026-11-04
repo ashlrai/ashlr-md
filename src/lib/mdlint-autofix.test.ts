@@ -19238,3 +19238,27 @@ describe("autofix: empty alt text with alternate title quoting and non-image con
     expect(applyAllFixes(doc, violations)).toBe(doc);
   });
 });
+
+describe("autofix: Unicode image filenames", () => {
+  it.each([
+    ["accented", "images/café.png"],
+    ["combining accent", "images/cafe\u0301.png"],
+    ["CJK and emoji", "images/風景-🌅.png?size=2#preview"],
+  ])("preserves the %s source when adding the alt placeholder", (_name, source) => {
+    for (const newline of ["\n", "\r\n"]) {
+      const doc = `前 ☕ ![](${source} "Image") after.${newline}`;
+      const expected = `前 ☕ ![TODO: describe image](${source} "Image") after.${newline}`;
+      const rules = [ruleMissingAltText];
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+      const { from, to } = violations[0].range!;
+      expect(doc.slice(from.offset, to.offset)).toBe(`![](${source} "Image")`);
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+      expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(expected);
+    }
+  });
+});
