@@ -5007,6 +5007,45 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    "",
+    " ",
+    "#",
+    "?",
+  ])("repairs a final invalid link %j while a document-level fix prepends frontmatter, still without adding a trailing newline", (href) => {
+    // No frontmatter: the default rules also report frontmatter-required,
+    // whose document-level fix runs after the link fix and must not append a
+    // newline either.
+    for (const nl of ["\n", "\r\n"]) {
+      const link = `[draft](${href})`;
+      const doc = ["Intro [ok](./ok.md) stays.", "", `Final: ${link}`].join(nl);
+      const violations = lintDocument(doc);
+
+      expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+        "invalid-link-target",
+        "frontmatter-required",
+      ]);
+      const { from, to } = violations[0].range!;
+      expect(doc.slice(from.offset, to.offset)).toBe(link);
+      // The link is the end of the document: no bytes follow it.
+      expect(to.offset).toBe(doc.length);
+
+      // The link fix on its own repairs the destination.
+      const linkOnly = ["Intro [ok](./ok.md) stays.", "", "Final: [draft](TODO)"].join(
+        nl,
+      );
+      expect(applyFix(doc, violations[0])).toBe(linkOnly);
+
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(["---", "title: ", "tags: []", "---", "", linkOnly].join(nl));
+      // The destination is fixed and no final newline was added.
+      expect(fixed.endsWith("[draft](TODO)")).toBe(true);
+      expect(fixed.endsWith("\n")).toBe(false);
+      expect(fixed.endsWith("\r")).toBe(false);
+      expect(lintDocument(fixed, { rules: [ruleInvalidLinkTarget] })).toEqual([]);
+    }
+  });
+
+  it.each([
     "\n",
     "\r\n",
   ])("repairs a final undescribed image with all built-in rules without adding a trailing newline (%j)", (newline) => {
