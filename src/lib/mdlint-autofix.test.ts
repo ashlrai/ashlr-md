@@ -10770,6 +10770,19 @@ describe("link and image autofix: mixed-fix idempotence", () => {
     expect(fixPass(fixPass(doc))).toBe(once);
   });
 
+  it("a second autofix pass over one invalid link and one undescribed image changes nothing", () => {
+    const doc = "# Doc\n\nSee [docs]() and ![](pic.png).\n";
+    const expected =
+      "# Doc\n\nSee [docs](TODO) and ![TODO: describe image](pic.png).\n";
+
+    const once = fixPass(doc);
+    expect(once).toBe(expected);
+
+    const twice = fixPass(once);
+    expect(twice).toBe(once);
+    expect(lintDocument(twice, { rules })).toEqual([]);
+  });
+
   it.each([
     "\n",
     "\r\n",
