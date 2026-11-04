@@ -10614,6 +10614,47 @@ fn export_text_keeps_punctuation_immediately_after_prose_brackets() {
 }
 
 #[test]
+fn export_text_keeps_prose_brackets_and_punctuation_on_both_sides() {
+    for (markdown, expected) in [
+        (
+            "Start:([draft]),end; '[sic]'!\n",
+            "Start:([draft]),end; '[sic]'!",
+        ),
+        (
+            "Quote: ‘[revised]’—[pending]…done.\n",
+            "Quote: ‘[revised]’—[pending]…done.",
+        ),
+        (
+            "Before:[one],[two];after:[three]?\n",
+            "Before:[one],[two];after:[three]?",
+        ),
+        (
+            "See [guide](/guide),[draft]; then ([final]).\n",
+            "See guide,[draft]; then ([final]).",
+        ),
+    ] {
+        let file_result = run_export_text_on(markdown);
+        assert_eq!(
+            file_result["text"].as_str().unwrap(),
+            expected,
+            "file: {markdown:?}"
+        );
+
+        let ipc = MockIpc::new().on_get(
+            "/content",
+            Ok(json!({ "path": "/docs/test.md", "content": markdown })),
+        );
+        let response = tool_export_text(id(2), &json!({}), &ipc);
+        assert!(response.error.is_none(), "IPC: {markdown:?}");
+        assert_eq!(
+            content_text(&response)["text"].as_str().unwrap(),
+            expected,
+            "IPC: {markdown:?}"
+        );
+    }
+}
+
+#[test]
 fn export_text_keeps_adjacent_bracketed_phrases_in_order() {
     for (markdown, expected) in [
         (
