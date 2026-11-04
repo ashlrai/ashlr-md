@@ -19452,3 +19452,47 @@ describe("autofix: image alt text made only of rare Unicode whitespace", () => {
     expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(expected);
   });
 });
+
+describe("autofix: undescribed images each alone on consecutive lines", () => {
+  it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+    ["CR", "\r"],
+  ])("describes both images and keeps the %s line breaks and neighbours intact", (_name, nl) => {
+    const rules = [ruleMissingAltText];
+    const doc = [
+      "Before",
+      "![](one.png)",
+      '![ ](two%20b.png?v=2#x "Two")',
+      "After",
+      "",
+    ].join(nl);
+    const expected = [
+      "Before",
+      "![TODO: describe image](one.png)",
+      '![TODO: describe image](two%20b.png?v=2#x "Two")',
+      "After",
+      "",
+    ].join(nl);
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+      "missing-alt-text",
+      "missing-alt-text",
+    ]);
+    // Each fix alone touches only its own image; together they match the expected text.
+    expect(applyFix(doc, violations[0])).toBe(
+      doc.replace("![](one.png)", "![TODO: describe image](one.png)"),
+    );
+    expect(applyFix(doc, violations[1])).toBe(
+      doc.replace(
+        '![ ](two%20b.png?v=2#x "Two")',
+        '![TODO: describe image](two%20b.png?v=2#x "Two")',
+      ),
+    );
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.match(/\r\n|\n|\r/g)).toEqual(doc.match(/\r\n|\n|\r/g));
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
