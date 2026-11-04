@@ -9922,6 +9922,97 @@ describe("rule:invalid-link-target CRLF document", () => {
   });
 });
 
+describe("rule:missing-alt-text CRLF document", () => {
+  it.each([
+    "",
+    "   ",
+    " \t ",
+  ])("inserts the description for the missing alt %j and keeps every CRLF and the surrounding text", (alt) => {
+    const image = `![${alt}](images/chart.png)`;
+    const doc = `# Gallery\r\n\r\nSee ${image} for details — and more.\r\n  Indented tail.\r\n\r\n- item\r\n`;
+    const expected = doc.replace(image, "![TODO: describe image](images/chart.png)");
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual(["missing-alt-text"]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(image);
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // No bare LF introduced and no CR lost.
+    expect(fixed.match(/\r\n/g)).toHaveLength(doc.match(/\r\n/g)!.length);
+    expect(fixed.replace(/\r\n/g, "")).not.toMatch(/[\r\n]/);
+    expect(fixed.length - doc.length).toBe("TODO: describe image".length - alt.length);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it("describes the image mid-document while every other CRLF line stays byte-identical", () => {
+    const image = '![](images/chart.png?size=2#preview "Chart")';
+    const repaired = '![TODO: describe image](images/chart.png?size=2#preview "Chart")';
+    const doc = [
+      "# Gallery",
+      "",
+      "Intro café text.",
+      "",
+      `See ${image} for details.`,
+      "After — keep `![](decoy.png)` code and ![described](ok.png) as is.",
+      "",
+    ].join("\r\n");
+    const expected = [
+      "# Gallery",
+      "",
+      "Intro café text.",
+      "",
+      `See ${repaired} for details.`,
+      "After — keep `![](decoy.png)` code and ![described](ok.png) as is.",
+      "",
+    ].join("\r\n");
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual(["missing-alt-text"]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(image);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // The only edit is the inserted description: same line count, all CRLF.
+    expect(fixed.split("\r\n")).toHaveLength(doc.split("\r\n").length);
+    expect(fixed.replace(/\r\n/g, "")).not.toMatch(/[\r\n]/);
+    expect(fixed).toContain("`![](decoy.png)`");
+    expect(fixed).toContain("![described](ok.png)");
+    const remaining = lintDocument(fixed, { rules });
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(fixed, remaining)).toBe(expected);
+  });
+
+  it.each([
+    ["empty", "![](end.png)", "![TODO: describe image](end.png)"],
+    [
+      "whitespace-only",
+      '![  ](end.png "End")',
+      '![TODO: describe image](end.png "End")',
+    ],
+  ])("describes the %s-alt image at end of a CRLF file without adding a final newline", (_name, image, repaired) => {
+    const doc = `# Gallery\r\n\r\nBody.\r\n${image}`;
+    const expected = doc.replace(image, repaired);
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual(["missing-alt-text"]);
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.endsWith("\n")).toBe(false);
+    // The CRLF lines before the image are untouched.
+    expect(fixed.match(/\r\n/g)).toHaveLength(doc.match(/\r\n/g)!.length);
+    expect(fixed.replace(/\r\n/g, "")).not.toMatch(/[\r\n]/);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
+
 describe("missing-alt-text autofix: idempotence for linked and angle-bracket images", () => {
   const rules = [ruleMissingAltText];
   const fixPass = (text: string) => applyAllFixes(text, lintDocument(text, { rules }));
