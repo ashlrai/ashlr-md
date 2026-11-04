@@ -123,6 +123,26 @@ describe("autofix: empty image description", () => {
   });
 });
 
+describe("autofix: undescribed image in a document without a final newline", () => {
+  it.each([
+    ["the whole document is one image", "![](a.png)"],
+    ["a lone image after a blank line", "# T\n\n![](a.png)"],
+    ["an image ending the last text line", 'Intro\nSee ![](a.png?v=2#x "Chart")'],
+    ["an image ending the last CRLF line", "Intro\r\n\r\n![ ](dir/a%20b.png)"],
+  ])("inserts the placeholder and adds no final newline (%s)", (_name, doc) => {
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(doc.replace(/!\[\s*\]/, "![TODO: describe image]"));
+    expect(fixed.endsWith("\n")).toBe(false);
+    expect(fixed.endsWith("\r")).toBe(false);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+});
+
 describe("autofix: undescribed image at the start of a line", () => {
   it.each([
     "\n",
