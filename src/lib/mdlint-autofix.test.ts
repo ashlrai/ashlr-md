@@ -2435,6 +2435,24 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 
+  it("fixes two adjacent undescribed images without changing either source", () => {
+    const doc =
+      'See ![](images/one.png?size=2#top)![  ](<images/two chart.svg> "Chart") here.\n';
+    const expected =
+      'See ![TODO: describe image](images/one.png?size=2#top)![TODO: describe image](<images/two chart.svg> "Chart") here.\n';
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+      "missing-alt-text",
+      "missing-alt-text",
+    ]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+
   it.each([
     "\n",
     "\r\n",
