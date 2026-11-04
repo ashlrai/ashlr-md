@@ -6816,6 +6816,61 @@ fn heading_with_bracketed_phrase_preserves_literal_brackets() {
     );
 }
 
+/// The text of a heading is extracted raw wherever it is read — the note's
+/// title (`document_title`, reported by `mdopener://recent-documents`) and
+/// `export_metadata`'s heading list — so bracketed prose in a heading keeps
+/// both brackets and its contents: a whole-heading phrase, a nested pair,
+/// punctuation beside the brackets, closing `#`s, and even a label the
+/// document defines, which only the rendered text resolves.
+#[test]
+fn extracted_heading_text_keeps_its_brackets_and_contents() {
+    use mdopener_mcp::{document_title, handle_resource_read};
+
+    let md = concat!(
+        "# Spec [RFC 42]\n\n",
+        "## [Draft] only\n\n",
+        "### Plan [Phase [1]]\n\n",
+        "#### Plan [v2], revised #\n\n",
+        "##### See [r1]\n\n[r1]: /u\n"
+    );
+    // The document title is the first heading's raw text, brackets and all.
+    assert_eq!(document_title(md).as_deref(), Some("Spec [RFC 42]"));
+    let metadata = run_export_metadata_on(md);
+    assert_eq!(
+        metadata["headings"],
+        json!([
+            { "level": 1, "text": "Spec [RFC 42]" },
+            { "level": 2, "text": "[Draft] only" },
+            { "level": 3, "text": "Plan [Phase [1]]" },
+            { "level": 4, "text": "Plan [v2], revised" },
+            { "level": 5, "text": "See [r1]" }
+        ])
+    );
+
+    // The rendered text keeps the prose brackets as the page shows them;
+    // only the defined label resolves to its text.
+    let text = run_export_text_on(md);
+    assert_eq!(
+        text["text"].as_str().unwrap().trim(),
+        "Spec [RFC 42]\n\n[Draft] only\n\nPlan [Phase [1]]\n\nPlan [v2], revised\n\nSee r1"
+    );
+
+    // A recent note is titled with the bracketed heading text.
+    let dir = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(dir.path()).unwrap();
+    let path = root.join("roadmap.md");
+    std::fs::write(&path, "# Roadmap [Q1]\n\nBody.\n").unwrap();
+    let ipc = MockIpc::new().on_get(
+        "/vault",
+        Ok(json!({ "files": [], "recents": [path.to_string_lossy()] })),
+    );
+    let resp = handle_resource_read(id(1), "mdopener://recent-documents", &ipc);
+    let result = resp.result.unwrap();
+    let v: Value =
+        serde_json::from_str(result["contents"][0]["text"].as_str().unwrap()).unwrap();
+    assert_eq!(v["documents"][0]["title"], "Roadmap [Q1]", "{v}");
+}
+
 #[test]
 fn export_metadata_returns_no_links_for_an_empty_document() {
     let result = run_export_metadata_on("");
