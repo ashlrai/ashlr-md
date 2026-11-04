@@ -2620,6 +2620,34 @@ describe("rule:invalid-link-target", () => {
   it.each([
     ["LF", "\n"],
     ["CRLF", "\r\n"],
+  ])("inserts the placeholder for tab-only alt text, leaves tab-padded real alt text alone, and preserves surrounding tabs (%s)", (_name, nl) => {
+    const rules = [ruleMissingAltText];
+    const doc = [
+      "See\t![\t](one.png)\ttail",
+      '![\t\t\t](two.png "T")',
+      "![\tkept\t](three.png)",
+      "",
+    ].join(nl);
+    const expected = [
+      "See\t![TODO: describe image](one.png)\ttail",
+      '![TODO: describe image](two.png "T")',
+      "![\tkept\t](three.png)",
+      "",
+    ].join(nl);
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(2);
+    expect(
+      violations.every((v) => v.ruleId === "missing-alt-text" && v.fix !== null),
+    ).toBe(true);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
   ])("replaces a whitespace-only image description inside a list item and keeps an angle-bracket source (%s)", (_name, nl) => {
     const rules = [ruleMissingAltText];
     const doc = `- ![  ](<my images/a b.png> "T")${nl}- ![kept](b.png)${nl}`;
