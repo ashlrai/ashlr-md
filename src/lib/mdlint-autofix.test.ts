@@ -358,6 +358,37 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+  ])("fixes an invalid link between two valid paragraphs and preserves both (%s)", (_name, nl) => {
+    const first = "First paragraph, with a [valid link](./a.md) and plain prose.";
+    const last =
+      "Last paragraph, with **emphasis** and [another](https://example.com).";
+    const doc = [
+      first,
+      "",
+      "Middle: see [the guide]() for details.",
+      "",
+      last,
+      "",
+    ].join(nl);
+    const expected = [
+      first,
+      "",
+      "Middle: see [the guide](TODO) for details.",
+      "",
+      last,
+      "",
+    ].join(nl);
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+
+  it.each([
     "",
     "  ",
     "#",
