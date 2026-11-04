@@ -10019,6 +10019,38 @@ fn export_text_keeps_standalone_bracket_number_at_end_of_paragraph() {
     }
 }
 
+/// Undefined bracketed phrases at paragraph endings are literal prose, and
+/// punctuation after the closing bracket belongs to the rendered text.
+#[test]
+fn export_text_keeps_bracketed_prose_and_terminal_punctuation() {
+    for (markdown, expected) in [
+        (
+            "The report is ready [final review].\n",
+            "The report is ready [final review].",
+        ),
+        (
+            "Is this ready [for review]?\n",
+            "Is this ready [for review]?",
+        ),
+        ("Ship it [approved]!\n", "Ship it [approved]!"),
+        (
+            "First line continues\nand ends [with a note].\n\nAnother ends [here]!\n",
+            "First line continues\nand ends [with a note].\n\nAnother ends [here]!",
+        ),
+        (
+            "Read [the guide] and finish [the review].\n\n[the guide]: /guide\n",
+            "Read the guide and finish [the review].",
+        ),
+    ] {
+        let result = run_export_text_on(markdown);
+        assert_eq!(
+            result["text"].as_str().unwrap(),
+            expected,
+            "input: {markdown:?}"
+        );
+    }
+}
+
 #[test]
 fn export_text_keeps_literal_brackets_in_blockquote_prose() {
     let markdown = "> See note [1] and the [guide](/guide).\n";
