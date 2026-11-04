@@ -406,6 +406,41 @@ describe("rule:invalid-link-target", () => {
     }
   });
 
+  it("fixes only the invalid link when [1] is prose beside it and also the link's own label", () => {
+    for (const nl of ["\n", "\r\n"]) {
+      // [1] shows up three ways: a prose citation, a citation in a list, and
+      // the label of an invalid link — only the link may change.
+      const doc = [
+        "Prior work [1] shows the pattern; see [draft](#) for ours.",
+        "- compare [1] against [ref](?), [gap](  ) and [1]() inline",
+        "ends with [1].",
+        "",
+      ].join(nl);
+      const rules = [ruleInvalidLinkTarget];
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations).toHaveLength(4);
+      expect(
+        violations.map((v) => doc.slice(v.range!.from.offset, v.range!.to.offset)),
+      ).toEqual(["[draft](#)", "[ref](?)", "[gap](  )", "[1]()"]);
+      expect(applyFix(doc, violations[3])).toBe(doc.replace("[1]()", "[1](TODO)"));
+
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(
+        [
+          "Prior work [1] shows the pattern; see [draft](TODO) for ours.",
+          "- compare [1] against [ref](TODO), [gap](TODO) and [1](TODO) inline",
+          "ends with [1].",
+          "",
+        ].join(nl),
+      );
+      // Three bare "[1]" citations survive; the only "[1](" is the repair.
+      expect(fixed.match(/\[1\](?!\()/g)).toHaveLength(3);
+      expect(fixed.match(/\[1\]\(TODO\)/g)).toHaveLength(1);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+    }
+  });
+
   it("replaces an invalid href while preserving punctuation and surrounding text", () => {
     const doc =
       'Read it (see [guide]()), "[quote]()"; then [next](), — done! Really [end]()?\n';
