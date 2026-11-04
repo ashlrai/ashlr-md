@@ -13133,6 +13133,58 @@ describe("autofix: invalid link in a document without a final newline", () => {
     expect(fixed.endsWith(doc.slice(tailStart))).toBe(true);
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
+
+  it.each([
+    [
+      "link inside a heading",
+      "Intro.\n\n## See [draft]() in the heading",
+      "Intro.\n\n## See [draft](TODO) in the heading",
+      "[draft]()",
+    ],
+    [
+      "a heading that is the whole document",
+      "## See [draft]()",
+      "## See [draft](TODO)",
+      "[draft]()",
+    ],
+    [
+      "link inside a blockquote",
+      "> Quoted note.\n>\n> See [draft](#) in the quote",
+      "> Quoted note.\n>\n> See [draft](TODO) in the quote",
+      "[draft](#)",
+    ],
+    [
+      "link inside a table cell",
+      "| Name | Link |\n| ---- | ---- |\n| docs | [draft](  ) |",
+      "| Name | Link |\n| ---- | ---- |\n| docs | [draft](TODO) |",
+      "[draft](  )",
+    ],
+    [
+      "question-mark href ending a CRLF blockquote",
+      "> Quote line.\r\n> More [ref](?)",
+      "> Quote line.\r\n> More [ref](TODO)",
+      "[ref](?)",
+    ],
+  ])("replaces the invalid href inside a block container and adds no final newline (%s)", (_name, doc, expected, link) => {
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(doc.endsWith("\n")).toBe(false);
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    expect(violations[0].fix).not.toBeNull();
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(link);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // The href is the documented TODO placeholder and no final newline appears.
+    expect(fixed).toContain("](TODO)");
+    expect(fixed.endsWith("\n")).toBe(false);
+    expect(fixed.endsWith("\r")).toBe(false);
+    const remaining = lintDocument(fixed, { rules });
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(fixed, remaining)).toBe(expected);
+  });
 });
 
 // ─── Undescribed image in a document without a final newline ─────────────────
