@@ -16186,4 +16186,24 @@ describe("missing-alt-text autofix in a blockquote", () => {
     expect(fixed).toContain(`${marker}![TODO: describe image]`);
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
+
+  it("reports an undescribed image after ordinary text at its exact position, then fixes only the alt text", () => {
+    const lead = "Ordinary text before the figure: ";
+    const doc = `# Title\n\n${lead}![](assets/fig one.png?v=2#top "Fig") and more.\n`;
+    const expected = `# Title\n\n${lead}![TODO: describe image](assets/fig one.png?v=2#top "Fig") and more.\n`;
+    const defaultRules = BUILTIN_RULES.filter((rule) =>
+      LINTER_DEFAULT_ENABLED_RULES.includes(rule.id),
+    );
+
+    for (const rules of [[ruleMissingAltText], defaultRules]) {
+      const violations = lintDocument(doc, { rules }).filter(
+        (violation) => violation.ruleId === "missing-alt-text",
+      );
+      expect(violations).toHaveLength(1);
+      const { from } = violations[0].range!;
+      expect(from.line).toBe(3);
+      expect(doc.slice(from.offset)).toMatch(/^!\[\]\(assets\/fig one\.png/);
+      expect(applyAllFixes(doc, violations)).toBe(expected);
+    }
+  });
 });
