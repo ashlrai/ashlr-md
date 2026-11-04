@@ -19258,3 +19258,117 @@ describe("autofix: empty alt text with alternate title quoting and non-image con
     expect(applyAllFixes(doc, violations)).toBe(doc);
   });
 });
+
+// ─── Plain prose with nothing to fix passes through untouched ────────────────
+
+describe("autofix: unchanged plain prose when neither fixable rule applies", () => {
+  const rules = [ruleInvalidLinkTarget, ruleMissingAltText];
+  const utf8 = (text: string): Uint8Array => new TextEncoder().encode(text);
+
+  it.each([
+    ["a single line without a final newline", "An ordinary sentence."],
+    ["one paragraph and a final newline", "A quiet paragraph, with commas.\n"],
+    [
+      "several LF-separated paragraphs",
+      "First paragraph stays.\n\nSecond paragraph, with more; and a colon: done.\n",
+    ],
+    ["CRLF line endings", "Opening line.\r\n\r\nClosing line with a period.\r\n"],
+    [
+      "mixed LF and CRLF breaks and no final newline",
+      "Alpha.\nBeta on LF.\r\nGamma on CRLF.",
+    ],
+    ["Unicode prose", "Café — naïve 日本語 🎉 é صورة.\n"],
+    [
+      "punctuation-dense prose",
+      'She said "wait — really?" (twice); n=1 < 2 & 3 > 0... yes!\n',
+    ],
+    [
+      "markdown structure without links or images",
+      "# Notes\n\n- a first item\n- a second item\n\n> A quoted line.\n\n| a | b |\n|---|---|\n| 1 | 2 |\n",
+    ],
+  ])("reports nothing and returns %s byte for byte", (_name, doc) => {
+    const violations = lintDocument(doc, { rules });
+    expect(violations).toEqual([]);
+
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(doc);
+    expect(utf8(fixed)).toEqual(utf8(doc));
+    // A second pass is the same no-op.
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(doc);
+  });
+
+  it.each([
+    ["a bracketed word", "A note [draft] mid-sentence.\n"],
+    ["a bracketed word, a space, then parens", "See [guide] (not a link) here.\n"],
+    ["an unclosed link", "Read [guide](docs/a.md then stop.\n"],
+    ["an unclosed image", "Look ![chart](img/c.png then stop.\n"],
+    ["an image opener with no destination", "The ![logo] line above.\n"],
+    ["a reference-style link", "Use [docs][ref] today.\n\n[ref]: docs/d.md\n"],
+    ["stray brackets and parens", "a ] b [ c ) d ( e.\n"],
+    ["a bang before a described image", "Wow! ![logo](l.svg) looks nice.\n"],
+    ["a valid link beside a described image", "See [a](./a.md) and ![b](b.png) now.\n"],
+  ])("leaves prose with %s byte-identical", (_name, doc) => {
+    const violations = lintDocument(doc, { rules });
+    expect(violations).toEqual([]);
+
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(doc);
+    expect(utf8(fixed)).toEqual(utf8(doc));
+  });
+
+  it("records no history when the Fix all entry point runs on unchanged prose", () => {
+    clearLintHistory();
+    const doc = "Plain prose, nothing to repair.\n";
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toEqual([]);
+    expect(fixAllViolations(doc, violations)).toBe(doc);
+    expect(getLintHistory()).toEqual([]);
+    clearLintHistory();
+  });
+
+  it("returns plain prose unchanged under every built-in rule except frontmatter-required", () => {
+    // frontmatter-required deliberately inserts a block into any doc without one.
+    const withoutFrontmatter = BUILTIN_RULES.filter(
+      (rule) => rule.id !== "frontmatter-required",
+    );
+    const doc = [
+      "# Report",
+      "",
+      "An ordinary paragraph of plain prose.",
+      "",
+      "## Details",
+      "",
+      "More prose, with a [1] citation and ordinary brackets (like this).",
+      "",
+    ].join("\n");
+
+    expect(lintDocument(doc, { rules: withoutFrontmatter })).toEqual([]);
+    const fixed = applyAllFixes(doc, lintDocument(doc, { rules: withoutFrontmatter }));
+    expect(fixed).toBe(doc);
+    expect(utf8(fixed)).toEqual(utf8(doc));
+  });
+
+  it("returns a frontmatter-bearing document byte-identical under the full default rule set", () => {
+    const doc = [
+      "---",
+      "title: Field notes",
+      "tags: []",
+      "---",
+      "",
+      "# Field notes",
+      "",
+      "A short introduction.",
+      "",
+      "## Observations",
+      "",
+      "Body text under the section.",
+      "",
+    ].join("\n");
+
+    expect(lintDocument(doc)).toEqual([]);
+    const fixed = applyAllFixes(doc, lintDocument(doc));
+    expect(fixed).toBe(doc);
+    expect(utf8(fixed)).toEqual(utf8(doc));
+  });
+});
