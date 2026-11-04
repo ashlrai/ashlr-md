@@ -12706,6 +12706,33 @@ describe("described image preservation across line endings and rule sets", () =>
     // The image itself is never altered by any built-in rule's autofix.
     expect(applyAllFixes(doc, lintDocument(doc))).toContain(image);
   });
+
+  it.each([
+    ["comma, colon and exclamation", "![Status: draft, v2 — done!](img/status.png)"],
+    ["quotes and parentheses", '![He said "hi" (twice)](img/hi.png)'],
+    ["emphasis and symbol runs", "![Chart *Q3* ~old~ 100% & more?](img/q3.png)"],
+    ["titled destination", '![Costs, Q3: up 20%!](img/costs.png "Q3 (est.)")'],
+    ["sentence-final ellipsis", "![Wait… what?! Yes; ok.](img/w.png)"],
+  ])("leaves a described image with punctuation in its alt text byte-identical (%s)", (_name, image) => {
+    for (const [nl, tail] of [
+      ["\n", "\n"],
+      ["\r\n", "\r\n"],
+      ["\n", ""],
+      ["\r\n", ""],
+    ]) {
+      const doc = `# Report${nl}${nl}${image}${tail}`;
+      for (const rules of [
+        [ruleMissingAltText],
+        [ruleInvalidLinkTarget, ruleMissingAltText],
+      ]) {
+        const violations = lintDocument(doc, { rules });
+        expect(violations).toEqual([]);
+        expect(applyAllFixes(doc, violations)).toBe(doc);
+      }
+      // The image itself is never altered by any built-in rule's autofix.
+      expect(applyAllFixes(doc, lintDocument(doc))).toContain(image);
+    }
+  });
 });
 
 describe("invalid-link-target autofix: blockquote with code and lazy continuation", () => {
