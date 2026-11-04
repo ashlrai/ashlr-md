@@ -962,6 +962,21 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(fixed, { rules: [ruleInvalidLinkTarget] })).toEqual([]);
   });
 
+  it("sets the href to TODO for a paragraph-ending invalid link in a mid-document paragraph and preserves the prose before and after it", () => {
+    const lead = "Intro paragraph with a [valid](./ok.md) link.\n\n";
+    const prose =
+      "Second paragraph: **bold** words, `code`, and finally see [the guide]";
+    const tail = "\n\nThird paragraph is untouched.";
+    const doc = `${lead}${prose}( )${tail}`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(`${lead}${prose}(TODO)${tail}`);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+
   it("gives two invalid links in one document a TODO href each and keeps both labels", () => {
     const fm = "---\ntitle: Guide\n---\n\n";
     const doc = `${fm}See [first label]() and [second label](  ) for details.\n`;
