@@ -14481,6 +14481,43 @@ describe("autofix: described image beside an undescribed image", () => {
     expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
   });
 
+  it.each([
+    "\n",
+    "\r\n",
+  ])("changes only the undescribed image when a described image precedes it in an earlier paragraph (%j line endings)", (nl) => {
+    const described = '![Roadmap *Q4*](<img/road map.png> "Plan")';
+    const undescribed = "![](img/after.png?v=2#top)";
+    const doc = [
+      "# Gallery",
+      "",
+      `First ${described} here.`,
+      "",
+      `Then ${undescribed} there, café.`,
+      "",
+    ].join(nl);
+    const expected = [
+      "# Gallery",
+      "",
+      `First ${described} here.`,
+      "",
+      "Then ![TODO: describe image](img/after.png?v=2#top) there, café.",
+      "",
+    ].join(nl);
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    // Only the undescribed image is flagged, so only it can change.
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    expect(violations[0].range?.from.offset).toBe(doc.indexOf(undescribed));
+
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // Everything before the undescribed image is byte-identical.
+    expect(fixed.startsWith(doc.slice(0, doc.indexOf(undescribed)))).toBe(true);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+
   it("fixAllViolations under the default-enabled rules describes only the undescribed image beside a described one and records one history entry", () => {
     clearLintHistory();
     const described = "![Team photo](img/team.jpg)";
