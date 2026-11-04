@@ -6938,6 +6938,55 @@ describe("rule:missing-alt-text", () => {
         expect(fixAll(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
       }
     });
+
+    it.each([
+      "\n",
+      "\r\n",
+    ])("describes the guide's two example images on separate lines and keeps all surrounding text byte-for-byte (%j)", (nl) => {
+      // mdlint-empty-alt-behavior's example pair, split onto separate lines.
+      const first = "![](chart.png?view=full#data)";
+      const second = '![  ](map.png "Map")';
+      const repairedFirst = `![${PLACEHOLDER}](chart.png?view=full#data)`;
+      const repairedSecond = `![${PLACEHOLDER}](map.png "Map")`;
+      const build = (a: string, b: string) =>
+        [
+          `Notes: ${a} first.`,
+          "",
+          "Middle `![](decoy.png)` and [a link](./ok.md) stay.",
+          "",
+          `Then ${b} last.`,
+          "",
+        ].join(nl);
+      const doc = build(first, second);
+      const expected = build(repairedFirst, repairedSecond);
+      const rules = [ruleMissingAltText];
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+        "missing-alt-text",
+        "missing-alt-text",
+      ]);
+      expect(
+        violations.map(({ range }) => doc.slice(range!.from.offset, range!.to.offset)),
+      ).toEqual([first, second]);
+      expect(violations.map(({ range }) => range!.from.line)).toEqual([1, 5]);
+
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      expect(fixed.match(/!\[TODO: describe image\]/g)).toHaveLength(2);
+      // Surrounding text is unchanged byte-for-byte: the slices before the
+      // first image, between the images and after the second are identical.
+      const around = (text: string, a: string, b: string) => [
+        text.slice(0, text.indexOf(a)),
+        text.slice(text.indexOf(a) + a.length, text.indexOf(b)),
+        text.slice(text.indexOf(b) + b.length),
+      ];
+      expect(around(fixed, repairedFirst, repairedSecond)).toEqual(
+        around(doc, first, second),
+      );
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+      expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+    });
   });
 
   it.each([
