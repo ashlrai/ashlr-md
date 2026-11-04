@@ -11812,6 +11812,47 @@ describe("rule:missing-alt-text two undescribed images", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
     expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
   });
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("fills the documented two-images-on-one-line example and keeps both sources (%j line endings)", (nl) => {
+    // The worked example of docs/mdlint-empty-alt-behavior.md and
+    // docs/mdlint-autofix-guide.md: an empty alt and a whitespace-only alt
+    // side by side on one line.
+    const first = "![](chart.png?view=full#data)";
+    const second = '![  ](map.png "Map")';
+    const doc = `Intro.${nl}${nl}See ${first} and ${second}.${nl}Tail.${nl}`;
+    const expected = `Intro.${nl}${nl}See ![TODO: describe image](chart.png?view=full#data) and ![TODO: describe image](map.png "Map").${nl}Tail.${nl}`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+      "missing-alt-text",
+      "missing-alt-text",
+    ]);
+    expect(violations.map(({ range }) => range!.from.line)).toEqual([3, 3]);
+    expect(
+      violations.map(({ range }) => doc.slice(range!.from.offset, range!.to.offset)),
+    ).toEqual([first, second]);
+    expect(violations.every(({ fix }) => fix !== null)).toBe(true);
+    expect(violations[0].message).toContain("chart.png?view=full#data");
+    expect(violations[1].message).toContain('map.png "Map"');
+    expect(applyFix(doc, violations[0])).toBe(
+      `Intro.${nl}${nl}See ![TODO: describe image](chart.png?view=full#data) and ${second}.${nl}Tail.${nl}`,
+    );
+    expect(applyFix(doc, violations[1])).toBe(
+      `Intro.${nl}${nl}See ${first} and ![TODO: describe image](map.png "Map").${nl}Tail.${nl}`,
+    );
+
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.match(/!\[TODO: describe image\]/g)).toHaveLength(2);
+    expect(fixed).toContain("(chart.png?view=full#data)");
+    expect(fixed).toContain('(map.png "Map")');
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
 });
 
 describe("autofix: empty document", () => {
