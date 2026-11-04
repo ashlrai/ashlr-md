@@ -6656,6 +6656,47 @@ fn export_text_preserves_repeated_bracketed_phrase_and_surrounding_text() {
     }
 }
 
+/// Repeated `[sic]` markers keep every bracket pair: back to back, split
+/// across lines and paragraphs, in headings, lists, quotes and beside
+/// emphasis or links.
+#[test]
+fn export_text_keeps_brackets_on_repeated_sic_markers() {
+    for (markdown, expected) in [
+        ("teh [sic] [sic] [sic] end\n", "teh [sic] [sic] [sic] end"),
+        (
+            "one [sic], two [sic]; three [sic].\n",
+            "one [sic], two [sic]; three [sic].",
+        ),
+        ("a [sic]\nb [sic]\nc [sic]\n", "a [sic]\nb [sic]\nc [sic]"),
+        (
+            "a [sic]\n\nb [sic]\n\nc [sic]\n",
+            "a [sic]\n\nb [sic]\n\nc [sic]",
+        ),
+        ("# Head [sic] and [sic]\n", "Head [sic] and [sic]"),
+        ("- x [sic]\n- y [sic] [sic]\n", "x [sic]\ny [sic] [sic]"),
+        ("> q [sic] r [sic]\n", "q [sic] r [sic]"),
+        (
+            "**bold** [sic] *it* [sic] [l](/x) [sic]\n",
+            "bold [sic] it [sic] l [sic]",
+        ),
+        ("naïve [sic] café [sic]\n", "naïve [sic] café [sic]"),
+    ] {
+        let result = run_export_text_on(markdown);
+        let text = result["text"].as_str().unwrap();
+        assert_eq!(text, expected, "{markdown:?}");
+        assert_eq!(
+            text.matches("[sic]").count(),
+            markdown.matches("[sic]").count(),
+            "{markdown:?}"
+        );
+        assert_eq!(
+            result["char_count"].as_u64().unwrap() as usize,
+            expected.chars().count(),
+            "{markdown:?}"
+        );
+    }
+}
+
 /// Bracketed prose inside a blockquote keeps its brackets and words: nested
 /// quotes, lazy continuation, a phrase wrapped over quoted lines, emphasis
 /// inside the brackets, a link beside them, and a quote after a paragraph.
