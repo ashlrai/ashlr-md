@@ -20360,3 +20360,25 @@ describe("invalid-link autofix on the same line", () => {
     expect(applyAllFixes(expected, lintDocument(expected, { rules }))).toBe(expected);
   });
 });
+
+describe("autofix: undescribed image at the end of a paragraph", () => {
+  it.each([
+    "\n",
+    "\r\n",
+  ])("preserves preceding prose with line ending %j", (newline) => {
+    const prose = `Café notes with *emphasis* and [a link](./guide.md).${newline}The final illustration: `;
+    const image = '![](images/chart.png?v=2#top "Chart")';
+    const doc = `${prose}${image}`;
+    const expected = `${prose}![TODO: describe image](images/chart.png?v=2#top "Chart")`;
+    const violations = lintDocument(doc, { rules: [ruleMissingAltText] });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("missing-alt-text");
+    expect(
+      doc.slice(violations[0].range!.from.offset, violations[0].range!.to.offset),
+    ).toBe(image);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules: [ruleMissingAltText] })).toEqual([]);
+  });
+});
