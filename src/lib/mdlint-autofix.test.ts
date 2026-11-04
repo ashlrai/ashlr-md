@@ -17652,6 +17652,19 @@ describe("invalid-link-target autofix: placeholder and prefix in a blockquote", 
 });
 
 describe("invalid-link-target autofix: invalid link at the start of a line", () => {
+  it("replaces the invalid target and preserves the prose following a line-start link", () => {
+    const doc = "Introduction.\n\n[Guide]() explains the next steps.\n";
+    const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "invalid-link-target",
+    ]);
+    expect(violations[0].range!.from.col).toBe(0);
+    expect(applyAllFixes(doc, violations)).toBe(
+      "Introduction.\n\n[Guide](TODO) explains the next steps.\n",
+    );
+  });
+
   it.each([
     ["LF", "\n"],
     ["CRLF", "\r\n"],
