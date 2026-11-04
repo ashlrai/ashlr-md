@@ -13486,6 +13486,34 @@ describe("autofix: valid link and described image no-op", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
     expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
   });
+
+  it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+  ])("keeps a valid link and a described image verbatim while fixing violations on another line (%s endings)", (_name, nl) => {
+    const link = '[guide](./docs/guide.md "Setup")';
+    const image = '![Team photo](images/team.png "The team")';
+    const intact = `Intro keeps ${link} and ${image} here.`;
+    const doc = `${intact}${nl}${nl}Fix [broken]() and ![](images/bare.png) below.   ${nl}`;
+    const expected = `${intact}${nl}${nl}Fix [broken](TODO) and ![TODO: describe image](images/bare.png) below.${nl}`;
+    const rules = [ruleNoTrailingSpaces, ruleInvalidLinkTarget, ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual([
+      "invalid-link-target",
+      "missing-alt-text",
+      "no-trailing-spaces",
+    ]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // The valid constructs and every character around them survive a real fix pass.
+    expect(fixed.startsWith(`${intact}${nl}`)).toBe(true);
+    expect(fixed).toContain(link);
+    expect(fixed).toContain(image);
+    // Post-fix lint is clean and a second pass is a no-op.
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
 });
 
 describe("autofix idempotence for undescribed images: headings, tables and fenced decoys", () => {
