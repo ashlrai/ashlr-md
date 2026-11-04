@@ -224,6 +224,22 @@ describe("autofix: two undescribed images on one line", () => {
     );
     expect(lintDocument(afterSecond, { rules })).toEqual([]);
   });
+
+  it("fixes both occurrences of the same path regardless of violation order", () => {
+    const rules = [ruleMissingAltText];
+    const doc = "Café ![](images/same.png) and ![ ](images/same.png)";
+    const expected =
+      "Café ![TODO: describe image](images/same.png) and ![TODO: describe image](images/same.png)";
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+      "missing-alt-text",
+      "missing-alt-text",
+    ]);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(applyAllFixes(doc, [...violations].reverse())).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
 });
 
 describe("autofix: undescribed images on separate lines", () => {
