@@ -15219,3 +15219,62 @@ describe("whitespace-only image description that spans a line break", () => {
     expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
   });
 });
+
+// ─── Undescribed image on a CRLF line ────────────────────────────────────────
+describe("autofix: undescribed image on a CRLF line", () => {
+  it.each([
+    ["empty alt", "![](images/chart.png)"],
+    ["whitespace alt", '![   ](images/chart.png "Chart")'],
+    ["tab alt, angle-bracket destination", "![\t](<images/my chart.png>)"],
+  ])("inserts the description placeholder on a %s image's line and keeps every CRLF", (_name, image) => {
+    const dest = image.slice(image.indexOf("]") + 1);
+    const repaired = `![TODO: describe image]${dest}`;
+    const doc = `# Gallery\r\n\r\nBefore ${image} after.\r\n\r\nTail line.\r\n`;
+    const expected = `# Gallery\r\n\r\nBefore ${repaired} after.\r\n\r\nTail line.\r\n`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual(["missing-alt-text"]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(image);
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // Only the placeholder was added: every line ending is still CRLF,
+    // with no bare LF introduced and no CR dropped.
+    expect(fixed.match(/\r\n/g)).toHaveLength(doc.match(/\r\n/g)!.length);
+    expect(fixed.replace(/\r\n/g, "")).not.toMatch(/[\r\n]/);
+    expect(fixed.length - doc.length).toBe(repaired.length - image.length);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(expected);
+  });
+
+  it.each([
+    ["empty alt", "![](end-of-line.png)"],
+    ["whitespace alt", "![ ](end-of-line.png)"],
+  ])("keeps the CRLF that abuts the fix's end offset (%s image ends the line)", (_name, image) => {
+    const repaired = image.replace(/^!\[[^\]]*\]/, "![TODO: describe image]");
+    const doc = `Intro.\n\nSee ${image}\r\nTail line.\n`;
+    const expected = `Intro.\n\nSee ${repaired}\r\nTail line.\n`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual(["missing-alt-text"]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(image);
+    // The fix range ends on the `)`, leaving the line's `\r\n` outside it.
+    expect(doc.slice(to.offset, to.offset + 2)).toBe("\r\n");
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // The one CRLF line stays CRLF; the LF lines around it stay LF.
+    expect(fixed.match(/\r\n/g)).toHaveLength(1);
+    expect(fixed.replace(/\r\n/g, "").match(/\n/g)).toHaveLength(
+      doc.replace(/\r\n/g, "").match(/\n/g)!.length,
+    );
+    expect(fixed).not.toMatch(/\r(?!\n)/);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(expected);
+  });
+});
