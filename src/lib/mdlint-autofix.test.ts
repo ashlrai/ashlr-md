@@ -5208,6 +5208,32 @@ describe("rule:missing-alt-text", () => {
   });
 
   it.each([
+    ["Hangul path with a space", "보고서/분기별 차트 2026.png"],
+    ["Cyrillic path with a space", "отчёты/продажи диаграмма.png"],
+    ["mixed scripts, spaces and emoji", "galerie/café 概要 – final 🖼.webp"],
+  ])("inserts the placeholder and preserves a multi-word Unicode filename byte-for-byte (%s)", (_name, source) => {
+    for (const nl of ["\n", "\r\n"]) {
+      const image = `![](${source})`;
+      const doc = `# Gallery${nl}${nl}See café ${image} done.${nl}`;
+      const expected = `# Gallery${nl}${nl}See café ![TODO: describe image](${source}) done.${nl}`;
+      const rules = [ruleMissingAltText];
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations).toHaveLength(1);
+      expect(violations[0].ruleId).toBe("missing-alt-text");
+      expect(violations[0].fix).not.toBeNull();
+      const { from, to } = violations[0].range!;
+      expect(doc.slice(from.offset, to.offset)).toBe(image);
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      expect(fixed).toContain(`](${source})`);
+      expect(fixed.match(/TODO: describe image/g)).toHaveLength(1);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+    }
+  });
+
+  it.each([
     "\n",
     "\r\n",
   ])("leaves a described image and its surrounding text unchanged (line endings %j)", (nl) => {
