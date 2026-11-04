@@ -70,7 +70,7 @@ Inputs and outputs are JSON strings: `\n` is a newline, `\t` is a tab, and `\\` 
 | `export_text_keeps_bracketed_prose_at_paragraph_end_with_closing_marks` | `export_text` | ` "Confirmed [sic],\n" ` | ` "Confirmed [sic]," ` |
 | `export_text_keeps_bracketed_prose_at_paragraph_end_with_closing_marks` | `export_text` | ` "(as noted [1])\n" ` | ` "(as noted [1])" ` |
 | `export_text_keeps_bracketed_prose_at_paragraph_end_with_closing_marks` | `export_text` | ` "She said \"verbatim [sic]\"\n" ` | ` "She said \"verbatim [sic]\"" ` |
-| `export_text_keeps_bracketed_prose_at_paragraph_end_with_closing_marks` | `export_text` | ` "Ends [a]—\n" ` | ` "Ends [a]—" ` |
+| `export_text_keeps_bracketed_prose_at_paragraph_end_with_closing_marks` | `export_text` | ` "Ends [a]\u2014\n" ` | ` "Ends [a]\u2014" ` |
 | `export_text_keeps_bracketed_prose_at_paragraph_end_with_closing_marks` | `export_text` | ` "確認 [要確認]。\n" ` | ` "確認 [要確認]。" ` |
 | `export_text_keeps_bracketed_prose_at_paragraph_end_with_closing_marks` | `export_text` | ` "[sic].\n" ` | ` "[sic]." ` |
 | `export_text_keeps_bracketed_prose_at_paragraph_end_with_closing_marks` | `export_text` | ` "Ends [needs\nreview].\n" ` | ` "Ends [needs\nreview]." ` |
