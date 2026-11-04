@@ -6479,6 +6479,28 @@ fn export_text_keeps_bracketed_phrase_order_across_consecutive_lines() {
 }
 
 #[test]
+fn export_text_keeps_both_brackets_of_a_plain_note_on_its_own_line() {
+    for (markdown, expected) in [
+        ("[note]\n", "[note]"),
+        ("[note]", "[note]"),
+        ("[note]\r\n", "[note]"),
+        ("  [note]  \n", "[note]"),
+        ("Before.\n\n[note]\n\nAfter.\n", "Before.\n\n[note]\n\nAfter."),
+        ("Before.\n[note]\nAfter.\n", "Before.\n[note]\nAfter."),
+        ("[note]\n[note]\n", "[note]\n[note]"),
+    ] {
+        let result = run_export_text_on(markdown);
+        assert_eq!(result["text"].as_str().unwrap(), expected, "{markdown:?}");
+        assert_eq!(
+            result["char_count"].as_u64().unwrap() as usize,
+            expected.chars().count(),
+            "{markdown:?}"
+        );
+    }
+    assert_eq!(strip_markdown("[note]\n").trim(), "[note]");
+}
+
+#[test]
 fn export_text_preserves_adjacent_bracketed_words_in_prose() {
     let md = "Read [first] [second], then [third][fourth]. See [link](https://example.com).\n";
     let result = run_export_text_on(md);
