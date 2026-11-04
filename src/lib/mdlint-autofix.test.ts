@@ -17820,6 +17820,23 @@ describe("missing-alt-text autofix in a blockquote", () => {
   it.each([
     "\n",
     "\r\n",
+  ])("preserves adjacent leading Unicode text when describing an image (%j line endings)", (newline) => {
+    const lead = `First paragraph.${newline}${newline}Café 🗺️:`;
+    const image = '![](images/map.png "Map")';
+    const doc = `${lead}${image} after.${newline}`;
+    const violations = lintDocument(doc, { rules: [ruleMissingAltText] });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    expect(violations[0].range?.from.offset).toBe(lead.length);
+    const expected = `${lead}![TODO: describe image](images/map.png "Map") after.${newline}`;
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules: [ruleMissingAltText] })).toEqual([]);
+  });
+
+  it.each([
+    "\n",
+    "\r\n",
   ])("inserts the placeholder in a blockquote inside a list item and keeps both markers (%j line endings)", (nl) => {
     const rules = [ruleMissingAltText];
     const doc = [
