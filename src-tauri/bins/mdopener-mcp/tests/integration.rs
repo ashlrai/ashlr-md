@@ -9289,6 +9289,205 @@ fn export_text_keeps_both_brackets_around_todo_prose() {
     );
 }
 
+/// The pairs CommonMark does not own are prose in every script: `【】`,
+/// `「」`/`『』`, `《》`/`〈〉`, `〔〕`/`〖〗` and the fullwidth `［］`/`（）`
+/// are no link syntax — its brackets are the ASCII ones — so the rendered
+/// text keeps each pair and the Unicode prose inside it, in every block the
+/// page renders them in. A look-alike is no link either: `［t］(u)` is text
+/// as written, a `（u）` tail is no `(u)`, a `］` inside `[…]` does not
+/// close it, and `【ref】: /u` defines nothing. The markup inside the pairs
+/// is still read: `【[t](u)】` keeps its brackets around the link's text.
+#[test]
+fn export_text_preserves_unicode_bracketed_prose() {
+    // Unicode bracket pairs around Unicode prose, kept pair and all — each
+    // in a block the page renders them in.
+    let cases = [
+        // CJK corner, quote, title and tortoise-shell brackets.
+        ("【要確認】\n", "【要確認】"),
+        ("「引用」と『二重引用』\n", "「引用」と『二重引用』"),
+        ("《書名》〈篇名〉\n", "《書名》〈篇名〉"),
+        ("〔注記〕 and 〖補足〗\n", "〔注記〕 and 〖補足〗"),
+        // Fullwidth brackets are not the ASCII link brackets.
+        (
+            "［全角ブラケット］（全角の括弧）\n",
+            "［全角ブラケット］（全角の括弧）",
+        ),
+        // Unicode angle brackets are not HTML's `<`/`>`: a `<tag>` is
+        // dropped as a tag; `〈tag〉` is text, on the page and in the export.
+        ("〈tag〉はHTMLではない\n", "〈tag〉はHTMLではない"),
+        // The CJK pair beside the ASCII one around the same word.
+        ("【TODO】 next to [TODO]\n", "【TODO】 next to [TODO]"),
+        // In a heading, a blockquote, list items and a table cell.
+        ("# 【要確認】タイトル\n", "【要確認】タイトル"),
+        ("> 「引用」\n> 『続き』\n", "「引用」\n『続き』"),
+        ("- 〔項目〕\n- 〖次〗\n", "〔項目〕\n〖次〗"),
+        (
+            "| 列 | 行 |\n|---|---|\n| 【a】 | ［b］ |\n",
+            "列\t行\n【a】\t［b］",
+        ),
+        // A task checkbox is still dropped; the prose pair stays.
+        ("- [ ] 【TODO】 done\n", "【TODO】 done"),
+        // A pair that wraps over the paragraph's own line break stays whole.
+        (
+            "Mark it 【needs\nreview】 before merge.\n",
+            "Mark it 【needs\nreview】 before merge.",
+        ),
+    ];
+    for (markdown, expected) in cases {
+        let result = run_export_text_on(markdown);
+        let rendered = result["text"].as_str().unwrap();
+        assert_eq!(rendered, expected, "{markdown:?}");
+        assert_eq!(strip_markdown(markdown), expected, "{markdown:?}");
+        assert_eq!(
+            result["char_count"].as_u64().unwrap() as usize,
+            expected.chars().count(),
+            "{markdown:?}"
+        );
+        assert_eq!(
+            result["word_count"].as_u64().unwrap() as usize,
+            count_words(expected),
+            "{markdown:?}"
+        );
+    }
+
+    // Unicode prose inside the ASCII pair — accented, combining, CJK, RTL,
+    // emoji and fullwidth letters — keeps brackets and content alike.
+    for (markdown, expected) in [
+        ("[café] [naïve] [Zürich №5]\n", "[café] [naïve] [Zürich №5]"),
+        ("[e\u{301} marks] stay\n", "[e\u{301} marks] stay"),
+        (
+            "[日本語] [한국어] [العربية] [עברית]\n",
+            "[日本語] [한국어] [العربية] [עברית]",
+        ),
+        ("[emoji 😀 👨‍👩‍👧]\n", "[emoji 😀 👨‍👩‍👧]"),
+        ("[ＴＯＤＯ] and [ＤＯＮＥ]\n", "[ＴＯＤＯ] and [ＤＯＮＥ]"),
+        // A `］` inside is not the `]` that closes the pair.
+        ("[a］b] and [c]\n", "[a］b] and [c]"),
+        // Its Unicode text runs over the paragraph's line break, kept whole.
+        ("[要\n確認] done\n", "[要\n確認] done"),
+    ] {
+        let result = run_export_text_on(markdown);
+        let rendered = result["text"].as_str().unwrap();
+        assert_eq!(rendered, expected, "{markdown:?}");
+        assert_eq!(strip_markdown(markdown), expected, "{markdown:?}");
+        assert_eq!(
+            result["char_count"].as_u64().unwrap() as usize,
+            expected.chars().count(),
+            "{markdown:?}"
+        );
+    }
+
+    // The look-alikes own no brackets: a fullwidth pair is text beside a
+    // would-be tail, and a bracket written `［…］` or `【…】` is neither a
+    // link nor a definition.
+    for (markdown, expected) in [
+        // `［］` opens no link, so the `(u)` after it is plain text, and so
+        // is the one after a `】`.
+        (
+            "［text］(https://example.com)\n",
+            "［text］(https://example.com)",
+        ),
+        ("【text】(u)\n", "【text】(u)"),
+        // A `（…）` tail is no `(…)` tail: `[text]` stays prose.
+        (
+            "[text]（https://example.com）\n",
+            "[text]（https://example.com）",
+        ),
+        // `【label】` is no `[label]` tail: `[text]` stays prose beside it,
+        // though the document defines the plain `[label]`.
+        (
+            "See [text]【label】 here.\n\n[label]: /u\n",
+            "See [text]【label】 here.",
+        ),
+        // Lines that look like definitions but for their brackets are text.
+        ("【ref】: /url\n", "【ref】: /url"),
+        ("［ref］: /url\n", "［ref］: /url"),
+        // A fullwidth `！` makes no image of `［alt］(u)`.
+        ("！［alt］(u)\n", "！［alt］(u)"),
+        // The ASCII shortcut beside fullwidth prose still resolves — and
+        // still does when a Unicode label sits right after its `]`.
+        ("［a］ and [b]\n\n[b]: /u\n", "［a］ and b"),
+        ("[text]【label】\n\n[text]: /t\n", "text【label】"),
+        // A backslash is no escape before non-ASCII punctuation.
+        ("\\【kept】\n", "\\【kept】"),
+    ] {
+        let result = run_export_text_on(markdown);
+        let rendered = result["text"].as_str().unwrap();
+        assert_eq!(rendered, expected, "{markdown:?}");
+        assert_eq!(strip_markdown(markdown), expected, "{markdown:?}");
+    }
+
+    // Inside the pairs the real markup still reads: a link its text, a
+    // wikilink its target, emphasis, code and strikethrough their text.
+    for (markdown, expected) in [
+        ("【[リンク](https://example.com)】\n", "【リンク】"),
+        ("「**太字**」 and 『*it*』\n", "「太字」 and 『it』"),
+        ("《[[ノート]]》\n", "《ノート》"),
+        ("〔`code` and ~~strike~~〕\n", "〔code and strike〕"),
+    ] {
+        let result = run_export_text_on(markdown);
+        assert_eq!(result["text"].as_str().unwrap(), expected, "{markdown:?}");
+        assert_eq!(strip_markdown(markdown), expected, "{markdown:?}");
+    }
+
+    // Inside the ASCII pair, and as a link's own text: prose keeps both
+    // pairs, a link reads its Unicode-bracketed text, a defined label its
+    // text, a wikilink its target.
+    for (markdown, expected) in [
+        ("[【重要】] and [「ok」]\n", "[【重要】] and [「ok」]"),
+        ("[【重要】](https://example.com)\n", "【重要】"),
+        ("[【要確認】] too\n\n[【要確認】]: /u\n", "【要確認】 too"),
+        ("[[【ページ】]]\n", "【ページ】"),
+        ("[要確認](https://example.com) linked\n", "要確認 linked"),
+    ] {
+        let result = run_export_text_on(markdown);
+        assert_eq!(result["text"].as_str().unwrap(), expected, "{markdown:?}");
+        assert_eq!(strip_markdown(markdown), expected, "{markdown:?}");
+    }
+
+    // The open document over IPC renders the same text the file read does.
+    for (markdown, expected) in [
+        ("【要確認】 next to [TODO]\n", "【要確認】 next to [TODO]"),
+        (
+            "［text］(u) and [text]（u）\n",
+            "［text］(u) and [text]（u）",
+        ),
+        ("「[リンク](u)」\n", "「リンク」"),
+    ] {
+        let ipc = MockIpc::new().on_get(
+            "/content",
+            Ok(json!({ "path": "/docs/test.md", "content": markdown })),
+        );
+        let response = tool_export_text(id(2), &json!({}), &ipc);
+        assert!(response.error.is_none(), "{markdown:?}");
+        assert_eq!(
+            content_text(&response)["text"].as_str().unwrap(),
+            expected,
+            "{markdown:?}"
+        );
+    }
+
+    // Line by line, with no document around it: the pairs are prose, the
+    // look-alikes no links, the markup inside them still read.
+    use mdopener_mcp::strip_inline_markdown;
+    for (line, expected) in [
+        ("【要確認】 and ［全角］", "【要確認】 and ［全角］"),
+        ("[café] [日] [a］b]", "[café] [日] [a］b]"),
+        ("［t］(u) and [t]（u）", "［t］(u) and [t]（u）"),
+        ("【[t](u)】 and [【t】](u)", "【t】 and 【t】"),
+        ("[【重要】] and 《[[N]]》", "[【重要】] and 《N》"),
+    ] {
+        assert_eq!(strip_inline_markdown(line), expected, "{line:?}");
+    }
+
+    // export_metadata keeps the heading's raw markdown, pairs and all.
+    let metadata = run_export_metadata_on("# 【要確認】タイトル\n");
+    assert_eq!(
+        metadata["headings"],
+        json!([{ "level": 1, "text": "【要確認】タイトル" }])
+    );
+}
+
 #[test]
 fn export_text_keeps_bracketed_prose_beside_inline_links() {
     let cases = [
