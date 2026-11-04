@@ -16810,6 +16810,26 @@ describe("invalid link on a CRLF-delimited line", () => {
 });
 
 describe("rule:missing-alt-text autofix", () => {
+  it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+  ])("preserves the destination of an image at the end of a line (%s)", (_name, newline) => {
+    const destination = 'images/chart.png?size=2#preview "Chart"';
+    const doc = `First line.${newline}See ![](${destination})${newline}Last line.${newline}`;
+    const expected = `First line.${newline}See ![TODO: describe image](${destination})${newline}Last line.${newline}`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    for (const fixed of [
+      applyFix(doc, violations[0]),
+      applyAllFixes(doc, violations),
+    ]) {
+      expect(fixed).toBe(expected);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+    }
+  });
+
   it("describes an image at the end of a CRLF-delimited line without changing line endings", () => {
     const doc = "First line.\r\nSee ![](images/chart.png)\r\nLast line.\r\n";
     const rules = [ruleMissingAltText];
