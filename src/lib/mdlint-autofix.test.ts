@@ -202,6 +202,84 @@ describe("autofix: undescribed image in a document without a final newline", () 
   });
 });
 
+describe("autofix: masked image contexts in a document without a final newline", () => {
+  // Front matter, fenced and indented code, HTML blocks, inline code and
+  // inline math are masked before the rule matches
+  // (docs/mdlint-image-rule-boundaries.md), so an image-shaped span there is
+  // not an image: nothing is flagged and nothing — a final newline included —
+  // is added to the document.
+  it.each([
+    ["an inline code span at the end", "Keep `![](a.png)` at end"],
+    ["an inline math span", "Keep $![](a.png)$ as math"],
+    ["an indented code block", "Intro.\n\n    ![](a.png)"],
+    ["a tab-indented code block", "Intro.\n\n\t![](a.png)"],
+    ["an indented code block, CRLF", "Intro.\r\n\r\n    ![](a.png)"],
+    ["an HTML block at the end", "Intro.\n\n<div>\n![](a.png)\n</div>"],
+    ["a front matter property", "---\nimg: ![](a.png)\n---"],
+    ["an unclosed fence", "```md\n![](a.png)"],
+  ])("leaves the image-shaped span in %s byte-identical and adds no final newline", (_name, doc) => {
+    const rules = [ruleMissingAltText];
+
+    expect(doc.endsWith("\n")).toBe(false);
+    const violations = lintDocument(doc, { rules });
+    expect(violations).toEqual([]);
+    expect(applyAllFixes(doc, violations)).toBe(doc);
+    expect(doc.endsWith("\n")).toBe(false);
+  });
+
+  it.each([
+    [
+      "a code span decoy before the image",
+      "Keep `![](a.png)` and fix ![](b.png)",
+      "Keep `![](a.png)` and fix ![TODO: describe image](b.png)",
+    ],
+    [
+      "a code span decoy ending the file",
+      "Fix ![](a.png) keep `![](b.png)`",
+      "Fix ![TODO: describe image](a.png) keep `![](b.png)`",
+    ],
+    [
+      "an inline math decoy ending the file",
+      "Fix ![](a.png) keep $![](b.png)$",
+      "Fix ![TODO: describe image](a.png) keep $![](b.png)$",
+    ],
+    [
+      "an image in a setext heading",
+      "Title ![](a.png)\n===",
+      "Title ![TODO: describe image](a.png)\n===",
+    ],
+  ])("fixes only the real image and adds no final newline (%s)", (_name, doc, expected) => {
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.endsWith("\n")).toBe(false);
+    expect(fixed.endsWith("\r")).toBe(false);
+    const remaining = lintDocument(fixed, { rules });
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(fixed, remaining)).toBe(expected);
+  });
+
+  it("fixes the escaped literal at the end of the file, keeping the escape and adding no final newline", () => {
+    // `\!` renders as literal text, not an image; the rule does not parse
+    // escapes (docs/mdlint-image-rule-boundaries.md), so the span is flagged
+    // anyway. The fix keeps the backslash, which still escapes the `!`, so
+    // the placeholder lands inside literal text.
+    const rules = [ruleMissingAltText];
+    const doc = "See \\![](a.png)";
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe("See \\![TODO: describe image](a.png)");
+    expect(fixed.endsWith("\n")).toBe(false);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
+
 describe("autofix: undescribed image at the start of a line", () => {
   it.each([
     "\n",
