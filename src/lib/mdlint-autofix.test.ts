@@ -13854,6 +13854,74 @@ describe("autofix keeps [TODO] prose at document edges, in tables and in fences"
   });
 });
 
+describe("autofix preserves [TODO] prose alongside undescribed images", () => {
+  const rules = [ruleInvalidLinkTarget, ruleMissingAltText];
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("preserves [TODO] prose brackets and adds the image description placeholder with %j line endings", (newline) => {
+    const doc = `Review [TODO] before merging. See ![](chart.png) for data.${newline}`;
+    const expected = `Review [TODO] before merging. See ![TODO: describe image](chart.png) for data.${newline}`;
+    const violations = lintDocument(doc, { rules });
+
+    // The linter should find only the missing-alt-text violation,
+    // not flag [TODO] as an invalid link.
+    expect(violations.map((v) => v.ruleId)).toEqual(["missing-alt-text"]);
+
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+
+    // Idempotent: a second pass produces the same result.
+    const fixedViolations = lintDocument(fixed, { rules });
+    expect(fixedViolations).toEqual([]);
+    expect(applyAllFixes(fixed, fixedViolations)).toBe(fixed);
+
+    // [TODO] prose bracket count is preserved.
+    expect(fixed.split("[TODO]").length).toBe(doc.split("[TODO]").length);
+  });
+
+  it("handles [TODO] prose and an undescribed image in different paragraphs", () => {
+    const doc = `Step [TODO] is pending.\n\n![](diagram.png)\n`;
+    const expected = `Step [TODO] is pending.\n\n![TODO: describe image](diagram.png)\n`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("missing-alt-text");
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+  });
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("keeps [TODO] intact when fixing both an invalid link and an undescribed image with %j line endings", (newline) => {
+    const doc = [
+      "Task [TODO] is open. See [draft]() for details.",
+      "Also check ![](graph.png) and [notes](#) below.",
+    ].join(newline);
+    const expected = [
+      "Task [TODO] is open. See [draft](TODO) for details.",
+      "Also check ![TODO: describe image](graph.png) and [notes](TODO) below.",
+    ].join(newline);
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual([
+      "invalid-link-target",
+      "missing-alt-text",
+      "invalid-link-target",
+    ]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+
+    // Idempotent: a second pass is clean.
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+
+    // [TODO] bracket count preserved.
+    expect(fixed.split("[TODO]").length).toBe(doc.split("[TODO]").length);
+  });
+});
+
 describe("autofix keeps [1] prose at document edges, in tables and in fences", () => {
   const rules = [ruleInvalidLinkTarget, ruleMissingAltText, ruleNoTrailingSpaces];
   const fixPass = (text: string) => applyAllFixes(text, lintDocument(text, { rules }));
