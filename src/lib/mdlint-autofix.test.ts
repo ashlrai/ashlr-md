@@ -17872,3 +17872,31 @@ describe("invalid-link-target autofix: valid link beside an invalid one", () => 
     }
   });
 });
+
+describe("autofix: undescribed image beside a described image with brackets in its description", () => {
+  it.each([
+    ["escaped bracket", "![Chart \\] of sales](images/sales.png)"],
+    ["balanced brackets", '![Chart [Q1] sales](images/sales.png "Sales")'],
+    ["escaped backslash", "![Path C:\\\\dir](images/path.png)"],
+  ])("changes only the undescribed image and keeps the described one byte-for-byte (%s)", (_name, described) => {
+    const rules = [ruleMissingAltText];
+    for (const nl of ["\n", "\r\n"]) {
+      for (const describedFirst of [true, false]) {
+        const [a, b] = describedFirst
+          ? [described, "![](images/raw.png)"]
+          : ["![](images/raw.png)", described];
+        const [expA, expB] = describedFirst
+          ? [described, "![TODO: describe image](images/raw.png)"]
+          : ["![TODO: describe image](images/raw.png)", described];
+        const doc = `Intro.${nl}${nl}${a} then ${b}.${nl}`;
+        const violations = lintDocument(doc, { rules });
+
+        expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+        const fixed = applyAllFixes(doc, violations);
+        expect(fixed).toBe(`Intro.${nl}${nl}${expA} then ${expB}.${nl}`);
+        expect(applyFix(doc, violations[0])).toBe(fixed);
+        expect(lintDocument(fixed, { rules })).toEqual([]);
+      }
+    }
+  });
+});
