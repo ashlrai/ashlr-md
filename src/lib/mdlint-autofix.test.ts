@@ -13721,3 +13721,32 @@ describe("autofix: described image beside an undescribed image", () => {
     expect(getLintHistory()).toEqual(history);
   });
 });
+
+// ─── Bracketed prose spans: [1], [sic], [TODO] ───────────────────────────────
+
+describe("autofix: bracketed prose [1], [sic] and [TODO]", () => {
+  const spans = ["[1]", "[sic]", "[TODO]"];
+  const rules = BUILTIN_RULES.filter((rule) =>
+    LINTER_DEFAULT_ENABLED_RULES.includes(rule.id),
+  );
+
+  it("leaves a doc containing all three spans untouched and lint-clean", () => {
+    const doc =
+      "# Notes\n\nCited once [1], quoted as written [sic], still open [TODO] for review.\n";
+    expect(lintDocument(doc, { rules })).toEqual([]);
+    expect(applyAllFixes(doc, lintDocument(doc, { rules }))).toBe(doc);
+  });
+
+  it("preserves all three spans and surrounding prose while fixing a real violation beside them", () => {
+    const doc =
+      "# Notes\n\nSee [1] and teh [sic] quote, plus [TODO] later, then [broken]() here.\n";
+    const expected =
+      "# Notes\n\nSee [1] and teh [sic] quote, plus [TODO] later, then [broken](TODO) here.\n";
+    const fixed = applyAllFixes(doc, lintDocument(doc, { rules }));
+    expect(fixed).toBe(expected);
+    for (const span of spans) expect(fixed).toContain(span);
+    expect(fixed).toContain("See [1] and teh [sic] quote, plus [TODO] later, then ");
+    // Idempotent: a second pass changes nothing.
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+});
