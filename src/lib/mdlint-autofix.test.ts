@@ -280,6 +280,70 @@ describe("autofix: undescribed image at the start of a line", () => {
   });
 });
 
+describe("autofix: undescribed image idempotence (fix twice == fix once)", () => {
+  const rules = [ruleMissingAltText];
+  const fixOnce = (doc: string) => applyAllFixes(doc, lintDocument(doc, { rules }));
+
+  it.each([
+    ["one image", "![](a.png)\n"],
+    ["blank, spaced and tabbed alt text", "![](a.png) ![ ](b.png) ![\t](c.png)\n"],
+    ["a described image alongside an undescribed one", "![Logo](l.svg) ![](a.png)\n"],
+    ["an image that already has the placeholder", "![TODO: describe image](a.png)\n"],
+    [
+      "images in a fenced code block and in inline code",
+      "```md\n![](a.png)\n```\n\n`![](b.png)` ![](c.png)\n",
+    ],
+    ["images in front matter", "---\nnote: ![](a.png)\n---\n\n![](b.png)\n"],
+    ["an image inside a link", "[![](a.png)](https://example.com)\n"],
+    ["an image in a table cell", "| a |\n|---|\n| ![](a.png) |\n"],
+    [
+      "an image in a blockquote and a list",
+      "> ![](a.png)\n\n- ![](b.png)\n1. ![ ](c.png)\n",
+    ],
+    [
+      "duplicate images with the same destination",
+      "![](a.png)\n![](a.png)\n![](a.png)\n",
+    ],
+    ["no images at all", "# Title\n\nPlain text.\n"],
+    ["an empty document", ""],
+    ["CRLF line endings without a final newline", "A\r\n![](a.png)\r\n![ ](b.png)"],
+  ])("returns the same document on a second pass (%s)", (_name, doc) => {
+    const once = fixOnce(doc);
+    expect(fixOnce(once)).toBe(once);
+    expect(lintDocument(once, { rules })).toEqual([]);
+  });
+
+  it("replaces every undescribed image on the first pass and changes nothing on the second", () => {
+    const doc = "![](a.png) and ![ ](b.png)\n\n![](c.png)\n";
+    const once = fixOnce(doc);
+    expect(once.match(/!\[TODO: describe image\]/g)).toHaveLength(3);
+    expect(fixOnce(once)).toBe(once);
+  });
+
+  it("is idempotent when each violation is applied one at a time and re-linted", () => {
+    const doc = "![](a.png) text ![ ](b.png)\n![](a.png)\n";
+    let current = doc;
+    for (let i = 0; i < 3; i++) {
+      const [first] = lintDocument(current, { rules });
+      expect(first).toBeDefined();
+      current = applyFix(current, first);
+    }
+    expect(lintDocument(current, { rules })).toEqual([]);
+    expect(current).toBe(fixOnce(doc));
+    expect(fixOnce(current)).toBe(current);
+  });
+
+  it("is idempotent with the full built-in rule set, not just missing-alt-text", () => {
+    // Valid front matter keeps the unrelated frontmatter-required autofix out of the comparison.
+    const doc = "---\ntitle: T\ntags: []\n---\n\n# T\n\n![](a.png)\n\n![ ](b.png)\n";
+    const all = (d: string) =>
+      applyAllFixes(d, lintDocument(d, { rules: BUILTIN_RULES }));
+    const once = all(doc);
+    expect(once).toContain("![TODO: describe image](a.png)");
+    expect(all(once)).toBe(once);
+  });
+});
+
 describe("autofix: undescribed image on a CRLF-delimited line", () => {
   const PLACEHOLDER = "TODO: describe image";
   const countOf = (text: string, needle: string) => text.split(needle).length - 1;
