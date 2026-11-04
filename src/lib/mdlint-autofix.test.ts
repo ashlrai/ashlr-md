@@ -11467,6 +11467,40 @@ describe("invalid link and unrelated prose on separate lines", () => {
   });
 });
 
+describe("invalid link followed by a newline and ordinary prose", () => {
+  it.each([
+    ["empty", ""],
+    ["whitespace-only", " \t "],
+    ["lone hash", "#"],
+    ["lone question mark", "?"],
+  ])("rewrites only the %s href; the line break and the prose line stay byte-identical", (_name, href) => {
+    for (const nl of ["\n", "\r\n"]) {
+      const link = `[guide](${href})`;
+      const prose = "Ordinary prose follows — see [1] and [ok](./ok.md), then done.";
+      const doc = `${link}${nl}${prose}${nl}`;
+      const rules = [ruleInvalidLinkTarget];
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+      const { from, to } = violations[0].range!;
+      expect(from).toMatchObject({ line: 1, col: 0, offset: 0 });
+      expect(doc.slice(from.offset, to.offset)).toBe(link);
+
+      const expected = `[guide](TODO)${nl}${prose}${nl}`;
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      // Everything after the repaired link — the line break and all of the
+      // prose line, valid link and bracketed citation included — is
+      // byte-for-byte the original tail.
+      expect(fixed.slice("[guide](TODO)".length)).toBe(doc.slice(to.offset));
+      expect(fixed.split(nl)).toHaveLength(doc.split(nl).length);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+      expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+    }
+  });
+});
+
 describe("invalid-link-target autofix: idempotence across document shapes", () => {
   const rules = [ruleInvalidLinkTarget];
   const fixPass = (text: string) => applyAllFixes(text, lintDocument(text, { rules }));
