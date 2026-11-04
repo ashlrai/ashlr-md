@@ -597,6 +597,29 @@ describe("rule:invalid-link-target", () => {
   it.each([
     ["LF", "\n"],
     ["CRLF", "\r\n"],
+    ["no trailing newline", ""],
+  ])("multiple invalid links on one line: each destination becomes TODO and the surrounding text is intact (%s)", (_name, nl) => {
+    const doc = `Café: [a]() then [b](#), \`code\` [c](   ) and [ok](./ok.md) end — [d]()[e](#)${nl}Next line.${nl}`;
+    const expected = `Café: [a](TODO) then [b](TODO), \`code\` [c](TODO) and [ok](./ok.md) end — [d](TODO)[e](TODO)${nl}Next line.${nl}`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual(
+      Array(5).fill("invalid-link-target"),
+    );
+    expect(
+      violations.map((v) => doc.slice(v.range!.from.offset, v.range!.to.offset)),
+    ).toEqual(["[a]()", "[b](#)", "[c](   )", "[d]()", "[e](#)"]);
+
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.match(/\(TODO\)/g)).toHaveLength(5);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
   ])("fixes invalid links on separate lines without changing intervening text (%s)", (_name, nl) => {
     const lines = [
       "Start with [first]() here.",
