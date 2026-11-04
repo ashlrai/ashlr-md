@@ -310,6 +310,45 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    ["CJK and emoji", "日本語ガイド 🧭", "./guides/intro.md"],
+    ["RTL scripts", "مرحبا بالعالم — שלום", "https://example.com/welcome?lang=ar#top"],
+    ["decomposed accents", "cafe\u0301 re\u0301sume\u0301", "#overview"],
+    ["ZWJ emoji family", "👩🏽‍💻 family 👨‍👩‍👧‍👦", "mailto:team@example.com"],
+    ["mixed scripts", "Руководство · मार्गदर्शिका", "<./my guide.md>"],
+  ])("autofix leaves a valid link with Unicode text unchanged (%s)", (_name, label, href) => {
+    for (const nl of ["\n", "\r\n"]) {
+      const link = `[${label}](${href})`;
+      const doc = `---${nl}title: Guide${nl}---${nl}${nl}Read ${link} today.${nl}`;
+      const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
+
+      expect(violations).toEqual([]);
+      expect(applyAllFixes(doc, violations)).toBe(doc);
+      // The full default rule set must not rewrite the link or its text either.
+      expect(applyAllFixes(doc, lintDocument(doc))).toBe(doc);
+    }
+  });
+
+  it("fixes a neighboring empty link without touching a valid link with Unicode text", () => {
+    for (const nl of ["\n", "\r\n"]) {
+      const link = "[日本語ガイド 🧭](./guides/intro.md)";
+      const doc = `---${nl}title: Guide${nl}---${nl}${nl}Read ${link} then [broken]() now.${nl}`;
+      const expected = `---${nl}title: Guide${nl}---${nl}${nl}Read ${link} then [broken](TODO) now.${nl}`;
+      const rules = [ruleInvalidLinkTarget];
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations).toHaveLength(1);
+      expect(violations[0].ruleId).toBe("invalid-link-target");
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      // The Unicode link occupies the same span after the fix, byte for byte.
+      expect(fixed.indexOf(link)).toBe(doc.indexOf(link));
+      expect(lintDocument(fixed)).toEqual([]);
+      expect(applyAllFixes(fixed, lintDocument(fixed))).toBe(expected);
+    }
+  });
+
+  it.each([
     ["Cyrillic", "Руководство"],
     ["Greek with accents", "Οδηγός χρήσης"],
     ["Devanagari and Thai", "मार्गदर्शिका คู่มือ"],
