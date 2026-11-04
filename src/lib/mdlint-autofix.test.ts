@@ -12608,6 +12608,32 @@ describe("rule:missing-alt-text undescribed image in a bulleted list", () => {
 
 describe("rule:missing-alt-text undescribed image in a blockquote", () => {
   it.each([
+    "\n",
+    "\r\n",
+  ])("preserves a quoted image's query and fragment while inserting its description (%j)", (nl) => {
+    const doc = [
+      "> See ![](assets/chart.svg?view=wide#detail) for context.",
+      "> Next line.",
+      "",
+    ].join(nl);
+    const expected = [
+      "> See ![TODO: describe image](assets/chart.svg?view=wide#detail) for context.",
+      "> Next line.",
+      "",
+    ].join(nl);
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "missing-alt-text",
+    ]);
+    expect(violations[0].fix).not.toBeNull();
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
     ["LF", "\n"],
     ["CRLF", "\r\n"],
   ])("inserts the description placeholder and preserves the blockquote marker and image source (%s)", (_name, nl) => {
