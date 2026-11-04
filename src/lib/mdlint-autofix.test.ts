@@ -8196,6 +8196,79 @@ describe("rule:missing-alt-text", () => {
       expect(lintDocument(fixed, { rules })).toEqual([]);
     }
   });
+
+  it.each([
+    [
+      "a letter before the ! and a period after",
+      "chart![](fig.png).",
+      "chart![TODO: describe image](fig.png).",
+    ],
+    [
+      "a comma before and a semicolon after, mid-word",
+      "x,![](fig.png);y",
+      "x,![TODO: describe image](fig.png);y",
+    ],
+    [
+      "parentheses hugging it between letters",
+      "a(![](fig.png))c",
+      "a(![TODO: describe image](fig.png))c",
+    ],
+    [
+      "a colon before and an exclamation point after",
+      "data:![](fig.png)!",
+      "data:![TODO: describe image](fig.png)!",
+    ],
+    [
+      "asterisks touching both sides",
+      "see*![](fig.png)*done.",
+      "see*![TODO: describe image](fig.png)*done.",
+    ],
+    [
+      "comma, semicolon and em dash in one clause",
+      "chart,![](fig.png);notes—done.",
+      "chart,![TODO: describe image](fig.png);notes—done.",
+    ],
+    [
+      "an ellipsis on each side",
+      "weird…![](fig.png)…ok",
+      "weird…![TODO: describe image](fig.png)…ok",
+    ],
+    [
+      "a whitespace-only alt between quotes",
+      "say “![ ](fig.png)” now",
+      "say “![TODO: describe image](fig.png)” now",
+    ],
+  ])("inserts the documented placeholder for an undescribed image touching punctuation with no space between them (%s)", (_name, line, repairedLine) => {
+    for (const nl of ["\n", "\r\n"]) {
+      const image = line.slice(line.indexOf("!["), line.indexOf(")") + 1);
+      const repaired = repairedLine.slice(
+        repairedLine.indexOf("!["),
+        repairedLine.indexOf(")") + 1,
+      );
+      const doc = `${line}${nl}`;
+      const expected = `${repairedLine}${nl}`;
+      const rules = [ruleMissingAltText];
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations).toHaveLength(1);
+      expect(violations[0].ruleId).toBe("missing-alt-text");
+      const { from, to } = violations[0].range!;
+      // The reported range covers the image only — none of the punctuation
+      // touching it.
+      expect(doc.slice(from.offset, to.offset)).toBe(image);
+      expect(violations[0].fix).not.toBeNull();
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      // The documented placeholder lands inside the brackets exactly once.
+      expect(fixed.match(/TODO: describe image/g)).toHaveLength(1);
+      // Everything before and after the image — punctuation included — is
+      // byte-identical.
+      expect(fixed.slice(0, from.offset)).toBe(doc.slice(0, from.offset));
+      expect(fixed.slice(from.offset + repaired.length)).toBe(doc.slice(to.offset));
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+    }
+  });
 });
 
 // ─── 4. Chained violations + multi-fix application ───────────────────────────
