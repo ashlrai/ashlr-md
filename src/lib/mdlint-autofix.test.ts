@@ -2918,6 +2918,22 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    "\n",
+    "\r\n",
+  ])("adds the placeholder to an undescribed image in a sentence and keeps the words, emphasis, inline code and punctuation around it (line endings %j)", (nl) => {
+    const doc = `Intro.${nl}${nl}**Note:** the chart ![](images/chart.png), unlike \`![](code.png)\`, is *required*; see [docs](./docs.md)!${nl}`;
+    const expected = `Intro.${nl}${nl}**Note:** the chart ![TODO: describe image](images/chart.png), unlike \`![](code.png)\`, is *required*; see [docs](./docs.md)!${nl}`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("missing-alt-text");
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
     ["parentheses", "(", ")"],
     ["quotes and comma", "“", "”,"],
     ["brackets and semicolon", "[", "];"],
