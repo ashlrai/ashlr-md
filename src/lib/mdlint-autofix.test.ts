@@ -17001,3 +17001,33 @@ describe("autofix: undescribed image on the final line after a valid paragraph",
     }
   });
 });
+
+describe("autofix: undescribed image beside a described image on its own line", () => {
+  it.each([
+    ["\n", "undescribed first"],
+    ["\r\n", "undescribed first"],
+    ["\n", "described first"],
+    ["\r\n", "described first"],
+  ])("changes only the undescribed image with %j line endings (%s)", (newline, order) => {
+    const rules = [ruleMissingAltText];
+    const described =
+      'Café: ![Release chart](images/chart.png?v=2#top "Chart") and *more* [notes](./notes.md).';
+    const before = 'Before ![](images/raw.png "Raw") after, with `code`.';
+    const after =
+      'Before ![TODO: describe image](images/raw.png "Raw") after, with `code`.';
+    const lines = (undescribed: string) =>
+      order === "undescribed first"
+        ? [undescribed, described]
+        : [described, undescribed];
+    const doc = `Intro.${newline}${newline}${lines(before).join(newline)}${newline}Tail.${newline}`;
+    const expected = `Intro.${newline}${newline}${lines(after).join(newline)}${newline}Tail.${newline}`;
+
+    const violations = lintDocument(doc, { rules });
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain(described);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+});
