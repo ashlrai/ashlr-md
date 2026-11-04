@@ -13750,3 +13750,34 @@ describe("autofix: bracketed prose [1], [sic] and [TODO]", () => {
     expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
   });
 });
+
+describe("invalid-link-target autofix: placeholder and prefix in a blockquote", () => {
+  it.each([
+    [
+      "spaced prefix",
+      "> See [the docs]() for more.\n",
+      "> See [the docs](TODO) for more.\n",
+    ],
+    [
+      "tight prefix",
+      ">See [the docs]() for more.\n",
+      ">See [the docs](TODO) for more.\n",
+    ],
+    [
+      "blank quoted line",
+      "> One\n>\n> See [the docs](#) now.\n",
+      "> One\n>\n> See [the docs](TODO) now.\n",
+    ],
+  ])("keeps the TODO placeholder and the blockquote prefix in the fixed output (%s)", (_name, doc, expected) => {
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain("](TODO)");
+    for (const line of fixed.trimEnd().split("\n"))
+      expect(line.startsWith(">")).toBe(true);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
