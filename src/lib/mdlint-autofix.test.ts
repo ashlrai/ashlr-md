@@ -5370,6 +5370,26 @@ describe("rule:invalid-link-target", () => {
     }
   });
 
+  it.each([
+    ["period", "."],
+    ["closing paren", ")"],
+    ["emphasis close", "*"],
+  ])("fixes an invalid link at the end of a line followed by a %s and keeps the text unchanged", (_name, tail) => {
+    const rules = [ruleInvalidLinkTarget];
+    const open = tail === ")" ? "(" : tail === "*" ? "*" : "";
+    for (const newline of ["\n", "\r\n"]) {
+      const before = `Naïve, "quoted" text: ${open}see `;
+      const doc = `${before}[draft]()${tail}${newline}Next.${newline}`;
+      const expected = `${before}[draft](TODO)${tail}${newline}Next.${newline}`;
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      expect(applyAllFixes(doc, violations)).toBe(expected);
+      expect(lintDocument(expected, { rules })).toEqual([]);
+    }
+  });
+
   it("fixes an invalid link at the end of the last line with no trailing newline", () => {
     const leading = "Final note — see";
     const doc = `Intro paragraph.\n\n${leading} [draft](?)`;
