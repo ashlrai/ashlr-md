@@ -16957,6 +16957,28 @@ describe("autofix: undescribed image on the final line after a valid paragraph",
   });
 
   it.each([
+    ["parentheses", "(", ")."],
+    ["quotation marks", "“", "”,"],
+    ["colon and semicolon", ":", ";"],
+    ["CJK brackets", "「", "」。"],
+  ])("preserves punctuation on both sides of an undescribed image (%s)", (_name, before, after) => {
+    const rules = [ruleMissingAltText];
+    const image = '![](images/chart.png?v=2#top "Chart")';
+    for (const newline of ["\n", "\r\n"]) {
+      const doc = `See ${before}${image}${after} Next.${newline}`;
+      const violations = lintDocument(doc, { rules });
+      expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+      const { from, to } = violations[0].range!;
+      expect(doc.slice(from.offset, to.offset)).toBe(image);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(
+        `See ${before}![TODO: describe image](images/chart.png?v=2#top "Chart")${after} Next.${newline}`,
+      );
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+    }
+  });
+
+  it.each([
     ["spaced marker", "> "],
     ["tight marker", ">"],
     ["indented marker", "   > "],
