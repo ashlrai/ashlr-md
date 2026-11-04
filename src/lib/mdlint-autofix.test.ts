@@ -21569,3 +21569,20 @@ describe("autofix: invalid link with an empty destination", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+describe("autofix: invalid links on separate lines", () => {
+  it.each(["\n", "\r\n"])("preserves surrounding text with %j line endings", (nl) => {
+    const rules = [ruleInvalidLinkTarget];
+    const doc = `Intro.${nl}Read [guide]() for setup.${nl}Then see [details](?) before continuing.${nl}Done.${nl}`;
+    const expected = `Intro.${nl}Read [guide](TODO) for setup.${nl}Then see [details](TODO) before continuing.${nl}Done.${nl}`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+      "invalid-link-target",
+      "invalid-link-target",
+    ]);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(applyAllFixes(doc, [...violations].reverse())).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+});
