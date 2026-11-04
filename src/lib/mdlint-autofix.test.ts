@@ -13018,4 +13018,27 @@ describe("autofix: valid link and described image no-op", () => {
     // Idempotent: a second lint-and-fix pass changes nothing.
     expect(applyAllFixes(fixed, lintDocument(fixed))).toBe(fixed);
   });
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("adds the placeholder only to the undescribed image between described ones (line ending %j)", (newline) => {
+    const described = [
+      "![Chart of results](images/one.png)",
+      '![Café *diagram*](<images/two three.png?v=2#top> "Title")',
+    ];
+    const bare = '![](images/bare.png "T")';
+    const doc = `${described[0]} then ${bare} and ${described[1]}.${newline}`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("missing-alt-text");
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(
+      `${described[0]} then ![TODO: describe image](images/bare.png "T") and ${described[1]}.${newline}`,
+    );
+    expect(fixed.match(/TODO: describe image/g)).toHaveLength(1);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
 });
