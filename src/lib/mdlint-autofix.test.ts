@@ -14478,3 +14478,94 @@ describe("invalid-link-target autofix: invalid link at the start of a line", () 
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+describe("invalid-link-target autofix: invalid link at the end of a line", () => {
+  it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+  ])("inserts the TODO href into a link at the end of a line and preserves preceding prose (%s)", (_name, nl) => {
+    const head = "Intro line with [ok](./ok.md).";
+    const line = "Prose before [1], and more text, then ends with [tail](  ).";
+    const doc = [head, "", line, "Closing line stays.", ""].join(nl);
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    const { from, to } = violations[0].range!;
+    // The link sits at the end of the line — preceding prose comes before it.
+    expect(doc.slice(from.offset, to.offset)).toBe("[tail](  )");
+    expect(violations[0].fix).not.toBeNull();
+
+    // Single fix replaces only the href; preceding prose is byte-for-byte intact.
+    const expected = [
+      head,
+      "",
+      "Prose before [1], and more text, then ends with [tail](TODO).",
+      "Closing line stays.",
+      "",
+    ].join(nl);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+
+    // Preceding prose on the fixed line is preserved exactly.
+    const preceding = "Prose before [1], and more text, then ends with ";
+    expect(fixed).toContain(`${preceding}[tail](TODO).`);
+    expect(fixed.startsWith(`${head}${nl}${nl}`)).toBe(true);
+    expect(fixed.endsWith(`${nl}Closing line stays.${nl}`)).toBe(true);
+
+    // Idempotent: a second pass changes nothing.
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+
+  it.each([
+    ["empty", ""],
+    ["whitespace-only", " \t "],
+    ["lone hash", "#"],
+    ["lone question mark", "?"],
+  ])("preserves preceding prose byte-for-byte when a link with a %s href ends the line", (_name, href) => {
+    const link = `[docs](${href})`;
+    // Preceding prose includes a valid link and bracketed notation that must survive.
+    const prose = "Read [1] and the [guide](./guide.md) for more, see ";
+    const doc = `Intro.\n\n${prose}${link}\n`;
+    const expected = `Intro.\n\n${prose}[docs](TODO)\n`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(link);
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+
+    // Preceding prose is byte-for-byte the original.
+    expect(fixed.slice(0, from.offset)).toBe(doc.slice(0, from.offset));
+    // The destination is now TODO.
+    expect(fixed).toContain("[docs](TODO)");
+    // All preceding prose markers are preserved.
+    expect(fixed).toContain("Read [1] and the [guide](./guide.md) for more, see ");
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it("handles multiple invalid links at the end of different lines, preserving all preceding prose", () => {
+    const line1 = "First paragraph ends with [one]().";
+    const line2 = "Second paragraph mentions [1] and ends with [two](#).";
+    const doc = `# Heading\n\nIntro.\n\n${line1}\n\n${line2}\n`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(2);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(
+      `# Heading\n\nIntro.\n\nFirst paragraph ends with [one](TODO).\n\nSecond paragraph mentions [1] and ends with [two](TODO).\n`,
+    );
+    // Preceding prose on each line is preserved exactly.
+    expect(fixed).toContain("First paragraph ends with ");
+    expect(fixed).toContain("Second paragraph mentions [1] and ends with ");
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+});
