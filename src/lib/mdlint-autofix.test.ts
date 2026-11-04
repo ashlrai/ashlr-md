@@ -15329,3 +15329,35 @@ describe("invalid link at the end of a CRLF line", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+describe("undescribed image wrapped in punctuation", () => {
+  it.each([
+    ["empty alt, parentheses", "", "(", ")"],
+    ["whitespace alt, straight quotes", " \t ", '"', '".'],
+    ["empty alt, spaced em-dashes", "", "— ", " —"],
+    ["empty alt, CJK brackets", "", "「", "」。"],
+  ])("inserts the description placeholder only (%s); the punctuation around the image stays byte-identical", (_name, alt, open, close) => {
+    for (const nl of ["\n", "\r\n"]) {
+      const image = `![${alt}](images/chart.png?v=2#top)`;
+      const repaired = "![TODO: describe image](images/chart.png?v=2#top)";
+      const doc = `Intro.${nl}${nl}See ${open}${image}${close} next.${nl}`;
+      const expected = `Intro.${nl}${nl}See ${open}${repaired}${close} next.${nl}`;
+      const rules = [ruleMissingAltText];
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map((v) => v.ruleId)).toEqual(["missing-alt-text"]);
+      const { from, to } = violations[0].range!;
+      // The reported range covers the image alone, not the wrapper punctuation.
+      expect(doc.slice(from.offset, to.offset)).toBe(image);
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      // Everything before and after the image — punctuation included — is
+      // byte-for-byte the original.
+      expect(fixed.slice(0, from.offset)).toBe(doc.slice(0, from.offset));
+      expect(fixed.slice(from.offset + repaired.length)).toBe(doc.slice(to.offset));
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+      expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+    }
+  });
+});
