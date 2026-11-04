@@ -19405,6 +19405,30 @@ describe("autofix: undescribed image between Unicode words", () => {
 });
 
 describe("missing-alt-text autofix in a blockquote", () => {
+  it("fixes two quoted images individually and together without changing their sources or quote markers", () => {
+    const rules = [ruleMissingAltText];
+    const first = "![](images/first.png?size=2#preview)";
+    const second = '![](../second.svg "Diagram")';
+    const fixedFirst = "![TODO: describe image](images/first.png?size=2#preview)";
+    const fixedSecond = '![TODO: describe image](../second.svg "Diagram")';
+    const doc = `> Before ${first}\n> Then ${second} after.\n`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+      "missing-alt-text",
+      "missing-alt-text",
+    ]);
+    expect(applyFix(doc, violations[0])).toBe(
+      `> Before ${fixedFirst}\n> Then ${second} after.\n`,
+    );
+    expect(applyFix(doc, violations[1])).toBe(
+      `> Before ${first}\n> Then ${fixedSecond} after.\n`,
+    );
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(`> Before ${fixedFirst}\n> Then ${fixedSecond} after.\n`);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
   it.each([
     ["single level", "> ", "\n"],
     ["nested levels", "> > ", "\n"],
