@@ -15062,3 +15062,38 @@ describe("autofix: described image with a relative path", () => {
     expect(applyAllFixes(doc, lintDocument(doc))).toBe(doc);
   });
 });
+
+// ─── Undescribed image followed by a newline and ordinary prose ──────────────
+describe("undescribed image followed by a newline and ordinary prose", () => {
+  it.each([
+    ["empty alt, plain destination", "![](chart.png)"],
+    ["whitespace alt, query and fragment", "![  ](img/chart.png?v=2#top)"],
+    ["tab alt, titled destination", '![\t](img/chart.png "Chart")'],
+  ])("inserts the image description only (%s); the line break and the prose stay byte-identical", (_name, image) => {
+    for (const nl of ["\n", "\r\n"]) {
+      const dest = image.slice(image.indexOf("]") + 1);
+      const prose = "Ordinary prose follows — see [1] and [ok](./ok.md), then done.";
+      const doc = `${image}${nl}${prose}${nl}`;
+      const rules = [ruleMissingAltText];
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map((v) => v.ruleId)).toEqual(["missing-alt-text"]);
+      const { from, to } = violations[0].range!;
+      expect(from).toMatchObject({ line: 1, col: 0, offset: 0 });
+      expect(doc.slice(from.offset, to.offset)).toBe(image);
+
+      const placeholder = `![TODO: describe image]${dest}`;
+      const expected = `${placeholder}${nl}${prose}${nl}`;
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      // Everything after the repaired image — the line break and the whole
+      // prose line, valid link and bracketed citation included — is
+      // byte-for-byte the original tail.
+      expect(fixed.slice(placeholder.length)).toBe(doc.slice(to.offset));
+      expect(fixed.split(nl)).toHaveLength(doc.split(nl).length);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+      expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+    }
+  });
+});
