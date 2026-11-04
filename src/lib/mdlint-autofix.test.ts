@@ -9139,6 +9139,44 @@ describe("invalid-link-target autofix: empty href case", () => {
     expect(violations).toHaveLength(1);
     expect(applyAllFixes(doc, violations)).toBe("# See [the guide](TODO)\n\nBody.\n");
   });
+
+  it("fixes an empty href inside a footnote definition and keeps the marker, label and inline reference", () => {
+    const doc =
+      "Text with a footnote[^1] inline.\n\n[^1]: Read the [install guide]() first.\n";
+    const expected =
+      "Text with a footnote[^1] inline.\n\n[^1]: Read the [install guide](TODO) first.\n";
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("invalid-link-target");
+    // The reported range covers the whole link — label included — never the [^1] marker.
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe("[install guide]()");
+
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // Both [^1] occurrences — inline reference and definition marker — survive byte-for-byte.
+    expect(fixed.match(/\[\^1\]/g)).toHaveLength(2);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it("leaves empty hrefs inside an HTML comment and inline math untouched while fixing the visible link", () => {
+    const doc = "<!-- [draft]() -->\n\nKeep $[x]()$ and fix [real]() here.\n";
+    const expected = "<!-- [draft]() -->\n\nKeep $[x]()$ and fix [real](TODO) here.\n";
+    const violations = lintDocument(doc, { rules });
+
+    // Only the visible link is flagged; the comment line and inline math are masked.
+    expect(violations).toHaveLength(1);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe("[real]()");
+
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain("<!-- [draft]() -->");
+    expect(fixed).toContain("$[x]()$");
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
 });
 
 describe("invalid-link-target autofix: preserves surrounding content", () => {
