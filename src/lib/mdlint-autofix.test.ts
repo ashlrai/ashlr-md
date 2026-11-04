@@ -10435,6 +10435,56 @@ describe("autofix: fenced-code preservation", () => {
   });
 });
 
+describe("autofix: undescribed image only inside a fenced code block", () => {
+  it.each([
+    ["backtick fence", "```", "\n"],
+    ["tilde fence", "~~~", "\r\n"],
+    ["longer fence", "````", "\n"],
+    ["fence with info string", '```md title="x"', "\r\n"],
+    ["indented fence", "   ```", "\n"],
+  ])("leaves the whole document byte-identical (%s)", (_name, open, nl) => {
+    const close = open.trim().match(/^[`~]+/)![0];
+    const doc = [
+      "---",
+      "title: Fenced",
+      "---",
+      "",
+      "# Title",
+      "",
+      "Plain prose.",
+      "",
+      open,
+      "![](diagram.png)",
+      '![   ](spaced.png "T")',
+      "![described](ok.png)",
+      close,
+      "",
+      "Tail.",
+      "",
+    ].join(nl);
+
+    for (const rules of [[ruleMissingAltText], BUILTIN_RULES]) {
+      const violations = lintDocument(doc, { rules });
+      expect(violations.filter((v) => v.ruleId === "missing-alt-text")).toEqual([]);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(doc);
+      expect(fixed).not.toContain("TODO: describe image");
+    }
+  });
+
+  it("still fixes an undescribed image outside the fence and leaves the block untouched", () => {
+    const block = "```\n![](inside.png)\n```";
+    const doc = `${block}\n\n![](outside.png)\n`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(applyAllFixes(doc, violations)).toBe(
+      `${block}\n\n![TODO: describe image](outside.png)\n`,
+    );
+  });
+});
+
 // ─── 9. Autofix leaves a lone described image untouched ───────────────────────
 
 describe("autofix: lone described image", () => {
