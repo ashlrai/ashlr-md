@@ -11076,6 +11076,48 @@ describe("autofix: [sic] prose preservation", () => {
     expect(fix(doc)).toBe('Said "wich" [sic] again.\nNext line.\n');
   });
 
+  it("leaves [sic] in a heading, quote, list item and code span unchanged while fixing the invalid links beside them", () => {
+    const doc = [
+      '## He said "teh" [sic]',
+      "",
+      "> Quoted teh [sic] here, per [draft]().",
+      "",
+      "- Item wich [sic], see [notes]().",
+      "",
+      "Code says `[sic]()` while prose says [broken]().",
+      "",
+    ].join("\n");
+    const expected = [
+      '## He said "teh" [sic]',
+      "",
+      "> Quoted teh [sic] here, per [draft](TODO).",
+      "",
+      "- Item wich [sic], see [notes](TODO).",
+      "",
+      "Code says `[sic]()` while prose says [broken](TODO).",
+      "",
+    ].join("\n");
+    const violations = lintDocument(doc, { rules });
+    // The `[sic]()` in the code span is code, not a link, so it is not flagged.
+    expect(violations.map((v) => v.ruleId)).toEqual([
+      "invalid-link-target",
+      "invalid-link-target",
+      "invalid-link-target",
+    ]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.match(/\[sic\]/g)).toHaveLength(4);
+    for (const prose of [
+      '## He said "teh" [sic]',
+      "> Quoted teh [sic] here",
+      "- Item wich [sic], see",
+      "`[sic]()`",
+    ])
+      expect(fixed).toContain(prose);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(fix(fixed)).toBe(fixed);
+  });
+
   it("leaves every [sic] and its surrounding prose unchanged across a multi-block document under the full default rule set", () => {
     for (const nl of ["\n", "\r\n"]) {
       const doc = [
