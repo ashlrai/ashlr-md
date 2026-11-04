@@ -17322,6 +17322,28 @@ describe("invalid-link-target autofix with a valid link on the same line", () =>
   });
 });
 
+describe("autofix preserves a valid link among other fixes", () => {
+  it.each(["\n", "\r\n"])("preserves the exact link with %j line endings", (nl) => {
+    const link = '[Café guide](./docs/cafe%CC%81.md?view=full#intro "Read more")';
+    const frontmatter = `---${nl}title: Guide${nl}---${nl}${nl}`;
+    const doc = `${frontmatter}See [broken]() and ${link} beside ![](chart.png).   ${nl}`;
+    const expected = `${frontmatter}See [broken](TODO) and ${link} beside ![TODO: describe image](chart.png).${nl}`;
+    const violations = lintDocument(doc);
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(
+      expect.arrayContaining([
+        "invalid-link-target",
+        "missing-alt-text",
+        "no-trailing-spaces",
+      ]),
+    );
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed)).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed))).toBe(fixed);
+  });
+});
+
 describe("autofix: undescribed image with a Unicode source", () => {
   const rules = [ruleMissingAltText];
 
