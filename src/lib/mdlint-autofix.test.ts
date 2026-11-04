@@ -13320,3 +13320,34 @@ describe("autofix idempotence for undescribed images: headings, tables and fence
     expect(lintDocument(first, { rules })).toEqual([]);
   });
 });
+
+// ─── Described relative image survives autofix alongside a real fix ──────────
+
+describe("autofix: described relative image preservation", () => {
+  it.each([
+    ["dot-slash", "![Team photo](./img/team.png)"],
+    ["parent directory", "![Team photo](../img/team.png)"],
+    ["bare filename", "![Team photo](team.png)"],
+    ["percent-encoded path", "![Café photo](img/caf%C3%A9.png)"],
+    ["titled", '![Team photo](./img/team.png "The team")'],
+  ])("leaves the description and relative source unchanged (%s)", (_name, image) => {
+    const doc = `---\ntitle: Team\n---\n\n# Team\n\nMeet us: ${image} today.\n`;
+    for (const rules of [[ruleInvalidLinkTarget, ruleMissingAltText], BUILTIN_RULES]) {
+      const violations = lintDocument(doc, { rules });
+      expect(violations.filter((v) => v.ruleId === "missing-alt-text")).toEqual([]);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(doc);
+      expect(fixed).toContain(image);
+    }
+  });
+
+  it("fixes only the empty link and keeps the described relative image byte-identical", () => {
+    const image = "![Team photo](./img/team.png)";
+    const doc = `# Team\n\n${image} and [bio]().\n`;
+    const rules = [ruleInvalidLinkTarget, ruleMissingAltText];
+    const fixed = applyAllFixes(doc, lintDocument(doc, { rules }));
+
+    expect(fixed).toBe(`# Team\n\n${image} and [bio](TODO).\n`);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
