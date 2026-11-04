@@ -107,6 +107,54 @@ describe("autofix: whitespace-only image description", () => {
   });
 });
 
+describe("autofix: undescribed image next to a described image", () => {
+  it.each([
+    [
+      "described first, same line",
+      'A ![Sales chart](a%20b.png?v=2#top "Chart") and ![](c.png) end.\n',
+      'A ![Sales chart](a%20b.png?v=2#top "Chart") and ![TODO: describe image](c.png) end.\n',
+    ],
+    [
+      "undescribed first, same line",
+      'A ![](c.png) and ![Sales chart](a%20b.png?v=2#top "Chart") end.\n',
+      'A ![TODO: describe image](c.png) and ![Sales chart](a%20b.png?v=2#top "Chart") end.\n',
+    ],
+    [
+      "on adjacent lines",
+      "![Logo](logo.png)\n![](shot.png)\n",
+      "![Logo](logo.png)\n![TODO: describe image](shot.png)\n",
+    ],
+    [
+      "directly adjacent with no space",
+      "![Logo](logo.png)![](shot.png)\n",
+      "![Logo](logo.png)![TODO: describe image](shot.png)\n",
+    ],
+    [
+      "separated by a blank line, CRLF",
+      "![Logo](logo.png)\r\n\r\n![ ](shot.png)\r\n",
+      "![Logo](logo.png)\r\n\r\n![TODO: describe image](shot.png)\r\n",
+    ],
+  ])("changes only the undescribed image (%s)", (_name, doc, expected) => {
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it("applyFix on the one violation also leaves the described image untouched", () => {
+    const rules = [ruleMissingAltText];
+    const doc = "![Logo](logo.png)\n\n![](shot.png)\n";
+    const [violation] = lintDocument(doc, { rules });
+
+    expect(applyFix(doc, violation)).toBe(
+      "![Logo](logo.png)\n\n![TODO: describe image](shot.png)\n",
+    );
+  });
+});
+
 describe("autofix: undescribed image on a line with leading indentation", () => {
   it.each([
     ["two spaces", "  "],
