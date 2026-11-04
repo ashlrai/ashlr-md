@@ -21143,6 +21143,8 @@ describe("invalid-link autofix with a whitespace-only destination", () => {
     "   ",
     "\t",
     " \t ",
+    "\u00a0",
+    " \t\u3000 ",
   ])("replaces destination %j and preserves the link text", (href) => {
     const rules = [ruleInvalidLinkTarget];
     const doc = `Read [Café guide ☕](${href}) and [valid](./guide.md).\n`;
@@ -21150,6 +21152,8 @@ describe("invalid-link autofix with a whitespace-only destination", () => {
     const violations = lintDocument(doc, { rules });
 
     expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(`[Café guide ☕](${href})`);
     expect(applyFix(doc, violations[0])).toBe(expected);
     expect(applyAllFixes(doc, violations)).toBe(expected);
     expect(lintDocument(expected, { rules })).toEqual([]);
