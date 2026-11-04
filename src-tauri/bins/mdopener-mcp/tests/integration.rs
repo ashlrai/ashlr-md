@@ -10791,6 +10791,50 @@ fn export_text_keeps_bracketed_prose_in_list_items() {
     }
 }
 
+/// Bracketed prose in less common list shapes keeps its brackets: every
+/// bullet marker, `1)` numbering, nested items, a phrase wrapped over an
+/// item's continuation line, a loose item, emphasis inside the brackets and
+/// non-ASCII phrases.
+#[test]
+fn export_text_keeps_bracketed_prose_in_nested_and_wrapped_list_items() {
+    for (markdown, expected) in [
+        (
+            "* [star item]\n+ [plus item]\n- [dash item]\n",
+            "[star item]\n[plus item]\n[dash item]",
+        ),
+        (
+            "1) Say [sic] here.\n2) And [again].\n",
+            "Say [sic] here.\nAnd [again].",
+        ),
+        (
+            "- outer [one]\n  - inner [two]\n    - deepest [three]\n- outer [four]\n",
+            "outer [one]\ninner [two]\ndeepest [three]\nouter [four]",
+        ),
+        (
+            "- Mark it [needs\n  review] before [merge].\n",
+            "Mark it [needs\nreview] before [merge].",
+        ),
+        (
+            "- [first]\n\n  [second paragraph]\n\n- [next item]\n",
+            "[first]\n\n[second paragraph]\n\n[next item]",
+        ),
+        (
+            "- [**bold** words] and [_soft_]\n",
+            "[bold words] and [soft]",
+        ),
+        ("- [café] [要確認]\n", "[café] [要確認]"),
+    ] {
+        let result = run_export_text_on(markdown);
+        let text = result["text"].as_str().unwrap();
+        assert_eq!(text, expected, "{markdown:?}");
+        assert_eq!(
+            result["char_count"].as_u64().unwrap() as usize,
+            expected.chars().count(),
+            "{markdown:?}"
+        );
+    }
+}
+
 #[test]
 fn export_text_keeps_bracketed_prose_in_numbered_list() {
     let markdown = "1. Review [the revised plan] before [the guide](/guide).\n\
