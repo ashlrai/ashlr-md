@@ -19413,3 +19413,29 @@ describe("autofix: Unicode image filenames", () => {
     }
   });
 });
+
+describe("autofix: image alt text made only of rare Unicode whitespace", () => {
+  it.each([
+    ["an Ogham space mark", " "],
+    ["an en quad through a hair space", "           "],
+    ["a line and a paragraph separator", "  "],
+    ["a narrow no-break space", " "],
+    ["a medium mathematical space", " "],
+    ["a byte order mark", "﻿"],
+  ])("inserts the placeholder for %s and preserves the source", (_name, blank) => {
+    const rules = [ruleMissingAltText];
+    const source = 'img/ünï.png?v=2#top "Chart"';
+    const doc = `Before ![${blank}](${source}) ![Kept](keep.png) after.\n`;
+    const expected = `Before ![TODO: describe image](${source}) ![Kept](keep.png) after.\n`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(`![${blank}](${source})`);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(expected);
+  });
+});
