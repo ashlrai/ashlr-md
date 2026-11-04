@@ -10050,7 +10050,7 @@ fn bracketed_prose_example_table_matches_outputs() {
         assert_eq!(actual, expected, "{}: {input:?}", cells[0]);
         count += 1;
     }
-    assert_eq!(count, 85, "all table examples must be checked");
+    assert_eq!(count, 97, "all table examples must be checked");
 }
 
 /// A standalone `[1]` closing a paragraph, with no definition anywhere,
@@ -10554,6 +10554,147 @@ fn export_text_keeps_bracketed_prose_at_end_where_no_definition_interrupts() {
         assert_eq!(
             result["word_count"].as_u64().unwrap() as usize,
             count_words(expected),
+            "{markdown:?}"
+        );
+    }
+}
+
+/// The end-of-paragraph shapes the other tests leave out. The mark a
+/// sentence closes on is not only `.`, `?`, `!` or `;` — a paragraph ends
+/// just as well on `,`, `:`, `)`, `"`, `'`, a `‘…’` pair, `«»`, `…`, `—`
+/// or a CJK `。`/`！`, on a pair that wraps over the paragraph's own line
+/// break, and as a paragraph that is nothing but the pair and its mark.
+/// And the paragraph whose end the pair closes lives in a nested quote, a
+/// quote's lazy line, a list item's next paragraph, a footnote
+/// definition, a table cell, a setext `---` heading and right in front of
+/// an HTML block. Every closing mark is prose like the words before it:
+/// the brackets and the mark both survive — from the file, from
+/// [`strip_markdown`], and from the open document over IPC. Only real
+/// syntax owns brackets: a defined label resolves and drops them, and a
+/// `[^n]` footnote reference reads `[n]`.
+#[test]
+fn export_text_keeps_bracketed_prose_at_paragraph_end_with_closing_marks() {
+    // The marks a paragraph closes on after its bracketed prose.
+    for (markdown, expected) in [
+        ("Confirmed [sic],\n", "Confirmed [sic],"),
+        ("He wrote: [sic]:\n", "He wrote: [sic]:"),
+        ("(as noted [1])\n", "(as noted [1])"),
+        ("Ends (see [8])\n", "Ends (see [8])"),
+        (
+            "She said \"verbatim [sic]\"\n",
+            "She said \"verbatim [sic]\"",
+        ),
+        ("'quoted [sic]'\n", "'quoted [sic]'"),
+        ("‘revised [sic]’\n", "‘revised [sic]’"),
+        ("«note [sic]»\n", "«note [sic]»"),
+        ("Ends [a]…\n", "Ends [a]…"),
+        ("Ends [a]—\n", "Ends [a]—"),
+        ("確認 [要確認]。\n", "確認 [要確認]。"),
+        ("本当 [問題]！\n", "本当 [問題]！"),
+        ("Ends [a]。\n\nNext.\n", "Ends [a]。\n\nNext."),
+        // A paragraph that is nothing but the pair and its mark.
+        ("[sic].\n", "[sic]."),
+        // The pair wraps over the paragraph's own line break, and two
+        // adjacent pairs close another.
+        ("Ends [needs\nreview].\n", "Ends [needs\nreview]."),
+        ("Two cites end it [1][2].\n", "Two cites end it [1][2]."),
+    ] {
+        let result = run_export_text_on(markdown);
+        let text = result["text"].as_str().unwrap();
+        assert_eq!(text, expected, "{markdown:?}");
+        assert_eq!(strip_markdown(markdown), expected, "{markdown:?}");
+        assert_eq!(
+            result["char_count"].as_u64().unwrap() as usize,
+            expected.chars().count(),
+            "{markdown:?}"
+        );
+        assert_eq!(
+            result["word_count"].as_u64().unwrap() as usize,
+            count_words(expected),
+            "{markdown:?}"
+        );
+    }
+
+    // The paragraphs whose ends the pairs close, in the containers the
+    // page renders them in.
+    for (markdown, expected) in [
+        ("> > Nested quote ends [a].\n", "Nested quote ends [a]."),
+        (
+            "> Quote line one ends [a]\nlazy line ends [b].\n",
+            "Quote line one ends [a]\nlazy line ends [b].",
+        ),
+        (
+            "> Ends [a],\n> continues [b].\n",
+            "Ends [a],\ncontinues [b].",
+        ),
+        (
+            "- item one\n\n  second paragraph ends [a].\n",
+            "item one\n\nsecond paragraph ends [a].",
+        ),
+        (
+            "1. item\n\n   second para [a].\n",
+            "item\n\nsecond para [a].",
+        ),
+        ("[^1]: The note says [sic].\n", "[1] The note says [sic]."),
+        ("Plan [Draft]\n---\n", "Plan [Draft]"),
+        (
+            "| a | b |\n|---|---|\n| ends [1]. | x |\n",
+            "a\tb\nends [1].\tx",
+        ),
+        ("> Ends [a].\n\nPlain [b].\n", "Ends [a].\n\nPlain [b]."),
+        // A `<div>` block ends the paragraph — with or without a blank
+        // line, as CommonMark's HTML blocks interrupt one.
+        ("Ends [a].\n<div>raw html</div>\n", "Ends [a].\nraw html"),
+        ("Ends [a]\n<div>raw</div>\n", "Ends [a]\nraw"),
+        (
+            "See the notes [draft]:\n\n- item\n",
+            "See the notes [draft]:\n\nitem",
+        ),
+    ] {
+        let result = run_export_text_on(markdown);
+        assert_eq!(result["text"].as_str().unwrap(), expected, "{markdown:?}");
+        assert_eq!(
+            result["char_count"].as_u64().unwrap() as usize,
+            expected.chars().count(),
+            "{markdown:?}"
+        );
+    }
+
+    // Only real syntax owns brackets at a paragraph's end: a defined
+    // label resolves and drops them, and a footnote reference reads its
+    // number — while the prose pair it follows keeps both of its own.
+    for (markdown, expected) in [
+        ("[a]: /u\n\nEnds [a].\n", "Ends a."),
+        (
+            "Ends [a][^1]\n\n[^1]: the note\n",
+            "Ends [a][1]\n\n[1] the note",
+        ),
+    ] {
+        let result = run_export_text_on(markdown);
+        assert_eq!(result["text"].as_str().unwrap(), expected, "{markdown:?}");
+    }
+
+    // The open document over IPC renders the same closing marks and
+    // container ends the file read does.
+    for (markdown, expected) in [
+        (
+            "She said \"verbatim [sic]\"\n\n確認 [要確認]。\n",
+            "She said \"verbatim [sic]\"\n\n確認 [要確認]。",
+        ),
+        (
+            "> > Nested ends [a]—\n\n- item\n\n  para ends [b].\n",
+            "Nested ends [a]—\n\nitem\n\npara ends [b].",
+        ),
+    ] {
+        let ipc = MockIpc::new().on_get(
+            "/content",
+            Ok(json!({ "path": "/docs/test.md", "content": markdown })),
+        );
+        let response = tool_export_text(id(2), &json!({}), &ipc);
+        assert!(response.error.is_none(), "{markdown:?}");
+        assert_eq!(
+            content_text(&response)["text"].as_str().unwrap(),
+            expected,
             "{markdown:?}"
         );
     }
