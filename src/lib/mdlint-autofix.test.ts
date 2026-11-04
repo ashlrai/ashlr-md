@@ -14792,3 +14792,29 @@ describe("rule:missing-alt-text undescribed image at the start", () => {
     expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
   });
 });
+
+describe("autofix: described image with a relative path", () => {
+  it.each([
+    "./img/a.png",
+    "../../docs/img/a b.png",
+    "img/sub/a.png?v=2",
+  ])("preserves the image exactly while fixing a neighbouring empty link (%s)", (path) => {
+    const dest = path.includes(" ") ? `<${path}>` : path;
+    const image = `![Relative diagram](${dest} "Diagram")`;
+    for (const nl of ["\n", "\r\n"]) {
+      const doc = `# Title${nl}${nl}${image} and [draft]() here.${nl}`;
+      const rules = [ruleInvalidLinkTarget, ruleMissingAltText];
+      const fixed = applyAllFixes(doc, lintDocument(doc, { rules }));
+
+      expect(fixed).toBe(`# Title${nl}${nl}${image} and [draft](TODO) here.${nl}`);
+      expect(fixed).toContain(image);
+      expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+    }
+  });
+
+  it("leaves a document with only a described relative image byte-identical", () => {
+    const doc =
+      "---\ntitle: Doc\n---\n\n# Title\n\n![Relative diagram](../img/a.png)\n";
+    expect(applyAllFixes(doc, lintDocument(doc))).toBe(doc);
+  });
+});
