@@ -141,6 +141,24 @@ describe("autofix: undescribed image at the start of a line", () => {
     expect(fixed).toBe(expected);
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
+
+  it.each([
+    ["query, fragment and percent-escapes", "images/caf%C3%A9.png?size=2&v=1#top"],
+    ["balanced parentheses", "img/chart_(v2).png"],
+    ["commas, semicolons and tildes", "a,b;c~d.png"],
+    ["angle brackets with spaces", "<my images/chart (1).png>"],
+  ])("keeps a destination with punctuation unchanged (%s)", (_name, destination) => {
+    const rules = [ruleMissingAltText];
+    const doc = `Intro.\n\n![](${destination} "Title") then *prose*.\nTail.\n`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(
+      `Intro.\n\n![TODO: describe image](${destination} "Title") then *prose*.\nTail.\n`,
+    );
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
 });
 
 // ─── 2. Rule: invalid-link-target ────────────────────────────────────────────
