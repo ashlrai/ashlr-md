@@ -19397,3 +19397,29 @@ describe("autofix: Unicode image filenames", () => {
     }
   });
 });
+
+describe("missing-alt-text autofix: whitespace-only alt image at the end of a line", () => {
+  it.each([
+    "\n",
+    "\r\n",
+  ])("fixes the image and leaves the preceding prose byte-for-byte unchanged with %j line endings", (newline) => {
+    const prose = [
+      "Hard break above.  ",
+      "Use `code`, *emphasis*, &amp; café → see ",
+    ].join(newline);
+    const image = '![ \t ](<my dir/a (1).png> "Chart")';
+    const fixedImage = '![TODO: describe image](<my dir/a (1).png> "Chart")';
+    const tail = `${newline}Next line.${newline}`;
+    const doc = `${prose}${image}${tail}`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    expect(violations[0].range!.from.offset).toBe(prose.length);
+
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(`${prose}${fixedImage}${tail}`);
+    expect(fixed.slice(0, prose.length)).toBe(prose);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
