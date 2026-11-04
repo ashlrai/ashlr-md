@@ -15875,3 +15875,24 @@ describe("autofix: a described image in a document without a final newline", () 
     }
   });
 });
+
+describe("missing-alt-text autofix in a blockquote", () => {
+  it.each([
+    ["single level", "> ", "\n"],
+    ["nested levels", "> > ", "\n"],
+    ["no space after the marker", ">", "\r\n"],
+  ])("describes an undescribed image and keeps the quote marker (%s)", (_name, marker, nl) => {
+    const doc = `Intro.${nl}${nl}${marker}![](images/a.png "T") tail${nl}`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("missing-alt-text");
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(
+      `Intro.${nl}${nl}${marker}![TODO: describe image](images/a.png "T") tail${nl}`,
+    );
+    expect(fixed).toContain(`${marker}![TODO: describe image]`);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
