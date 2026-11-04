@@ -595,6 +595,36 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+  ])("fixes invalid links on separate lines without changing intervening text (%s)", (_name, nl) => {
+    const lines = [
+      "Start with [first]() here.",
+      "Intervening text: café, `code`, and [valid](./guide.md).",
+      "",
+      "Continue with [second](#) here.",
+      "Final text stays.",
+    ];
+    const doc = lines.join(nl);
+    const expected = lines
+      .map((line) =>
+        line
+          .replace("[first]()", "[first](TODO)")
+          .replace("[second](#)", "[second](TODO)"),
+      )
+      .join(nl);
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual([
+      "invalid-link-target",
+      "invalid-link-target",
+    ]);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+
+  it.each([
     ["both empty", "", ""],
     ["fragment and query markers", "#", "?"],
     ["whitespace-only hrefs", "  ", "\t "],
