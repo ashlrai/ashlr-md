@@ -17120,6 +17120,103 @@ describe("invalid-link-target autofix: invalid link at the start of a paragraph"
     expect(fixed).toBe(expected);
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
+
+  it.each([
+    ["an empty", ""],
+    ["a whitespace-only", " \t "],
+    ["a lone hash", "#"],
+    ["a lone question mark", "?"],
+  ])("replaces %s href with TODO and leaves the prose that follows byte-for-byte unchanged", (_name, href) => {
+    for (const nl of ["\n", "\r\n"]) {
+      const link = `[read this](${href})`;
+      const prose =
+        " continues with *emphasis*, café — a [valid](./ok.md) link and ![pic](p.png).";
+      const doc = `Opening paragraph.${nl}${nl}${link}${prose}${nl}Next line stays.${nl}`;
+      const rules = [ruleInvalidLinkTarget];
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+      const { from, to } = violations[0].range!;
+      // The link opens the paragraph: it is the line's first character.
+      expect(from).toMatchObject({ line: 3, col: 0 });
+      expect(doc.slice(from.offset, to.offset)).toBe(link);
+
+      const fixedLink = "[read this](TODO)";
+      const expected = `Opening paragraph.${nl}${nl}${fixedLink}${prose}${nl}Next line stays.${nl}`;
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      // Every byte after the repaired href is the original prose.
+      expect(fixed.slice(from.offset + fixedLink.length)).toBe(doc.slice(to.offset));
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+    }
+  });
+
+  it.each([
+    ["an ATX heading", "# Title"],
+    ["a setext heading", "Title\n==="],
+    ["a fenced code block holding a link decoy", "```md\n[sample]()\n```"],
+    ["a thematic break", "***"],
+  ])("fixes the opener of a paragraph that begins on the line after %s with no blank line between", (_name, block) => {
+    const rules = [ruleInvalidLinkTarget];
+    const doc = `${block}\n[next steps]() starts the paragraph and [ok](./ok.md) stays.\n`;
+    const expected = `${block}\n[next steps](TODO) starts the paragraph and [ok](./ok.md) stays.\n`;
+    const violations = lintDocument(doc, { rules });
+
+    // Only the paragraph opener is flagged — the decoy inside the fence is
+    // masked, and the valid link later in the paragraph is left alone.
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    expect(violations[0].range!.from.col).toBe(0);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+
+  it("fixes identical links that open and close the same paragraph while a code-span decoy between them stays untouched", () => {
+    const rules = [ruleInvalidLinkTarget];
+    const doc = "Intro.\n\n[guide]() then `[guide]()` in code and [guide]() again.\n";
+    const violations = lintDocument(doc, { rules });
+
+    // The code span is masked, so exactly the two real links are reported.
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+      "invalid-link-target",
+      "invalid-link-target",
+    ]);
+    expect(violations[0].range!.from.col).toBe(0);
+    // Each single fix rewrites only its own occurrence: the second fix starts
+    // searching from its own offset, skipping the identical masked decoy.
+    expect(applyFix(doc, violations[0])).toBe(
+      "Intro.\n\n[guide](TODO) then `[guide]()` in code and [guide]() again.\n",
+    );
+    expect(applyFix(doc, violations[1])).toBe(
+      "Intro.\n\n[guide]() then `[guide]()` in code and [guide](TODO) again.\n",
+    );
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(
+      "Intro.\n\n[guide](TODO) then `[guide]()` in code and [guide](TODO) again.\n",
+    );
+    expect(fixed).toContain("`[guide]()`");
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+  ])("fixes a paragraph-opening link that ends the document and adds no final newline (%s)", (_name, nl) => {
+    const doc = `Closing section.${nl}${nl}[the end](#)`;
+    const expected = `Closing section.${nl}${nl}[the end](TODO)`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(fixed.endsWith("\n")).toBe(false);
+    expect(fixed.endsWith("\r")).toBe(false);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
 });
 
 describe("autofix of an invalid link between two paragraphs with varied separators", () => {
