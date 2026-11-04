@@ -128,6 +128,31 @@ describe("autofix: undescribed image at the start of a line", () => {
 // ─── 2. Rule: invalid-link-target ────────────────────────────────────────────
 
 describe("rule:invalid-link-target", () => {
+  it("fixes multiple punctuated invalid links without changing their neighbors", () => {
+    const rules = [ruleInvalidLinkTarget];
+    for (const newline of ["\n", "\r\n"]) {
+      const doc = `Read ([first]()), then “[second]( \t )”? Finally:[third](#); done.${newline}`;
+      const expected = `Read ([first](TODO)), then “[second](TODO)”? Finally:[third](TODO); done.${newline}`;
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+        "invalid-link-target",
+        "invalid-link-target",
+        "invalid-link-target",
+      ]);
+      expect(
+        violations.map(({ range }) => doc.slice(range!.from.offset, range!.to.offset)),
+      ).toEqual(["[first]()", "[second]( \t )", "[third](#)"]);
+      expect(applyFix(doc, violations[1])).toBe(
+        `Read ([first]()), then “[second](TODO)”? Finally:[third](#); done.${newline}`,
+      );
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+      expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(expected);
+    }
+  });
+
   it("passes on valid links", () => {
     const doc = "See [docs](https://example.com) and [local](./file.md).\n";
     expect(lintDocument(doc, { rules: [ruleInvalidLinkTarget] })).toHaveLength(0);
