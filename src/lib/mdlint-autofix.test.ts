@@ -21502,3 +21502,69 @@ describe("autofix: undescribed image in a blockquote under the default rules", (
     expect(applyAllFixes(fixed, lintDocument(fixed))).toBe(fixed);
   });
 });
+
+describe("autofix: undescribed image with a deeply nested path", () => {
+  it.each([
+    ["five levels deep", "assets/images/2024/screenshots/ui/dashboard.png"],
+    ["dot-segment directories", "my.project/assets_v2/img.v3/final-shot.png"],
+    [
+      "hyphenated and underscored directories",
+      "docs/user-guide/screens_hot/app/main_window.png",
+    ],
+    ["a ../ segment mid-path", "assets/../shared/img/icons/app.svg"],
+    ["leading ../ segments", "../../shared/img/icons/app.svg"],
+    ["nested path with query and fragment", "assets/img/ui/panels/nav.png?w=640#top"],
+    ["nested path with a title", 'assets/img/ui/panels/nav.png "Navigation"'],
+  ])("inserts the description placeholder and preserves the full path (%s)", (_name, src) => {
+    for (const alt of ["", "  "]) {
+      const doc = `Intro. ![${alt}](${src}) outro.\n`;
+      const expected = `Intro. ![TODO: describe image](${src}) outro.\n`;
+      const rules = [ruleMissingAltText];
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+      const { from, to } = violations[0].range!;
+      // The violation covers the whole image markup, so the fix cannot
+      // truncate the nested destination.
+      expect(doc.slice(from.offset, to.offset)).toBe(`![${alt}](${src})`);
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      expect(fixed).toContain(`![TODO: describe image](${src})`);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+    }
+  });
+
+  it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+  ])("preserves the full nested path byte-for-byte under the default rules (%s line endings)", (_name, nl) => {
+    const src = "assets/images/2024/q4/screenshots/ui/dashboard.png";
+    const doc = [
+      "---",
+      "title: Report",
+      "---",
+      "",
+      "Quarterly summary.",
+      "",
+      `![ ](${src})`,
+      "",
+      "End.",
+      "",
+    ].join(nl);
+    const expected = doc.replace(`![ ](${src})`, `![TODO: describe image](${src})`);
+    const violations = lintDocument(doc);
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(`![ ](${src})`);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain(`![TODO: describe image](${src})`);
+    // The only change is the inserted placeholder: the whitespace-only
+    // description becomes "TODO: describe image".
+    expect(fixed.length).toBe(doc.length + "TODO: describe image".length - 1);
+    expect(lintDocument(fixed)).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed))).toBe(fixed);
+  });
+});
