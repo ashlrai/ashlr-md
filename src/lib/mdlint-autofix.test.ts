@@ -206,6 +206,24 @@ describe("autofix: two undescribed images on one line", () => {
     expect(fixed).toBe(expected);
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
+
+  it("applyFix one violation at a time keeps both sources, fixing the second after the first", () => {
+    const rules = [ruleMissingAltText];
+    const doc = 'A ![](a%20b.png?v=2#top "T") and ![](c.png) end.\n';
+    const placeholder = "![TODO: describe image]";
+
+    const afterFirst = applyFix(doc, lintDocument(doc, { rules })[0]);
+    expect(afterFirst).toBe(
+      `A ${placeholder}(a%20b.png?v=2#top "T") and ![](c.png) end.\n`,
+    );
+    expect(lintDocument(afterFirst, { rules })).toHaveLength(1);
+
+    const afterSecond = applyFix(afterFirst, lintDocument(afterFirst, { rules })[0]);
+    expect(afterSecond).toBe(
+      `A ${placeholder}(a%20b.png?v=2#top "T") and ${placeholder}(c.png) end.\n`,
+    );
+    expect(lintDocument(afterSecond, { rules })).toEqual([]);
+  });
 });
 
 describe("autofix: undescribed images on separate lines", () => {
