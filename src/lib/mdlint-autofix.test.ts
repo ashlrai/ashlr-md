@@ -525,6 +525,22 @@ describe("rule:invalid-link-target", () => {
     );
   });
 
+  it.each([
+    ["spaces", "   "],
+    ["a tab", "\t"],
+    ["mixed spaces and tabs", " \t \t "],
+    ["a non-breaking space", "\u00a0"],
+  ])("replaces a destination of %s with TODO and keeps the label", (_name, destination) => {
+    const doc = `See [Getting *started* guide](${destination}) now.\n`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe("See [Getting *started* guide](TODO) now.\n");
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
   it.each(["\n", "\r\n"])("fixes a final link without adding a newline (%j)", (nl) => {
     const doc = `Introduction.${nl}${nl}Read [the guide](#)`;
     const expected = `Introduction.${nl}${nl}Read [the guide](TODO)`;
