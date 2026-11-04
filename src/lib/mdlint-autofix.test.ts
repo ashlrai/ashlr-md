@@ -19762,6 +19762,27 @@ describe("autofix: invalid link after unrelated preceding lines", () => {
   it.each([
     ["LF", "\n"],
     ["CRLF", "\r\n"],
+  ])("preserves the immediately preceding prose line (%s)", (_name, nl) => {
+    const prose = "Unrelated prose with café and trailing spaces.  ";
+    const doc = `${prose}${nl}Read [guide]() carefully.${nl}`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    expect(violations[0].range?.from.line).toBe(2);
+    for (const fixed of [
+      applyFix(doc, violations[0]),
+      applyAllFixes(doc, violations),
+    ]) {
+      expect(fixed.split(nl)[0]).toBe(prose);
+      expect(fixed).toBe(`${prose}${nl}Read [guide](TODO) carefully.${nl}`);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+    }
+  });
+
+  it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
   ])("changes only the invalid href and keeps every preceding line byte-for-byte (%s)", (_name, nl) => {
     const rules = [ruleInvalidLinkTarget];
     // Preceding lines hold look-alikes: a fenced and inline-code empty href, a
