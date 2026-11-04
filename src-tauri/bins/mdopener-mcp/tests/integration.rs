@@ -16936,3 +16936,35 @@ fn export_text_keeps_consecutive_bracketed_phrases_in_every_block_shape() {
         );
     }
 }
+
+/// A numeric reference such as `[1]` is prose when no definition names it:
+/// both brackets survive in headings, emphasis, tables, lists, runs of
+/// references, ranges, lists of numbers and after punctuation.
+#[test]
+fn export_text_keeps_both_brackets_around_numeric_references_in_every_context() {
+    for (markdown, expected) in [
+        ("# Findings [1]\n", "Findings [1]"),
+        ("**Bold claim** [12]\n", "Bold claim [12]"),
+        ("*Claim [3]* and _claim [4]_\n", "Claim [3] and claim [4]"),
+        ("Cited twice [1][2] here\n", "Cited twice [1][2] here"),
+        (
+            "Range [1-3], list [1, 2, 3], big [1024]\n",
+            "Range [1-3], list [1, 2, 3], big [1024]",
+        ),
+        ("Done.[7] Next (see [8]).\n", "Done.[7] Next (see [8])."),
+        ("1. Ordered [5]\n2. Next [6]\n", "Ordered [5]\nNext [6]"),
+        (
+            "| Claim | Ref |\n|---|---|\n| Yes | [9] |\n",
+            "Claim\tRef\nYes\t[9]",
+        ),
+    ] {
+        let result = run_export_text_on(markdown);
+        let text = result["text"].as_str().unwrap();
+        assert_eq!(text, expected, "{markdown:?}");
+        assert_eq!(
+            text.matches('[').count(),
+            text.matches(']').count(),
+            "{text:?}"
+        );
+    }
+}
