@@ -12206,6 +12206,76 @@ describe("rule:missing-alt-text undescribed image in a blockquote", () => {
     expect(fixed).toContain("(photo.jpg)");
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
+
+  it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+  ])("inserts the placeholder under the default rule set and keeps every quote prefix and image source (%s)", (_name, nl) => {
+    const doc = [
+      "---",
+      "title: Quoted images",
+      "---",
+      "",
+      "# Quoted images",
+      "",
+      "An intro sentence.",
+      "",
+      "> Quoted line with ![](images/quote.png) inline.",
+      '> Second line ends with ![ ](images/tail.png?w=1#t "Tail").',
+      "",
+    ].join(nl);
+    const expected = [
+      "---",
+      "title: Quoted images",
+      "---",
+      "",
+      "# Quoted images",
+      "",
+      "An intro sentence.",
+      "",
+      "> Quoted line with ![TODO: describe image](images/quote.png) inline.",
+      '> Second line ends with ![TODO: describe image](images/tail.png?w=1#t "Tail").',
+      "",
+    ].join(nl);
+    const violations = lintDocument(doc);
+
+    expect(violations).toHaveLength(2);
+    expect(
+      violations.every((v) => v.ruleId === "missing-alt-text" && v.fix !== null),
+    ).toBe(true);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // The description placeholder and the blockquote prefix appear in the fixed output.
+    expect(fixed.match(/TODO: describe image/g)).toHaveLength(2);
+    expect(fixed).toContain(
+      "> Quoted line with ![TODO: describe image](images/quote.png)",
+    );
+    expect(fixed.split(nl).filter((line) => line.startsWith(">"))).toHaveLength(2);
+    // The fixed document is a fixed point under the full default rule set.
+    expect(applyAllFixes(fixed, lintDocument(fixed))).toBe(fixed);
+  });
+
+  it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+  ])("inserts the placeholder when the undescribed image ends a blockquote with no trailing newline (%s)", (_name, nl) => {
+    const doc = `Text.${nl}${nl}> Quote ends with ![](end.png)`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("missing-alt-text");
+    expect(violations[0].fix).not.toBeNull();
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(
+      `Text.${nl}${nl}> Quote ends with ![TODO: describe image](end.png)`,
+    );
+    // The description placeholder and the blockquote prefix appear in the fixed output.
+    expect(fixed).toContain("TODO: describe image");
+    expect(fixed).toContain("> Quote ends with");
+    expect(fixed.endsWith("\n")).toBe(false);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
 });
 
 describe("rule:missing-alt-text undescribed image in a blockquote with surrounding text", () => {
