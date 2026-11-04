@@ -14311,6 +14311,42 @@ describe("autofix preserves [1] prose brackets", () => {
       expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
     }
   });
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("keeps [1] verbatim in link-shaped prose — ([1]), [1] (note), **[1]** and [1][2] — while fixing a real broken link (%j line endings)", (nl) => {
+    // None of these spans is a link: a `(` only follows a space, a paren wraps
+    // the bracket, emphasis hugs it, and [1][2] has no destination.
+    const doc = [
+      "Cite ([1]) and [1] (see notes) plus **bold [1]** end.",
+      "Cluster [1][2] beside [broken]() done.",
+      "",
+    ].join(nl);
+    const expected = [
+      "Cite ([1]) and [1] (see notes) plus **bold [1]** end.",
+      "Cluster [1][2] beside [broken](TODO) done.",
+      "",
+    ].join(nl);
+    const rules = [ruleInvalidLinkTarget, ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    // The empty-href link is the only finding; every bracketed digit is prose.
+    expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+    expect(
+      doc.slice(violations[0].range!.from.offset, violations[0].range!.to.offset),
+    ).toBe("[broken]()");
+
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    // Every bracketed citation survives: no bracket or paren gained or lost.
+    expect(fixed.match(/\[\d+\]/g)).toHaveLength(doc.match(/\[\d+\]/g)!.length);
+    for (const span of ["([1])", "[1] (see notes)", "**bold [1]**", "[1][2]"])
+      expect(fixed).toContain(span);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
 });
 
 describe("autofix describes two undescribed images", () => {
