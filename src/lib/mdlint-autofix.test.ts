@@ -12856,3 +12856,39 @@ describe("autofix: [1] prose preservation across block contexts", () => {
     expect(fixAll(fixed)).toBe(fixed);
   });
 });
+
+// ─── Described relative image under the full built-in rule set ───────────────
+
+describe("autofix: described relative image preservation", () => {
+  it.each([
+    "\n",
+    "\r\n",
+  ])("leaves a described image with a relative source unchanged under every built-in rule (line endings %j)", (nl) => {
+    const image = '![Garden map](./assets/maps/garden.png "Garden")';
+    const doc = `---${nl}title: Garden${nl}---${nl}${nl}# Garden${nl}${nl}See ${image} for *details*.${nl}`;
+
+    const violations = lintDocument(doc, { rules: BUILTIN_RULES });
+    const imageViolations = violations.filter(
+      (violation) =>
+        violation.ruleId === "missing-alt-text" ||
+        violation.ruleId === "invalid-link-target",
+    );
+    expect(imageViolations).toEqual([]);
+
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toContain(image);
+    expect(fixed).not.toContain("TODO");
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules: BUILTIN_RULES }))).toBe(
+      fixed,
+    );
+  });
+
+  it("changes only the undescribed image when a described relative image sits beside it", () => {
+    const doc = "![Garden map](../maps/garden.png) and ![](../maps/empty.png)\n";
+    const rules = [ruleMissingAltText, ruleInvalidLinkTarget];
+
+    expect(applyAllFixes(doc, lintDocument(doc, { rules }))).toBe(
+      "![Garden map](../maps/garden.png) and ![TODO: describe image](../maps/empty.png)\n",
+    );
+  });
+});
