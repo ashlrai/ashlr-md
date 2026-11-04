@@ -13351,3 +13351,37 @@ describe("autofix: described relative image preservation", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+describe("autofix: bracketed number [1] beside an undescribed image", () => {
+  it.each([
+    [
+      "list item",
+      "- Claim [1] ![](a.png) end [1]\n",
+      "- Claim [1] ![TODO: describe image](a.png) end [1]\n",
+    ],
+    [
+      "blockquote",
+      "> Claim [1] ![](a.png) [1]\n",
+      "> Claim [1] ![TODO: describe image](a.png) [1]\n",
+    ],
+    [
+      "touching on both sides",
+      "x[1]![](a.png)[1]y\n",
+      "x[1]![TODO: describe image](a.png)[1]y\n",
+    ],
+    [
+      "CRLF paragraph",
+      "Claim [1]\r\n![](a.png) [1]\r\n",
+      "Claim [1]\r\n![TODO: describe image](a.png) [1]\r\n",
+    ],
+  ])("repairs the image and keeps every [1] verbatim (%s)", (_name, doc, expected) => {
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.match(/\[1\]/g)).toHaveLength(doc.match(/\[1\]/g)!.length);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
