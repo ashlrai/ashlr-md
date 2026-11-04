@@ -511,6 +511,32 @@ describe("rule:invalid-link-target", () => {
     }
   });
 
+  it("inserts the TODO placeholder without changing sentence punctuation abutting the link", () => {
+    for (const nl of ["\n", "\r\n"]) {
+      // A sentence-final "." and a "," touch the link's brackets with no
+      // space — not a matched open/close pair — so the fix may only rewrite
+      // the href bytes between the parentheses.
+      const doc = `Next.[draft](), then [ok](./ok.md); end.${nl}`;
+      const expected = `Next.[draft](TODO), then [ok](./ok.md); end.${nl}`;
+      const rules = [ruleInvalidLinkTarget];
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations).toHaveLength(1);
+      expect(violations[0].ruleId).toBe("invalid-link-target");
+      const { from, to } = violations[0].range!;
+      // The reported range covers the link only, not the abutting punctuation.
+      expect(doc.slice(from.offset, to.offset)).toBe("[draft]()");
+      expect(violations[0].fix).not.toBeNull();
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      // Undoing the placeholder restores the input byte-for-byte, so no
+      // punctuation was added, removed or moved.
+      expect(fixed.replaceAll("(TODO)", "()")).toBe(doc);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+    }
+  });
+
   it("preserves bracketed prose beside an invalid link while repairing only the link", () => {
     const doc =
       "Note [see below] and [sic] stay as written, but [broken]() is fixed; also [1] and [ ] remain.\n";
