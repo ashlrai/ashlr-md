@@ -6079,6 +6079,99 @@ describe("rule:missing-alt-text", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 
+  describe("on separate lines", () => {
+    const PLACEHOLDER = "TODO: describe image";
+
+    it.each([
+      "\n",
+      "\r\n",
+    ])("gives both images the placeholder and keeps the whole intervening block byte-for-byte (%j line endings)", (nl) => {
+      const first = '![](photos/first%20pic.png?v=1#top "First")';
+      const second = "![ \t](<photos/second pic.jpg>)";
+      const repairedFirst = `![${PLACEHOLDER}](photos/first%20pic.png?v=1#top "First")`;
+      const repairedSecond = `![${PLACEHOLDER}](<photos/second pic.jpg>)`;
+      const between = [
+        "Middle *emphasis* keeps [guide](./guide.md) and `![](decoy.png)` as code.",
+        "",
+        "![Already described](photos/done.png) stays byte-for-byte.",
+      ].join(nl);
+      const lines = (a: string, b: string) =>
+        ["# Gallery", "", a, between, b, ""].join(nl);
+      const doc = lines(first, second);
+      const expected = lines(repairedFirst, repairedSecond);
+      const rules = [ruleMissingAltText];
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+        "missing-alt-text",
+        "missing-alt-text",
+      ]);
+      // Each range covers exactly its own image on its own line.
+      expect(
+        violations.map(({ range }) => doc.slice(range!.from.offset, range!.to.offset)),
+      ).toEqual([first, second]);
+      expect(violations.map(({ range }) => range!.from.line)).toEqual([3, 7]);
+      // Either fix on its own describes only its own image.
+      expect(applyFix(doc, violations[0])).toBe(lines(repairedFirst, second));
+      expect(applyFix(doc, violations[1])).toBe(lines(first, repairedSecond));
+
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      expect(fixed.match(/!\[TODO: describe image\]/g)).toHaveLength(2);
+      // The intervening block — prose with emphasis, a valid link, an
+      // inline-code decoy, a blank line and a described image — arrives
+      // byte-for-byte: the slice of `fixed` between the repaired images
+      // equals the slice of `doc` between the undescribed ones.
+      const betweenFixed = fixed.slice(
+        fixed.indexOf(repairedFirst) + repairedFirst.length,
+        fixed.indexOf(repairedSecond),
+      );
+      expect(betweenFixed).toBe(
+        doc.slice(doc.indexOf(first) + first.length, doc.indexOf(second)),
+      );
+      expect(betweenFixed).toBe(`${nl}${between}${nl}`);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+      expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+    });
+
+    it("fixes the images one at a time in document order, re-linting between fixes", () => {
+      const nl = "\n";
+      const first = "![](img/one.png)";
+      const second = '![](img/two.png "Two")';
+      const repairedFirst = `![${PLACEHOLDER}](img/one.png)`;
+      const repairedSecond = `![${PLACEHOLDER}](img/two.png "Two")`;
+      const between = "Text that stays, with `![](decoy.png)` in code.";
+      const lines = (a: string, b: string) => `${a}${nl}${between}${nl}${b}${nl}`;
+      const doc = lines(first, second);
+      const expected = lines(repairedFirst, repairedSecond);
+      const rules = [ruleMissingAltText];
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map(({ range }) => range!.from.line)).toEqual([1, 3]);
+      // The single-fix path: fix the first image, then re-lint. The second
+      // image is still reported, at its offset shifted by the inserted
+      // placeholder.
+      const once = applyFix(doc, violations[0]);
+      expect(once).toBe(lines(repairedFirst, second));
+      const rest = lintDocument(once, { rules });
+      expect(rest.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+      expect(once.slice(rest[0].range!.from.offset, rest[0].range!.to.offset)).toBe(
+        second,
+      );
+      expect(rest[0].range!.from.offset).toBe(
+        violations[1].range!.from.offset + PLACEHOLDER.length,
+      );
+
+      const twice = applyFix(once, rest[0]);
+      expect(twice).toBe(expected);
+      // The sequential path lands on the same document as Fix All, with
+      // the intervening line untouched.
+      expect(twice).toBe(applyAllFixes(doc, violations));
+      expect(twice).toContain(`${nl}${between}${nl}`);
+      expect(lintDocument(twice, { rules })).toEqual([]);
+    });
+  });
+
   it.each([
     ["\n", false],
     ["\r\n", false],
