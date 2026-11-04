@@ -412,6 +412,39 @@ describe("rule:invalid-link-target", () => {
     }
   });
 
+  it.each([
+    ["parentheses", "(", ")"],
+    ["straight double quotes", '"', '"'],
+    ["straight single quotes", "'", "'"],
+    ["curly single quotes", "‘", "’"],
+    ["guillemets", "«", "»"],
+    ["single guillemets", "‹", "›"],
+    ["low-high quotes", "„", "“"],
+    ["em dashes", "—", "—"],
+    ["asterisk emphasis", "*", "*"],
+    ["inverted marks", "¡", "!"],
+  ])("invalid link wrapped in %s: destination becomes TODO and the punctuation around it is unchanged", (_name, open, close) => {
+    for (const target of ["", "  ", "#", "?"]) {
+      for (const nl of ["\n", "\r\n"]) {
+        const link = `[draft](${target})`;
+        const doc = `See ${open}${link}${close} next.${nl}`;
+        const expected = `See ${open}[draft](TODO)${close} next.${nl}`;
+        const rules = [ruleInvalidLinkTarget];
+        const violations = lintDocument(doc, { rules });
+
+        expect(violations).toHaveLength(1);
+        expect(violations[0].ruleId).toBe("invalid-link-target");
+        const { from, to } = violations[0].range!;
+        expect(doc.slice(from.offset, to.offset)).toBe(link);
+        expect(applyFix(doc, violations[0])).toBe(expected);
+        const fixed = applyAllFixes(doc, violations);
+        expect(fixed).toBe(expected);
+        expect(fixed).toContain(`${open}[draft](TODO)${close}`);
+        expect(lintDocument(fixed, { rules })).toEqual([]);
+      }
+    }
+  });
+
   it("preserves bracketed prose beside an invalid link while repairing only the link", () => {
     const doc =
       "Note [see below] and [sic] stay as written, but [broken]() is fixed; also [1] and [ ] remain.\n";
