@@ -20685,6 +20685,235 @@ describe("autofix: undescribed image beside punctuation", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
     expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(expected);
   });
+
+  it.each([
+    ".",
+    ",",
+    ";",
+    ":",
+    "!",
+    "?",
+    ")",
+    "...",
+    ".)",
+    "?!",
+    "…",
+    "—",
+    "。",
+    "！",
+    "？",
+  ])("undescribed image followed by punctuation %j gains the placeholder while the punctuation is unchanged", (punct) => {
+    const rules = [ruleMissingAltText];
+    for (const alt of ["", "  "]) {
+      for (const nl of ["\n", "\r\n"]) {
+        const image = `![${alt}](a.png)`;
+        const doc = `See ${image}${punct} Next line.${nl}`;
+        const expected = `See ![TODO: describe image](a.png)${punct} Next line.${nl}`;
+        const violations = lintDocument(doc, { rules });
+
+        expect(violations).toHaveLength(1);
+        // The range covers the image only, not the abutting punctuation.
+        expect(
+          doc.slice(violations[0].range!.from.offset, violations[0].range!.to.offset),
+        ).toBe(image);
+        expect(applyFix(doc, violations[0])).toBe(expected);
+        const fixed = applyAllFixes(doc, violations);
+        expect(fixed).toBe(expected);
+        expect(lintDocument(fixed, { rules })).toEqual([]);
+        expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(expected);
+      }
+    }
+  });
+
+  it.each([
+    ".",
+    ",",
+    ";",
+    ":",
+    "?",
+    "—",
+    "。",
+  ])("undescribed image directly after punctuation %j keeps that leading punctuation unchanged", (punct) => {
+    const rules = [ruleMissingAltText];
+    for (const alt of ["", "  "]) {
+      for (const nl of ["\n", "\r\n"]) {
+        const image = `![${alt}](a.png)`;
+        const doc = `End${punct}${image} next.${nl}`;
+        const expected = `End${punct}![TODO: describe image](a.png) next.${nl}`;
+        const violations = lintDocument(doc, { rules });
+
+        expect(violations).toHaveLength(1);
+        const { from, to } = violations[0].range!;
+        expect(doc.slice(from.offset, to.offset)).toBe(image);
+        expect(applyFix(doc, violations[0])).toBe(expected);
+        const fixed = applyAllFixes(doc, violations);
+        expect(fixed).toBe(expected);
+        expect(fixed.startsWith(`End${punct}`)).toBe(true);
+        expect(lintDocument(fixed, { rules })).toEqual([]);
+      }
+    }
+  });
+
+  it.each([
+    ".",
+    ",",
+    "?!",
+    "…",
+    "。",
+  ])("preserves terminal punctuation %j after an undescribed image without a final newline", (punct) => {
+    const rules = [ruleMissingAltText];
+    const doc = `Ends ![](a.png)${punct}`;
+    const expected = `Ends ![TODO: describe image](a.png)${punct}`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "missing-alt-text",
+    ]);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.endsWith(punct)).toBe(true);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
+    ["parentheses", "(", ")"],
+    ["straight double quotes", '"', '"'],
+    ["straight single quotes", "'", "'"],
+    ["curly double quotes", "“", "”"],
+    ["curly single quotes", "‘", "’"],
+    ["guillemets", "«", "»"],
+    ["single guillemets", "‹", "›"],
+    ["low-high quotes", "„", "“"],
+    ["em dashes", "—", "—"],
+    ["asterisk emphasis", "*", "*"],
+    ["bold emphasis", "**", "**"],
+    ["strikethrough marks", "~~", "~~"],
+    ["fullwidth parentheses", "（", "）"],
+    ["inverted marks", "¡", "!"],
+  ])("undescribed image wrapped in %s gains the placeholder while the punctuation around it is unchanged", (_name, open, close) => {
+    const rules = [ruleMissingAltText];
+    for (const nl of ["\n", "\r\n"]) {
+      const image = "![](a.png)";
+      const doc = `See ${open}${image}${close} next.${nl}`;
+      const expected = `See ${open}![TODO: describe image](a.png)${close} next.${nl}`;
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations).toHaveLength(1);
+      expect(violations[0].ruleId).toBe("missing-alt-text");
+      const { from, to } = violations[0].range!;
+      expect(doc.slice(from.offset, to.offset)).toBe(image);
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      expect(fixed).toContain(`${open}![TODO: describe image](a.png)${close}`);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+    }
+  });
+
+  it("inserts the placeholder without changing sentence punctuation abutting the image", () => {
+    const rules = [ruleMissingAltText];
+    for (const nl of ["\n", "\r\n"]) {
+      // A sentence-final "." and a "," touch the image's brackets with no
+      // space — not a matched open/close pair — so the fix may only fill
+      // the empty description between the brackets.
+      const doc = `Next.![](a.png), then ![ok](b.png); end.${nl}`;
+      const expected = `Next.![TODO: describe image](a.png), then ![ok](b.png); end.${nl}`;
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations).toHaveLength(1);
+      expect(violations[0].ruleId).toBe("missing-alt-text");
+      const { from, to } = violations[0].range!;
+      // The range covers the image only, not the abutting punctuation.
+      expect(doc.slice(from.offset, to.offset)).toBe("![](a.png)");
+      expect(violations[0].fix).not.toBeNull();
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      // Undoing the placeholder restores the input byte-for-byte, so no
+      // punctuation was added, removed or moved.
+      expect(fixed.replace("![TODO: describe image](a.png)", "![](a.png)")).toBe(doc);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+    }
+  });
+
+  it.each([
+    [
+      "a comma and a semicolon",
+      "Figs. ![](a.png), ![](b.png); end.",
+      "Figs. ![TODO: describe image](a.png), ![TODO: describe image](b.png); end.",
+    ],
+    [
+      "a colon and an em dash",
+      "A ![](a.png): B ![](b.png) — C.",
+      "A ![TODO: describe image](a.png): B ![TODO: describe image](b.png) — C.",
+    ],
+    [
+      "a period between sentences and a closing mark",
+      "![](a.png).![](b.png)!",
+      "![TODO: describe image](a.png).![TODO: describe image](b.png)!",
+    ],
+  ])("keeps punctuation separating two undescribed images (%s) byte-identical", (_name, doc, expected) => {
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+      "missing-alt-text",
+      "missing-alt-text",
+    ]);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(applyAllFixes(doc, [...violations].reverse())).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+
+  it.each([
+    ["stacked exclamation marks", "!![](a.png)!!", "!![TODO: describe image](a.png)!!"],
+    [
+      "a bracketed aside",
+      "[see: ![](a.png)].",
+      "[see: ![TODO: describe image](a.png)].",
+    ],
+    [
+      "a parenthesised note right after the image",
+      "See ![](a.png)(n.b.) now.",
+      "See ![TODO: describe image](a.png)(n.b.) now.",
+    ],
+    [
+      "escaped brackets after the image",
+      "See ![](a.png)\\[sic\\].",
+      "See ![TODO: describe image](a.png)\\[sic\\].",
+    ],
+  ])("keeps punctuation clusters around the image unchanged (%s)", (_name, doc, expected) => {
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe("![](a.png)");
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(expected);
+  });
+
+  it("keeps punctuation inside the destination and wrapped around the image unchanged", () => {
+    const rules = [ruleMissingAltText];
+    for (const nl of ["\n", "\r\n"]) {
+      const image = '![](a.png?v=2#f "T.,!?")';
+      const doc = `See (${image}): done.${nl}`;
+      const expected = `See (![TODO: describe image](a.png?v=2#f "T.,!?")): done.${nl}`;
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations).toHaveLength(1);
+      const { from, to } = violations[0].range!;
+      expect(doc.slice(from.offset, to.offset)).toBe(image);
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+    }
+  });
 });
 
 // ─── Undescribed image with Unicode surrounding prose ─────────────────────────
