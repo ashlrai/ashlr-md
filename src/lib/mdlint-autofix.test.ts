@@ -21142,3 +21142,31 @@ describe("invalid link at the start of a paragraph", () => {
     expect(lintDocument(expected, { rules })).toEqual([]);
   });
 });
+
+describe("autofix: invalid link and undescribed image on separate lines", () => {
+  it.each([
+    [
+      "link first",
+      ["Read [the guide]() now.", "Plain  middle line.", "Then ![](pic.png) here."],
+    ],
+    [
+      "image first",
+      ["Then ![](pic.png) here.", "Plain  middle line.", "Read [the guide]() now."],
+    ],
+  ])("puts each placeholder on its original line and keeps the other text (%s)", (_name, lines) => {
+    const doc = `${lines.join("\n")}\n`;
+    const expectedLines = lines.map((line) =>
+      line.replace("]()", "](TODO)").replace("![]", "![TODO: describe image]"),
+    );
+    const rules = [ruleInvalidLinkTarget, ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+    expect(violations.map(({ ruleId }) => ruleId).sort()).toEqual([
+      "invalid-link-target",
+      "missing-alt-text",
+    ]);
+
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed.split("\n")).toEqual([...expectedLines, ""]);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
