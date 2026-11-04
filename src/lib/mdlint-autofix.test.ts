@@ -164,6 +164,28 @@ describe("autofix: undescribed image at the start of a line", () => {
   });
 
   it.each([
+    [
+      "plain destination",
+      "![](a.png) then *prose*.",
+      "![TODO: describe image](a.png) then *prose*.",
+    ],
+    [
+      "angle-bracket destination with a title",
+      '![](<my dir/a (1).png> "T") then [link](b.md).',
+      '![TODO: describe image](<my dir/a (1).png> "T") then [link](b.md).',
+    ],
+  ])("fixes an image at the very start of the document (offset 0) and keeps the rest (%s)", (_name, line, expectedLine) => {
+    const rules = [ruleMissingAltText];
+    const doc = `${line}\nNext line.\n`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(`${expectedLine}\nNext line.\n`);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
     "\n",
     "\r\n",
   ])("describes both undescribed images on one line and keeps their destinations (%j)", (nl) => {
