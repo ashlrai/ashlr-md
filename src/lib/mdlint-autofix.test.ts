@@ -19494,3 +19494,27 @@ describe("autofix: undescribed image beside punctuation", () => {
     expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(expected);
   });
 });
+
+// ─── Undescribed image with Unicode surrounding prose ─────────────────────────
+
+describe("autofix: undescribed image with Unicode surrounding prose", () => {
+  it.each([
+    ["Arabic RTL", "مرحبا بالعالم", "هذه صورة."],
+    ["Hebrew RTL", "שלום עולם", "זו תמונה."],
+    ["combining marks", "Café naïve", "résumé."],
+    ["ZWJ emoji sequence", "👨‍👩‍👧‍👦 family", "🏳️‍🌈 pride."],
+    ["no-break and ideographic spaces", "a b　c", "d e　f."],
+    ["zero-width and bidi controls", "x​y‎z‮", "⁦w⁩."],
+    ["astral CJK extension", "𠮷野家", "𩸽の干物。"],
+  ])("preserves %s prose exactly", (_kind, before, after) => {
+    const rules = [ruleMissingAltText];
+    const doc = `${before} ![](a.png "T") ${after}\n`;
+    const expected = `${before} ![TODO: describe image](a.png "T") ${after}\n`;
+
+    const violations = lintDocument(doc, { rules });
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
