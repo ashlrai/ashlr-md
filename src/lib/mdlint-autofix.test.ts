@@ -17439,3 +17439,49 @@ describe("autofix: invalid link after unrelated preceding lines", () => {
     }
   });
 });
+
+describe("invalid-link-target autofix: every invalid href shape inside a blockquote", () => {
+  const rules = [ruleInvalidLinkTarget];
+  const markers = (text: string, nl: string) =>
+    text.split(nl).map((line) => line.match(/^(?:> ?)*/)?.[0]);
+
+  it.each([
+    ["empty", ""],
+    ["whitespace-only", " \t "],
+    ["lone fragment", "#"],
+    ["lone query", "?"],
+  ])("replaces the %s href with TODO and keeps every quote marker, label and surrounding prose", (_name, href) => {
+    for (const nl of ["\n", "\r\n"]) {
+      const lines = (dest: string) => [
+        "Intro before the quote.",
+        "",
+        `> Quoted prose, then [the guide](${dest}) and more,`,
+        "> > nested with a valid [ok](./ok.md) neighbour.",
+        "",
+        "Outro after the quote.",
+        "",
+      ];
+      const doc = lines(href).join(nl);
+      const expected = lines("TODO").join(nl);
+
+      const violations = lintDocument(doc, { rules });
+      expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+
+      // The range covers only the link — never the `>` marker or the prose.
+      const { from, to } = violations[0].range!;
+      expect(doc.slice(from.offset, to.offset)).toBe(`[the guide](${href})`);
+
+      // A single fix and the batch fix both rewrite only the href.
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+
+      // Every blockquote marker survives byte-for-byte, the valid neighbour
+      // is untouched and re-linting finds nothing left to fix.
+      expect(markers(fixed, nl)).toEqual(markers(doc, nl));
+      expect(fixed).toContain("> > nested with a valid [ok](./ok.md) neighbour.");
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+      expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+    }
+  });
+});
