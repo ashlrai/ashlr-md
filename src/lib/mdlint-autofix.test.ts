@@ -12777,6 +12777,38 @@ describe("autofix idempotence for undescribed images", () => {
       expect(lintDocument(once, { rules })).toEqual([]);
     }
   });
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("fixing the images one at a time converges to the same fixed point as one batch pass (line ending %j)", (nl) => {
+    const doc = [
+      'Start ![](a.png) mid ![](<b c.png> "T") end.',
+      "Second ![ ](d.png?v=1#frag) line.",
+      "",
+    ].join(nl);
+    const batch = fixPass(doc);
+
+    expect(batch.match(/!\[TODO: describe image\]/g)).toHaveLength(3);
+    expect(lintDocument(batch, { rules })).toEqual([]);
+
+    for (const violation of lintDocument(doc, { rules })) {
+      // A captured fix is a pure splice at lint-time offsets: applying it
+      // twice to the original document yields the same output.
+      expect(violation.fix).not.toBeNull();
+      const fixFn = violation.fix!;
+      expect(fixFn(doc)).toBe(fixFn(doc));
+
+      // Fixing just this image leaves the rest for a second pass, which
+      // converges to the batch result.
+      const step = applyFix(doc, violation);
+      expect(step).not.toBe(doc);
+      expect(applyAllFixes(step, lintDocument(step, { rules }))).toBe(batch);
+    }
+
+    // The batch result is itself a fixed point.
+    expect(fixPass(batch)).toBe(batch);
+  });
 });
 
 describe("autofix idempotence for undescribed images under the default rules", () => {
