@@ -17306,6 +17306,9 @@ describe("autofix: undescribed image on the final line after a valid paragraph",
         const violations = lintDocument(doc, { rules });
 
         expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+        const { from, to } = violations[0].range!;
+        expect(doc.slice(from.offset, to.offset)).toBe(`![${alt}](${source})`);
+        expect(applyFix(doc, violations[0])).toBe(expected);
         const fixed = applyAllFixes(doc, violations);
         expect(fixed).toBe(expected);
         expect(lintDocument(fixed, { rules })).toEqual([]);
