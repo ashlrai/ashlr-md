@@ -10144,6 +10144,64 @@ fn export_text_keeps_bracketed_prose_at_the_start_and_end_of_a_paragraph() {
     }
 }
 
+/// Bracketed prose closing a paragraph keeps both brackets and its text in
+/// the shapes the other end-of-paragraph tests leave out: trailing
+/// punctuation, several trailing brackets, brackets holding spaces, digits,
+/// non-ASCII text or parentheses, emphasis around them, CRLF line breaks
+/// and trailing spaces, and a paragraph followed by another.
+#[test]
+fn export_text_keeps_bracketed_prose_closing_a_paragraph_in_more_shapes() {
+    for (markdown, expected) in [
+        ("Confirmed twice [sic] [1]\n", "Confirmed twice [sic] [1]"),
+        ("Confirmed twice [sic][1]\n", "Confirmed twice [sic][1]"),
+        ("Was it so [sic]?\n", "Was it so [sic]?"),
+        ("He said so [sic]!\n", "He said so [sic]!"),
+        ("A list of items [a, b, c];\n", "A list of items [a, b, c];"),
+        (
+            "Edited by the author [emphasis added]\n",
+            "Edited by the author [emphasis added]",
+        ),
+        (
+            "Revisar la fuente [à revoir]\n",
+            "Revisar la fuente [à revoir]",
+        ),
+        ("確認が必要 [要確認]\n", "確認が必要 [要確認]"),
+        ("Compare the values [f(x)]\n", "Compare the values [f(x)]"),
+        (
+            "Cited as shown [12]\r\n\r\nNext paragraph.\r\n",
+            "Cited as shown [12]\n\nNext paragraph.",
+        ),
+        ("Ends with spaces [sic]   \n", "Ends with spaces [sic]"),
+        (
+            "**Bold claim** and plain end [sic]\n",
+            "Bold claim and plain end [sic]",
+        ),
+        ("A claim in *italics [sic]*\n", "A claim in italics [sic]"),
+        (
+            "See [the guide](/guide) and note [sic]\n",
+            "See the guide and note [sic]",
+        ),
+        (
+            "One [a]\n\nTwo [b]\n\nThree [c]\n",
+            "One [a]\n\nTwo [b]\n\nThree [c]",
+        ),
+    ] {
+        let result = run_export_text_on(markdown);
+        let text = result["text"].as_str().unwrap();
+        assert_eq!(text, expected, "{markdown:?}");
+        assert_eq!(
+            result["char_count"].as_u64().unwrap() as usize,
+            expected.chars().count(),
+            "{markdown:?}"
+        );
+        assert_eq!(
+            result["word_count"].as_u64().unwrap() as usize,
+            count_words(expected),
+            "{markdown:?}"
+        );
+    }
+}
+
 /// A `[...]` closing a paragraph keeps both brackets whatever comes next:
 /// a heading, setext underline, thematic break, fence, indented code,
 /// blockquote or footnote definition ends the paragraph, but none makes
