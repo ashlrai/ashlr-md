@@ -20382,3 +20382,43 @@ describe("autofix: undescribed image at the end of a paragraph", () => {
     expect(lintDocument(expected, { rules: [ruleMissingAltText] })).toEqual([]);
   });
 });
+
+describe("autofix: an invalid link in a loose list item", () => {
+  const rules = [ruleInvalidLinkTarget];
+
+  it.each([
+    ["-", "  ", "\n"],
+    ["1.", "   ", "\r\n"],
+  ])("keeps the label, marker %j and indented continuation paragraph (line ending %j)", (marker, indent, nl) => {
+    const doc = [
+      `${marker} Café [**guía** 🎉]() first.`,
+      "",
+      `${indent}Second paragraph, see [notes](  ) and [ok](./a.md).`,
+      "",
+      `${marker} [last]()`,
+      "",
+    ].join(nl);
+    const expected = [
+      `${marker} Café [**guía** 🎉](TODO) first.`,
+      "",
+      `${indent}Second paragraph, see [notes](TODO) and [ok](./a.md).`,
+      "",
+      `${marker} [last](TODO)`,
+      "",
+    ].join(nl);
+
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual(
+      Array(3).fill("invalid-link-target"),
+    );
+    expect(
+      violations.map((v) => doc.slice(v.range!.from.offset, v.range!.to.offset)),
+    ).toEqual(["[**guía** 🎉]()", "[notes](  )", "[last]()"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(applyAllFixes(doc, [...violations].reverse())).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+});
