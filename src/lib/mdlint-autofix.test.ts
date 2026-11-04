@@ -655,6 +655,26 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(fixed, { rules })).toHaveLength(0);
   });
 
+  it.each(["\n", "\r\n"])(
+    "sets both destinations to TODO and keeps the text between them, whatever the invalid kind (%j)",
+    (nl) => {
+      const between = " — *emph*, `code` (parens) [not a link] & ";
+      const doc = `Lead [a](#)${between}[b *bold*]( \t )${between}[c]() tail.${nl}Next line.${nl}`;
+      const expected = `Lead [a](TODO)${between}[b *bold*](TODO)${between}[c](TODO) tail.${nl}Next line.${nl}`;
+      const rules = [ruleInvalidLinkTarget];
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations).toHaveLength(3);
+      expect(applyAllFixes(doc, violations)).toBe(expected);
+      // Applying one at a time (re-linting between) reaches the same result.
+      let stepwise = doc;
+      for (let v = lintDocument(stepwise, { rules }); v.length; v = lintDocument(stepwise, { rules })) {
+        stepwise = applyFix(stepwise, v[0]);
+      }
+      expect(stepwise).toBe(expected);
+    },
+  );
+
   it("replaces a whitespace-only link destination and preserves surrounding text", () => {
     const doc = "Before, read [the guide]( \t ) carefully; then continue.\r\n";
     const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
