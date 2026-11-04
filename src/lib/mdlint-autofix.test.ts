@@ -13402,6 +13402,71 @@ describe("rule:invalid-link-target — invalid link beside a valid link", () => 
     expect(fixed).toContain("[fine](https://example.com/ok)");
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
+
+  it.each([
+    ["empty", ""],
+    ["whitespace-only", " \t "],
+    ["lone fragment", "#"],
+    ["lone query", "?"],
+  ])("repairs only the invalid destination when the links touch, keeping the valid link byte-for-byte (%s href)", (_name, href) => {
+    // A `)` inside the valid destination ends the rule's href match early, so
+    // preserving the valid link also means keeping its `?q=1#frag "Site")`
+    // tail, which the rule reads as ordinary text between the two links.
+    const valid = '[site](https://example.com/a_(b)?q=1#frag "Site")';
+    const invalid = `[draft](${href})`;
+    const repaired = "[draft](TODO)";
+    const rules = [ruleInvalidLinkTarget];
+
+    for (const nl of ["\n", "\r\n"]) {
+      for (const validFirst of [true, false]) {
+        const doc = `See ${validFirst ? valid + invalid : invalid + valid} now.${nl}`;
+        const expected = `See ${validFirst ? valid + repaired : repaired + valid} now.${nl}`;
+        const violations = lintDocument(doc, { rules });
+
+        expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+        const { from, to } = violations[0].range!;
+        expect(doc.slice(from.offset, to.offset)).toBe(invalid);
+        expect(violations[0].fix).not.toBeNull();
+        expect(applyFix(doc, violations[0])).toBe(expected);
+        const fixed = applyAllFixes(doc, violations);
+        expect(fixed).toBe(expected);
+        // Every byte outside the invalid link's span, the valid link included.
+        expect(
+          fixed.slice(0, from.offset) + fixed.slice(from.offset + repaired.length),
+        ).toBe(doc.slice(0, from.offset) + doc.slice(to.offset));
+        expect(lintDocument(fixed, { rules })).toEqual([]);
+        expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(expected);
+      }
+    }
+  });
+
+  it.each([
+    ["empty", ""],
+    ["whitespace-only", "  "],
+    ["lone fragment", "#"],
+    ["lone query", "?"],
+  ])("repairs an invalid link touching a different valid link on each side (%s href)", (_name, href) => {
+    const left = '[docs](./guide.md?next=TODO#links "Guide")';
+    const right = "[site](https://example.com/a_(b)?q=1#frag)";
+    const invalid = `[draft](${href})`;
+    // The whole document is the three touching links: the fix meets both
+    // document edges, with no prose around them.
+    const doc = `${left}${invalid}${right}`;
+    const expected = `${left}[draft](TODO)${right}`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(invalid);
+    expect(from.offset).toBe(left.length);
+    expect(to.offset).toBe(left.length + invalid.length);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(expected);
+  });
 });
 
 describe("invalid-link autofix: whitespace-only href beside a code span", () => {
