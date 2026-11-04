@@ -20731,3 +20731,22 @@ describe("autofix: a described image is left unchanged", () => {
     expect(applyAllFixes(doc, violations)).toBe(doc);
   });
 });
+
+describe("autofix: undescribed image with a Unicode path", () => {
+  it.each([
+    ["accented Latin", "images/café/résumé.png"],
+    ["CJK", "图片/截图.png"],
+    ["emoji", "img/🚀 launch.png"],
+    ["percent-encoded Unicode", "img/caf%C3%A9.png?v=2#top"],
+  ])("inserts the placeholder and preserves the path (%s)", (_kind, path) => {
+    const rules = [ruleMissingAltText];
+    const doc = `Before ![](${path}) after.\n`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(`Before ![TODO: describe image](${path}) after.\n`);
+    expect(fixed).toContain(`](${path})`);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
