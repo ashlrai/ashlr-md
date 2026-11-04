@@ -13351,3 +13351,19 @@ describe("autofix: described relative image preservation", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+describe("autofix preserves [1] prose brackets", () => {
+  it.each([
+    "\n",
+    "\r\n",
+  ])("keeps [1] and its neighbors when it sits next to a fixed link and image (line endings %j)", (nl) => {
+    const doc = `- Cite [1][draft]() then ![](a.png) [1].${nl}- ([1]) and [1]: note, [1]${nl}`;
+    const expected = `- Cite [1][draft](TODO) then ![TODO: describe image](a.png) [1].${nl}- ([1]) and [1]: note, [1]${nl}`;
+    const rules = [ruleInvalidLinkTarget, ruleMissingAltText];
+    const fixed = applyAllFixes(doc, lintDocument(doc, { rules }));
+
+    expect(fixed).toBe(expected);
+    expect(fixed.match(/\[1\]/g)).toHaveLength(doc.match(/\[1\]/g)?.length ?? -1);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
