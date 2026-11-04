@@ -161,6 +161,21 @@ describe("autofix: undescribed image at the start of a line", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 
+  it("inserts the placeholder and leaves trailing code spans, a described image and entities unchanged", () => {
+    const rules = [ruleMissingAltText];
+    const trailing =
+      " then `![](code.png)` and ![Logo](logo.svg) &amp; \\*literal\\* <b>x</b> — fin.";
+    const doc = `![](a.png)${trailing}\nNext.\n`;
+    const violations = lintDocument(doc, { rules });
+
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(`![TODO: describe image](a.png)${trailing}\nNext.\n`);
+    expect(fixed.slice("![TODO: describe image](a.png)".length)).toBe(
+      `${trailing}\nNext.\n`,
+    );
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+
   it.each([
     [
       "no title, prose after",
