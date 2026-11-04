@@ -14301,3 +14301,34 @@ describe("invalid-link-target autofix: placeholder and prefix in a blockquote", 
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+describe("rule:missing-alt-text undescribed image on the line after ordinary prose", () => {
+  it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+  ])("inserts the description placeholder and keeps the preceding prose line byte-identical (%s)", (_name, nl) => {
+    const prose = "Ordinary prose with café, 100% *sure*, a_b_c & (parens) [brackets].";
+    const image = '![](images/chart.png "Chart")';
+    const doc = `${prose}${nl}${image}${nl}`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual(["missing-alt-text"]);
+    // The image is reported on the line right after the prose line.
+    expect(violations[0].range!.from.line).toBe(2);
+    expect(
+      doc.slice(violations[0].range!.from.offset, violations[0].range!.to.offset),
+    ).toBe(image);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(
+      `${prose}${nl}![TODO: describe image](images/chart.png "Chart")${nl}`,
+    );
+    // Only the image line changed; the preceding prose line is untouched.
+    expect(fixed.split(nl)).toHaveLength(doc.split(nl).length);
+    expect(fixed.split(nl)[0]).toBe(prose);
+    expect(fixed.startsWith(`${prose}${nl}`)).toBe(true);
+    expect(applyFix(doc, violations[0])).toBe(fixed);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+});
