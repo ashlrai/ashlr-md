@@ -278,6 +278,31 @@ describe("autofix: undescribed image on a CRLF-delimited line", () => {
 
     expect(applyFix(doc, first)).toBe(`![${PLACEHOLDER}](a.png)\r\n![](b.png)\r\n`);
   });
+
+  it("describes the image in a realistic all-CRLF document, leaving code fences and the missing final newline alone", () => {
+    const rules = [ruleMissingAltText];
+    const doc = [
+      "# Report",
+      "",
+      "![](images/chart.png)",
+      "",
+      "```md",
+      "![](in-code.png)",
+      "```",
+      "",
+      "Last: ![](end.png)",
+    ].join("\r\n");
+    const violations = lintDocument(doc, { rules });
+    const fixed = applyAllFixes(doc, violations);
+
+    expect(fixed).toContain(`![${PLACEHOLDER}](images/chart.png)\r\n`);
+    expect(fixed.endsWith(`Last: ![${PLACEHOLDER}](end.png)`)).toBe(true);
+    expect(fixed).toContain("![](in-code.png)");
+    // Every line break is still CRLF: no bare LF was introduced, none lost.
+    expect(fixed.replace(/\r\n/g, "")).not.toMatch(/[\r\n]/);
+    expect(countOf(fixed, "\r\n")).toBe(countOf(doc, "\r\n"));
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
 });
 
 describe("autofix: undescribed image inside a list item", () => {
