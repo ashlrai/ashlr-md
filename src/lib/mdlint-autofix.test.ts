@@ -353,6 +353,23 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(expected, { rules })).toEqual([]);
   });
 
+  it("a valid link on an earlier line stays verbatim while the invalid link after it gets TODO", () => {
+    const doc =
+      "# Links\n\nRead [guide](./guide.md \"Guide\") first.\n\nThen see [broken]() and [web](https://example.com/a?b=1#c).\n";
+    const expected =
+      "# Links\n\nRead [guide](./guide.md \"Guide\") first.\n\nThen see [broken](TODO) and [web](https://example.com/a?b=1#c).\n";
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(
+      doc.slice(violations[0].range!.from.offset, violations[0].range!.to.offset),
+    ).toBe("[broken]()");
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+
   it("preserves bracketed prose beside an invalid link while repairing only the link", () => {
     const doc =
       "Note [see below] and [sic] stay as written, but [broken]() is fixed; also [1] and [ ] remain.\n";
