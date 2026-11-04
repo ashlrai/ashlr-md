@@ -6255,6 +6255,66 @@ describe("rule:invalid-link-target", () => {
       }
     }
   });
+
+  it.each([
+    ["", ""],
+    ["", "#"],
+    ["?", " \t "],
+    ["  ", "?"],
+  ])("replaces invalid destinations %j and %j with TODO when each link fills its own line", (firstHref, secondHref) => {
+    const rules = [ruleInvalidLinkTarget];
+    const first = `[first](${firstHref})`;
+    const second = `[second](${secondHref})`;
+    const before = ["# Notes", "", "Intro keeps [ok](./ok.md) and `[code]()`."];
+    const middle = "Middle stays — café &amp; *em*.";
+    const after = ["Tail keeps [guide](./guide.md#top).", ""];
+
+    for (const nl of ["\n", "\r\n"]) {
+      const lines = [...before, first, middle, second, ...after];
+      const doc = lines.join(nl);
+      const fixedLines = [
+        ...before,
+        "[first](TODO)",
+        middle,
+        "[second](TODO)",
+        ...after,
+      ];
+      const expected = fixedLines.join(nl);
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map((v) => v.ruleId)).toEqual([
+        "invalid-link-target",
+        "invalid-link-target",
+      ]);
+      expect(violations.map((v) => v.range!.from.line)).toEqual([4, 6]);
+      // Each range covers exactly its link-only line.
+      expect(
+        violations.map((v) => doc.slice(v.range!.from.offset, v.range!.to.offset)),
+      ).toEqual([first, second]);
+
+      // Each fix alone repairs only its own line's destination.
+      expect(applyFix(doc, violations[0])).toBe(
+        [...before, "[first](TODO)", middle, second, ...after].join(nl),
+      );
+      expect(applyFix(doc, violations[1])).toBe(
+        [...before, first, middle, "[second](TODO)", ...after].join(nl),
+      );
+
+      for (const fixed of [
+        applyAllFixes(doc, violations),
+        applyAllFixes(doc, [...violations].reverse()),
+      ]) {
+        expect(fixed).toBe(expected);
+        // Both destinations became TODO and every line — including the
+        // surrounding ones and every line break — is unchanged.
+        expect(fixed.match(/\(TODO\)/g)).toHaveLength(2);
+        expect(fixed.split(nl)).toEqual(fixedLines);
+      }
+      const remaining = lintDocument(expected, { rules });
+      expect(remaining).toEqual([]);
+      expect(applyAllFixes(expected, remaining)).toBe(expected);
+    }
+  });
 });
 
 // ─── 3. Rule: missing-alt-text ────────────────────────────────────────────────
