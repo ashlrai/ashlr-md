@@ -15147,3 +15147,32 @@ describe("undescribed image followed by a newline and ordinary prose", () => {
     }
   });
 });
+
+// ─── Undescribed image on a second paragraph ─────────────────────────────────
+describe("undescribed image on a second paragraph", () => {
+  it.each([
+    ["empty alt, plain destination", "![](chart.png)"],
+    ["whitespace alt, query and fragment", "![  ](img/chart.png?v=2#top)"],
+    ["empty alt, titled destination", '![](img/chart.png "Chart")'],
+  ])("fixes the description and leaves the first paragraph unchanged (%s)", (_name, image) => {
+    for (const nl of ["\n", "\r\n"]) {
+      const dest = image.slice(image.indexOf("]") + 1);
+      const first = "First paragraph with *emphasis*, a [link](./ok.md) and a citation [1].";
+      const rules = [ruleMissingAltText];
+      const doc = `${first}${nl}${nl}Second paragraph: ${image} after.${nl}`;
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map((v) => v.ruleId)).toEqual(["missing-alt-text"]);
+      expect(violations[0].range!.from.line).toBe(3);
+
+      const expected = `${first}${nl}${nl}Second paragraph: ![TODO: describe image]${dest} after.${nl}`;
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      // The preceding paragraph and blank line are byte-identical.
+      const head = first.length + nl.length * 2;
+      expect(fixed.slice(0, head)).toBe(doc.slice(0, head));
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+      expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+    }
+  });
+});
