@@ -759,6 +759,22 @@ describe("autofix: undescribed image inside a list item", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 
+  it.each([
+    ["plus bullet", "+ "],
+    ["parenthesis ordered", "3) "],
+    ["tab after the marker", "-\t"],
+  ])("inserts the placeholder into an image-only item and keeps the marker (%s)", (_kind, marker) => {
+    const doc = `${marker}![](shot.png)\n${marker}Next.\n`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(`${marker}![TODO: describe image](shot.png)\n${marker}Next.\n`);
+    expect(fixed.startsWith(marker)).toBe(true);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
   it("fixes an image mid-item without touching a described sibling", () => {
     const doc = "- See ![](a.png) and ![ok](b.png)\n";
     const rules = [ruleMissingAltText];
