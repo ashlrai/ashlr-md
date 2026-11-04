@@ -16494,6 +16494,29 @@ describe("autofix idempotence for undescribed images", () => {
   const fixPass = (text: string) => applyAllFixes(text, lintDocument(text, { rules }));
 
   it.each([
+    "\n",
+    "\r\n",
+  ])("leaves an unrelated unfixable warning unchanged on a second pass (%j)", (nl) => {
+    const activeRules = [ruleMissingAltText, ruleOrphanedHeading];
+    const doc = ["# Gallery", "## Images", "![](a.png) ![ ](b.png)", ""].join(nl);
+    const expected = [
+      "# Gallery",
+      "## Images",
+      "![TODO: describe image](a.png) ![TODO: describe image](b.png)",
+      "",
+    ].join(nl);
+    const pass = (text: string) =>
+      applyAllFixes(text, lintDocument(text, { rules: activeRules }));
+    const once = pass(doc);
+    const remaining = lintDocument(once, { rules: activeRules });
+
+    expect(once).toBe(expected);
+    expect(remaining.map(({ ruleId }) => ruleId)).toEqual(["orphaned-heading"]);
+    expect(remaining[0].fix).toBeNull();
+    expect(pass(once)).toBe(once);
+  });
+
+  it.each([
     ["empty alt", "![](images/a.png)"],
     ["angle-bracket destination with spaces", '![](<images/a b.png> "Title")'],
     ["several in one line", "![](a.png) and ![](b.png?v=2#top)"],
