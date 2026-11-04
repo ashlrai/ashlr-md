@@ -13801,3 +13801,30 @@ describe("autofix: bracketed prose [1], [sic] and [TODO]", () => {
     expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
   });
 });
+
+describe("invalid-link-target autofix: adjacent links in block contexts", () => {
+  it.each([
+    "\n",
+    "\r\n",
+  ])("applying autofix twice equals once for back-to-back invalid links in a list, quote and table (%j)", (nl) => {
+    const doc = [
+      "# Links",
+      "",
+      "- [a]()[b](#) tail",
+      "> [c](?) and [d](  )",
+      "",
+      "| col | link |",
+      "| --- | --- |",
+      "| x | [e]() |",
+      "",
+    ].join(nl);
+    const rules = [ruleInvalidLinkTarget];
+    const fix = (text: string) => applyAllFixes(text, lintDocument(text, { rules }));
+
+    const once = fix(doc);
+    expect(once).not.toBe(doc);
+    expect(once.match(/\]\(TODO\)/g)).toHaveLength(5);
+    expect(fix(once)).toBe(once);
+    expect(lintDocument(once, { rules })).toEqual([]);
+  });
+});
