@@ -103,6 +103,16 @@ describe("rule:invalid-link-target", () => {
     );
   });
 
+  it("replaces a whitespace-only link destination and preserves surrounding text", () => {
+    const doc = "Before, read [the guide]( \t ) carefully; then continue.\r\n";
+    const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("invalid-link-target");
+    expect(applyFix(doc, violations[0])).toBe(
+      "Before, read [the guide](TODO) carefully; then continue.\r\n",
+    );
+  });
+
   it("reports no invalid-link-target diagnostic for titled, angle-bracket and reference links", () => {
     const doc = [
       '[titled](./guide.md "Guide")',
