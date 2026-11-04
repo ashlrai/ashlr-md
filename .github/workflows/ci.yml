@@ -65,6 +65,10 @@ jobs:
       - name: Check npm script file paths
         run: node --test scripts/package-scripts.test.mjs
 
+      # Tauri's version (bundle + updater) must match package.json.
+      - name: Tauri and package.json versions match
+        run: bun run check:version
+
       # bash -n every bash/sh run block in .github/workflows; catches syntax
       # errors (e.g. an unclosed quote) before merge, which Actions only
       # surfaces at run time on the runner.
