@@ -17344,3 +17344,82 @@ describe("autofix: undescribed image beside a described image on its own line", 
     expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
   });
 });
+
+describe("autofix: undescribed image preserves unrelated following lines", () => {
+  it.each([
+    ["\n", ""],
+    ["\r\n", ""],
+    ["\n", " \t "],
+    ["\r\n", " \t "],
+  ])("changes only the missing image description with %j line endings and alt %j", (newline, alt) => {
+    const image = `![${alt}](images/chart.png?v=2#top "Chart")`;
+    const repaired = `![TODO: describe image](images/chart.png?v=2#top "Chart")`;
+    // A battery of unrelated lines after the image: a heading, list items, a
+    // blockquote, a fenced code block holding an undescribed-image lookalike,
+    // a table row holding a described image, and a Unicode tail line. None of
+    // them may change or produce a finding of their own.
+    const following = [
+      "## Results",
+      "",
+      "- First finding stays.",
+      "- Second `code` finding stays.",
+      "",
+      "> Quoted [context](./context.md) stays.",
+      "",
+      "```",
+      "![](skip.png) stays code, not a finding.",
+      "```",
+      "",
+      "| Kind | Value |",
+      "| ---- | ----- |",
+      '| Image | ![described](ok.png "Ok") |',
+      "",
+      "Tail café ☕ line.",
+      "",
+    ];
+    const lines = (img: string) =>
+      [
+        ["---", "title: Report", "---"].join(newline),
+        "",
+        "# Report",
+        "",
+        "Intro paragraph with [a link](./guide.md).",
+        "",
+        img,
+        "",
+        ...following,
+      ].join(newline);
+    const doc = lines(image);
+    const expected = lines(repaired);
+    const rules = [ruleMissingAltText];
+
+    // The document is clean under the full default rule set except for the
+    // undescribed image, so only the missing image description may change.
+    for (const violations of [lintDocument(doc, { rules }), lintDocument(doc)]) {
+      expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+      const { from, to } = violations[0].range!;
+      expect(doc.slice(from.offset, to.offset)).toBe(image);
+
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+
+      // The diff is confined to the image range: the prefix before it and
+      // every following line after it are byte-for-byte the original.
+      expect(fixed.slice(0, from.offset)).toBe(doc.slice(0, from.offset));
+      expect(fixed.slice(from.offset + repaired.length)).toBe(doc.slice(to.offset));
+      expect(fixed.length - doc.length).toBe(repaired.length - image.length);
+
+      // Line-for-line, not just a matching tail: the image's line is the
+      // repaired image and all lines below it are identical.
+      const docLines = doc.split(newline);
+      const fixedLines = fixed.split(newline);
+      expect(fixedLines).toHaveLength(docLines.length);
+      expect(fixedLines[from.line - 1]).toBe(repaired);
+      expect(fixedLines.slice(from.line)).toEqual(docLines.slice(from.line));
+
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+      expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+    }
+  });
+});
