@@ -252,6 +252,38 @@ describe("autofix: empty image description", () => {
   });
 });
 
+describe("autofix: undescribed image with a title", () => {
+  const rules = [ruleMissingAltText];
+
+  it.each([
+    ["double-quoted title", 'img/a.png "Sales chart"'],
+    ["single-quoted title", "img/a.png 'Sales chart'"],
+    ["parenthesised title", "img/a.png (Sales chart)"],
+    ["title with escaped quotes", 'img/a.png "Say \\"hi\\""'],
+    ["title containing brackets and a URL", 'img/a.png "see [x](y) at https://e.com"'],
+    ["title with a query-string source", 'a%20b.png?v=2#top "Chart"'],
+    ["angle-bracket source with a title", '<my dir/a (1).png> "T"'],
+    ["unicode source and title", '画像/図.png "図 — 説明"'],
+  ])("inserts the placeholder and keeps the source and title (%s)", (_kind, dest) => {
+    for (const alt of ["", "  "]) {
+      const doc = `Before ![${alt}](${dest}) after.\n`;
+      const violations = lintDocument(doc, { rules });
+      expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+
+      const expected = `Before ![TODO: describe image](${dest}) after.\n`;
+      expect(applyAllFixes(doc, violations)).toBe(expected);
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      expect(lintDocument(expected, { rules })).toEqual([]);
+    }
+  });
+
+  it("is idempotent: fixing the fixed document changes nothing", () => {
+    const doc = '![](a.png "Chart")\n';
+    const once = applyAllFixes(doc, lintDocument(doc, { rules }));
+    expect(applyAllFixes(once, lintDocument(once, { rules }))).toBe(once);
+  });
+});
+
 describe("autofix: undescribed image whose URL has a query string", () => {
   const rules = [ruleMissingAltText];
 
