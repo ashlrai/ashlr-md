@@ -20855,3 +20855,24 @@ describe("autofix: undescribed image at the end of a line before a hard break", 
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+describe("autofix: invalid-link stale-violation idempotence", () => {
+  it.each([
+    "\n",
+    "\r\n",
+  ])("re-applying the first-pass violations to the fixed text leaves it unchanged (%j)", (nl) => {
+    const rules = [ruleInvalidLinkTarget];
+    const doc = [
+      "Café [a]() [b](   ) [c](#) [d](?) end.",
+      "Keep [ok](./guide.md) and `[code]()`.",
+    ].join(nl);
+    const violations = lintDocument(doc, { rules });
+    expect(violations).toHaveLength(4);
+
+    const once = applyAllFixes(doc, violations);
+    expect(once).toContain("[a](TODO) [b](TODO) [c](TODO) [d](TODO)");
+    // Stale violations (offsets from the original text) applied again: no-op.
+    expect(applyAllFixes(once, violations)).toBe(once);
+    expect(violations.reduce((text, v) => applyFix(text, v), once)).toBe(once);
+  });
+});
