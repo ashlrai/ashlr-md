@@ -370,6 +370,39 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(expected, { rules })).toEqual([]);
   });
 
+  it.each([
+    ".",
+    ",",
+    ";",
+    ":",
+    "!",
+    "?",
+    ")",
+    "...",
+    ".)",
+    "?!",
+    "—",
+    "。",
+  ])("invalid link followed by punctuation %j: destination becomes TODO and the punctuation is unchanged", (punct) => {
+    for (const target of ["", "  ", "#"]) {
+      for (const nl of ["\n", "\r\n"]) {
+        const link = `[broken](${target})`;
+        const doc = `See ${link}${punct} Next line.${nl}`;
+        const expected = `See [broken](TODO)${punct} Next line.${nl}`;
+        const rules = [ruleInvalidLinkTarget];
+        const violations = lintDocument(doc, { rules });
+
+        expect(violations).toHaveLength(1);
+        expect(
+          doc.slice(violations[0].range!.from.offset, violations[0].range!.to.offset),
+        ).toBe(link);
+        expect(applyFix(doc, violations[0])).toBe(expected);
+        expect(applyAllFixes(doc, violations)).toBe(expected);
+        expect(lintDocument(expected, { rules })).toEqual([]);
+      }
+    }
+  });
+
   it("preserves bracketed prose beside an invalid link while repairing only the link", () => {
     const doc =
       "Note [see below] and [sic] stay as written, but [broken]() is fixed; also [1] and [ ] remain.\n";
