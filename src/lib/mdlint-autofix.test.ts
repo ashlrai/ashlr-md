@@ -16519,3 +16519,27 @@ describe("autofix: undescribed image with a Unicode source", () => {
     expect(lintDocument(fixed, { rules: defaultRules })).toEqual([]);
   });
 });
+
+describe("invalid-link-target autofix with two invalid links on one line", () => {
+  it.each([
+    ["\n", "[a]()[b](#)", "[a](TODO)[b](TODO)"],
+    [
+      "\r\n",
+      "**[a](  )** — `[x]()` — _[b](\t)_",
+      "**[a](TODO)** — `[x]()` — _[b](TODO)_",
+    ],
+  ])("turns both destinations into TODO and leaves surrounding text unchanged (%j)", (nl, line, fixedLine) => {
+    const doc = `Intro ✓${nl}${nl}Lead ${line} tail.${nl}${nl}Outro.${nl}`;
+    const expected = `Intro ✓${nl}${nl}Lead ${fixedLine} tail.${nl}${nl}Outro.${nl}`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual([
+      "invalid-link-target",
+      "invalid-link-target",
+    ]);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(applyAllFixes(doc, [...violations].reverse())).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+});
