@@ -13886,6 +13886,15 @@ describe("autofix on an empty document", () => {
     expect(violations).toEqual([]);
     expect(applyAllFixes("", violations)).toBe("");
   });
+
+  it.each(
+    BUILTIN_RULES.map((rule) => [rule.id, rule] as const),
+  )("autofix returns an empty document for rule %s on its own", (_id, rule) => {
+    const violations = lintDocument("", { rules: [rule] });
+
+    expect(violations).toEqual([]);
+    expect(applyAllFixes("", violations)).toBe("");
+  });
 });
 
 // ─── Undescribed image with multiline surrounding text ───────────────────────
