@@ -15440,6 +15440,28 @@ describe("autofix: described image with a relative path", () => {
   });
 });
 
+describe("undescribed image in a heading", () => {
+  it.each([
+    "\n",
+    "\r\n",
+  ])("inserts a description while preserving the destination and heading (%j)", (nl) => {
+    const destination = '../images/chart%20one.png?size=2&view=full#preview "Chart"';
+    const image = `![](${destination})`;
+    const doc = `## Quarterly ${image} results ##${nl}Body text.${nl}`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(image);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(
+      `## Quarterly ![TODO: describe image](${destination}) results ##${nl}Body text.${nl}`,
+    );
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
+
 // ─── Undescribed image followed by a newline and ordinary prose ──────────────
 describe("undescribed image followed by a newline and ordinary prose", () => {
   it.each([
