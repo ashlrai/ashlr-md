@@ -19357,6 +19357,51 @@ describe("missing-alt-text autofix in a blockquote", () => {
   });
 });
 
+describe("missing-alt-text autofix in a blockquote: prefix and source retention", () => {
+  const rules = [ruleMissingAltText];
+
+  it.each([
+    ["the whole document is one quote line", "> ![](img/quote.png)\n"],
+    ["a nested quote", "> > ![](img/quote.png)\n"],
+    ["prose around the image", "> See ![](img/quote.png?v=2#top) for details.\n"],
+    ["a CRLF quote", "> ![](img/quote.png)\r\n> Next.\r\n"],
+  ])("keeps the blockquote prefix and the image source while gaining the placeholder (%s)", (_name, doc) => {
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    expect(violations[0].fix).not.toBeNull();
+    // The violation range starts at the `!`, after the `>` marker that opens
+    // its line, so the fix cannot touch the quote prefix.
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset)).toMatch(/^!\[\s*\]\(/);
+    const lineStart = doc.lastIndexOf("\n", from.offset - 1) + 1;
+    expect(doc.slice(lineStart, from.offset)).toMatch(/^>/);
+
+    const fixed = applyAllFixes(doc, violations);
+    const fixedImage = doc
+      .slice(from.offset, to.offset)
+      .replace(/^!\[\s*\]/, "![TODO: describe image]");
+    expect(fixed).toBe(doc.slice(0, from.offset) + fixedImage + doc.slice(to.offset));
+    expect(fixed).toContain("![TODO: describe image](");
+    expect(fixed.startsWith(">")).toBe(true);
+    expect(applyFix(doc, violations[0])).toBe(fixed);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+
+  it.each([
+    [
+      "a four-space-indented quote line is indented code",
+      "Intro.\n\n    > ![](a.png)\n",
+    ],
+    ["a quote line inside a fenced block", "```md\n> ![](a.png)\n```\n"],
+    ["a described image whose alt contains a marker", "> ![a > b](x.png)\n"],
+  ])("flags nothing, so no fix can drop a prefix (%s)", (_name, doc) => {
+    expect(lintDocument(doc, { rules })).toEqual([]);
+    expect(applyAllFixes(doc, [])).toBe(doc);
+  });
+});
+
 describe("invalid-link-target autofix with Unicode link text in block containers", () => {
   const rules = [ruleInvalidLinkTarget];
 
