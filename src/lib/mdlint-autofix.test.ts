@@ -14240,3 +14240,72 @@ describe("invalid-link-target autofix: placeholder and prefix in a blockquote", 
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+// ─── Invalid link on the second line ─────────────────────────────────────────
+
+describe("invalid-link-target autofix: invalid link on the second line", () => {
+  it.each([
+    ["empty", ""],
+    ["whitespace-only", "   "],
+    ["lone fragment", "#"],
+    ["lone question mark", "?"],
+  ])("replaces the %s destination on line 2 and preserves the first line byte-for-byte", (_name, href) => {
+    for (const nl of ["\n", "\r\n"]) {
+      const firstLine = "Read [the guide](./guide.md) — café ☕, 100% *sure*.";
+      const link = `[draft](${href})`;
+      const doc = `${firstLine}${nl}Then see ${link} before merging.${nl}`;
+      const expected = `${firstLine}${nl}Then see [draft](TODO) before merging.${nl}`;
+      const rules = [ruleInvalidLinkTarget];
+      const violations = lintDocument(doc, { rules });
+
+      // Only the second line's link is flagged; the valid link on line 1 is not.
+      expect(violations).toHaveLength(1);
+      expect(violations[0].ruleId).toBe("invalid-link-target");
+      expect(violations[0].range!.from.line).toBe(2);
+      expect(
+        doc.slice(violations[0].range!.from.offset, violations[0].range!.to.offset),
+      ).toBe(link);
+      expect(applyFix(doc, violations[0])).toBe(expected);
+
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      // The first line — valid link, Unicode and punctuation included — is intact.
+      expect(fixed.split(nl)).toHaveLength(doc.split(nl).length);
+      expect(fixed.split(nl)[0]).toBe(firstLine);
+      expect(fixed.startsWith(`${firstLine}${nl}`)).toBe(true);
+      // Only the destination changed: the label and surrounding prose stay put.
+      expect(fixed.split(nl)[1]).toBe("Then see [draft](TODO) before merging.");
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+      expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+    }
+  });
+
+  it.each([
+    ["a heading", "# Release notes"],
+    ["a valid link", "See [the guide](./guide.md) first."],
+    ["a list item", "- keep [me](./a.md) and the [sic] note"],
+    ["plain prose", "Café ☕ — 100% *sure*, a_b_c & <b>tags</b>."],
+  ])("keeps a first line with %s byte-identical while fixing the invalid link below it", (_name, firstLine) => {
+    for (const nl of ["\n", "\r\n"]) {
+      const doc = `${firstLine}${nl}Next [step]() done.${nl}`;
+      const expected = `${firstLine}${nl}Next [step](TODO) done.${nl}`;
+      const rules = [ruleInvalidLinkTarget];
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations).toHaveLength(1);
+      expect(violations[0].ruleId).toBe("invalid-link-target");
+      expect(violations[0].range!.from.line).toBe(2);
+      expect(
+        doc.slice(violations[0].range!.from.offset, violations[0].range!.to.offset),
+      ).toBe("[step]()");
+      expect(applyFix(doc, violations[0])).toBe(expected);
+
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      expect(fixed.split(nl)).toHaveLength(doc.split(nl).length);
+      expect(fixed.split(nl)[0]).toBe(firstLine);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+      expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+    }
+  });
+});
