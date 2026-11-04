@@ -6701,6 +6701,52 @@ describe("rule:missing-alt-text", () => {
       expect(twice).toContain(`${nl}${between}${nl}`);
       expect(lintDocument(twice, { rules })).toEqual([]);
     });
+
+    it.each([
+      ["\n", ""],
+      ["\r\n", ""],
+      ["\n", "\n"],
+      ["\r\n", "\r\n"],
+    ])("describes both undescribed images when they are the only two lines (line endings %j, trailing break %j)", (nl, tail) => {
+      const first = '![](photos/one.png "One")';
+      const second = "![](<photos/two 2.png>)";
+      const repairedFirst = `![${PLACEHOLDER}](photos/one.png "One")`;
+      const repairedSecond = `![${PLACEHOLDER}](<photos/two 2.png>)`;
+      const doc = `${first}${nl}${second}${tail}`;
+      const expected = `${repairedFirst}${nl}${repairedSecond}${tail}`;
+      const rules = [ruleMissingAltText];
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+        "missing-alt-text",
+        "missing-alt-text",
+      ]);
+      // Each violation spans exactly its own line's image.
+      expect(
+        violations.map(({ range }) => doc.slice(range!.from.offset, range!.to.offset)),
+      ).toEqual([first, second]);
+      expect(violations.map(({ range }) => range!.from.line)).toEqual([1, 2]);
+      // Either fix alone describes only its own line's image.
+      expect(applyFix(doc, violations[0])).toBe(
+        `${repairedFirst}${nl}${second}${tail}`,
+      );
+      expect(applyFix(doc, violations[1])).toBe(
+        `${first}${nl}${repairedSecond}${tail}`,
+      );
+
+      // The LinterToast "Fix all" path lands on the same document.
+      clearLintHistory();
+      for (const fixAll of [applyAllFixes, fixAllViolations]) {
+        const fixed = fixAll(doc, violations);
+        expect(fixed).toBe(expected);
+        // Both destinations survive verbatim.
+        expect(fixed).toContain(`](photos/one.png "One")`);
+        expect(fixed).toContain(`](<photos/two 2.png>)`);
+        expect(fixed.match(/!\[TODO: describe image\]/g)).toHaveLength(2);
+        expect(lintDocument(fixed, { rules })).toEqual([]);
+        expect(fixAll(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+      }
+    });
   });
 
   it.each([
