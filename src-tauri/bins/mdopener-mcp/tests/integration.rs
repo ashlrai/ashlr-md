@@ -10696,6 +10696,15 @@ fn export_text_keeps_adjacent_sic_and_todo_from_both_sources() {
     }
 }
 
+/// A `[...]` that is prose keeps both of its brackets on lines of its own:
+/// consecutive lines, paragraphs a blank line apart, lines in different
+/// blocks and lines the document separates with a heading, a rule or a
+/// setext underline — from every source `export_text` reads (a file path,
+/// the open document over IPC and [`strip_markdown`]). Only real syntax
+/// owns the brackets on a line: a `[[wikilink]]` reads its target, a
+/// `[^n]` footnote reference reads `[n]`, an inline link reads its text,
+/// and a `[label]: /url` line after a blank line defines its label —
+/// while the same line inside a paragraph of bracketed lines is text.
 #[test]
 fn export_text_keeps_bracketed_prose_on_separate_lines() {
     for (markdown, expected) in [
@@ -10712,9 +10721,121 @@ fn export_text_keeps_bracketed_prose_on_separate_lines() {
             "[first]\n[second]\n\n[ref]: /guide\n\n[the guide][ref]\n",
             "[first]\n[second]\n\nthe guide",
         ),
+        // Each span a paragraph of its own, and pairs of spans in each.
+        (
+            "[first]\n\n[second]\n\n[third]\n",
+            "[first]\n\n[second]\n\n[third]",
+        ),
+        (
+            "[one] and [two]\n\n[three] and [four]\n",
+            "[one] and [two]\n\n[three] and [four]",
+        ),
+        // A paragraph, a list item and a blockquote on separate lines.
+        (
+            "[note] para\n\n- [item] listed\n\n> [quoted] words\n",
+            "[note] para\n\n[item] listed\n\n[quoted] words",
+        ),
+        // A heading and a thematic break part the bracketed paragraphs,
+        // and a setext underline makes a bracketed line a heading — the
+        // heading text keeps its brackets.
+        ("[above]\n\n# Mid\n\n[below]\n", "[above]\n\nMid\n\n[below]"),
+        ("[above]\n\n---\n\n[below]\n", "[above]\n\n[below]"),
+        ("[a] heading\n===\n[b] after\n", "[a] heading\n[b] after"),
+        ("[a] heading\n---\n[b] after\n", "[a] heading\n[b] after"),
+        // Plain text sits between the bracketed lines, and a bracket ends
+        // one line where the next begins.
+        (
+            "[alpha] leads.\nMiddle text.\n[beta] ends.\n",
+            "[alpha] leads.\nMiddle text.\n[beta] ends.",
+        ),
+        (
+            "Text ends [a]\n[b] more text.\n",
+            "Text ends [a]\n[b] more text.",
+        ),
+        // One to three spaces of indentation are no code, a tab or four
+        // spaces make the bracketed line code and keep it verbatim, and a
+        // hard break (two trailing spaces) keeps the next line's brackets.
+        (" [one]\n  [two]\n   [three]\n", "[one]\n[two]\n[three]"),
+        ("    [note] four deep\n", "[note] four deep"),
+        ("text\n\n    [note] four deep\n", "text\n\n[note] four deep"),
+        ("\t[note] tab deep\n", "[note] tab deep"),
+        ("[first]  \n[second]\n", "[first]  \n[second]"),
+        // CRLF endings between the lines read as `\n`.
+        (
+            "[first]\r\n[second]\r\n[third]\r\n",
+            "[first]\n[second]\n[third]",
+        ),
+        // Nested brackets on one line, a plain span on the next.
+        (
+            "[outer [inner] text]\n[next]\n",
+            "[outer [inner] text]\n[next]",
+        ),
+        // A fenced block's bracketed lines read verbatim; the prose line
+        // after it keeps its own.
+        ("```\n[a]\n[b]\n```\n\n[c]\n", "[a]\n[b]\n\n[c]"),
+        // A `[label]: /url` inside a paragraph of bracketed lines is text
+        // (a definition cannot interrupt a paragraph): it shows as
+        // written and defines nothing, so every span keeps its brackets.
+        (
+            "[first]\n[second]: /u\n[third]\n",
+            "[first]\n[second]: /u\n[third]",
+        ),
+        // Past a blank line the same line is a definition: its label's
+        // use on its own line resolves, the other span keeps its brackets.
+        ("[a]\n\n[b]\n\n[b]: /u\n", "[a]\n\nb"),
+        (
+            "[keep] stays\n\n[uses] resolves\n\n[uses]: /u\n",
+            "[keep] stays\n\nuses resolves",
+        ),
+        // Real syntax owns the brackets on its line: a `[[wikilink]]`
+        // reads its target or alias, a `[^n]` footnote reference reads
+        // `[n]`, and an inline link reads its text; each prose span keeps
+        // them.
+        (
+            "[[wiki]]\n[prose]\n[[other|alias]]\n",
+            "wiki\n[prose]\nalias",
+        ),
+        (
+            "[^1] ref line\n[prose] line\n\n[^1]: the note\n",
+            "[1] ref line\n[prose] line\n\n[1] the note",
+        ),
+        (
+            "Text [a] then\n\n[b] then [c](u) then [d]\n",
+            "Text [a] then\n\n[b] then c then [d]",
+        ),
     ] {
         let result = run_export_text_on(markdown);
-        assert_eq!(result["text"].as_str().unwrap(), expected, "{markdown:?}");
+        let rendered = result["text"].as_str().unwrap();
+        assert_eq!(rendered, expected, "{markdown:?}");
+        assert_eq!(strip_markdown(markdown), expected, "{markdown:?}");
+        let ipc = MockIpc::new().on_get(
+            "/content",
+            Ok(json!({ "path": "/docs/test.md", "content": markdown })),
+        );
+        let response = tool_export_text(id(2), &json!({}), &ipc);
+        assert!(response.error.is_none(), "{markdown:?}");
+        assert_eq!(
+            content_text(&response)["text"].as_str().unwrap(),
+            expected,
+            "{markdown:?}"
+        );
+        // Every written span keeps both of its brackets in the rendered
+        // text: its `[]` pairs balance, and the counts describe it.
+        assert_eq!(
+            rendered.matches('[').count(),
+            rendered.matches(']').count(),
+            "{markdown:?}"
+        );
+        assert_eq!(
+            result["char_count"].as_u64().unwrap() as usize,
+            expected.chars().count(),
+            "{markdown:?}"
+        );
+        assert_eq!(
+            result["word_count"].as_u64().unwrap() as usize,
+            count_words(expected),
+            "{markdown:?}"
+        );
     }
 }
 
