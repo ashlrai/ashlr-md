@@ -19452,3 +19452,35 @@ describe("autofix: image alt text made only of rare Unicode whitespace", () => {
     expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(expected);
   });
 });
+
+describe("autofix: already-described image", () => {
+  it.each([
+    ["plain alt text", "![A bar chart](images/chart.png)\n"],
+    [
+      "alt text with a title, query and fragment",
+      'Before ![Q3 revenue](images/a%20b.png?v=2#top "Chart") after.\n',
+    ],
+    ["alt text with Unicode and an emoji", "![図 😀 café](日本語/図.png)\n"],
+    ["alt text that is the placeholder", "![TODO: describe image](a.png)\n"],
+    ["a reference-style image", "![Logo][logo]\n\n[logo]: logo.svg\n"],
+    ["a CRLF document without a final newline", "Intro\r\n\r\n![Logo](logo.svg)"],
+  ])("leaves the alt text and source unchanged for %s", (_name, doc) => {
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toEqual([]);
+    expect(applyAllFixes(doc, violations)).toBe(doc);
+    expect(lintDocument(applyAllFixes(doc, violations), { rules })).toEqual([]);
+  });
+
+  it("fixes only the undescribed image and leaves the described one byte-identical", () => {
+    const rules = [ruleMissingAltText];
+    const doc = '![Kept alt](keep.png?v=1#x "T") and ![](new.png)\n';
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    expect(applyAllFixes(doc, violations)).toBe(
+      '![Kept alt](keep.png?v=1#x "T") and ![TODO: describe image](new.png)\n',
+    );
+  });
+});
