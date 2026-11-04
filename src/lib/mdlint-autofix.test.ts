@@ -20723,6 +20723,25 @@ describe("invalid-link autofix with an empty destination", () => {
   });
 });
 
+describe("invalid-link autofix with a whitespace-only destination", () => {
+  it.each([
+    " ",
+    "   ",
+    "\t",
+    " \t ",
+  ])("replaces destination %j and preserves the link text", (href) => {
+    const rules = [ruleInvalidLinkTarget];
+    const doc = `Read [Café guide ☕](${href}) and [valid](./guide.md).\n`;
+    const expected = "Read [Café guide ☕](TODO) and [valid](./guide.md).\n";
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+});
+
 describe("invalid-link autofix on the same line", () => {
   const rules = [ruleInvalidLinkTarget];
 
