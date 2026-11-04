@@ -13596,3 +13596,24 @@ describe("autofix describes two undescribed images", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+describe("link and image autofix: mixed invalid link and undescribed image", () => {
+  const rules = [ruleInvalidLinkTarget, ruleMissingAltText];
+  const fixPass = (text: string) => applyAllFixes(text, lintDocument(text, { rules }));
+
+  it("first pass fixes one invalid link and one undescribed image; a second pass changes nothing", () => {
+    const doc = '# Mixed\n\nSee [docs]() and ![](pic.png "A title") here.\n';
+    const violations = lintDocument(doc, { rules });
+    expect(violations.map((violation) => violation.ruleId).sort()).toEqual([
+      "invalid-link-target",
+      "missing-alt-text",
+    ]);
+
+    const once = applyAllFixes(doc, violations);
+    expect(once).toBe(
+      '# Mixed\n\nSee [docs](TODO) and ![TODO: describe image](pic.png "A title") here.\n',
+    );
+    expect(lintDocument(once, { rules })).toEqual([]);
+    expect(fixPass(once)).toBe(once);
+  });
+});
