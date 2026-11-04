@@ -5297,6 +5297,32 @@ describe("rule:missing-alt-text", () => {
     expect(fixed).toContain("(chart.png)");
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
+
+  it.each([
+    ["empty alt", "![](chart.png)"],
+    ["whitespace alt, title and query", '![ ](img/chart.png?v=2#top "Chart")'],
+    ["angle-bracket destination", "![](<img/site map.png>)"],
+  ])("inserts the description into a document that is only an undescribed image, without adding a final newline (%s)", (_name, image) => {
+    const rules = [ruleMissingAltText];
+    const dest = image.slice(image.indexOf("]") + 1);
+    const expected = `![TODO: describe image]${dest}`;
+    const violations = lintDocument(image, { rules });
+
+    expect(violations).toHaveLength(1);
+    const fixed = applyAllFixes(image, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.endsWith("\n")).toBe(false);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+
+  it("keeps a final newline absent after fixing a last-line undescribed image under the default rule set", () => {
+    const doc = "---\ntitle: Doc\n---\n\n# Title\n\nSome text.\n\n![](chart.png)";
+    const fixed = applyAllFixes(doc, lintDocument(doc));
+
+    expect(fixed).toBe("---\ntitle: Doc\n---\n\n# Title\n\nSome text.\n\n![TODO: describe image](chart.png)");
+    expect(fixed.endsWith("\n")).toBe(false);
+  });
   it.each([
     ["empty alt, parenthesized destination", "![](img/chart_(1).png)"],
     ["whitespace alt, title and query", '![ ](img/chart.png?v=2#top "Chart")'],
