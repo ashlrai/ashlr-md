@@ -4407,6 +4407,37 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    [
+      "an image starting the quote line",
+      "> ![](a.png) tail",
+      "> ![TODO: describe image](a.png) tail",
+    ],
+    [
+      "an image alone in a nested quote",
+      ">> ![ ](a.png)",
+      ">> ![TODO: describe image](a.png)",
+    ],
+    [
+      "an image in a quoted list item",
+      '> - ![](a.png "T")',
+      '> - ![TODO: describe image](a.png "T")',
+    ],
+    [
+      "a lazy continuation line",
+      "> text\n![](a.png)",
+      "> text\n![TODO: describe image](a.png)",
+    ],
+  ])("fixes an undescribed image at the start of a blockquote line one at a time and keeps the marker (%s)", (_name, doc, expected) => {
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+
+  it.each([
     ["bare filename", "chart.png"],
     ["dot-slash", "./chart.png"],
     ["parent directory", "../chart.jpeg"],
