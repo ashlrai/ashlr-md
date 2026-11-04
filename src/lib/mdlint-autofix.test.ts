@@ -14301,3 +14301,22 @@ describe("invalid-link-target autofix: placeholder and prefix in a blockquote", 
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+describe("rule:invalid-link-target: link glued to punctuation with no spaces", () => {
+  it.each([
+    ["quotes and parens", '("[a]()")', '("[a](TODO)")'],
+    ["em dashes", "x—[a]()—y", "x—[a](TODO)—y"],
+    ["ellipsis", "wait…[a]()…done", "wait…[a](TODO)…done"],
+    ["slash and colon", "a/[b](#):c", "a/[b](TODO):c"],
+    ["two links split by a period", "[a]().[b]()", "[a](TODO).[b](TODO)"],
+  ])("replaces the href and keeps the punctuation touching the link (%s)", (_name, line, expectedLine) => {
+    const doc = `${line}\n`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.length).toBeGreaterThan(0);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(`${expectedLine}\n`);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
