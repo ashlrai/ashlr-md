@@ -16310,3 +16310,27 @@ describe("invalid-link-target autofix with a valid link on the same line", () =>
     }
   });
 });
+
+describe("missing-alt-text autofix beside a valid link", () => {
+  const rules = [ruleInvalidLinkTarget, ruleMissingAltText];
+  const link = '[guide](./guide.md?view=full#intro "Guide")';
+  const image = '![](images/chart.png "Chart")';
+  const described = '![TODO: describe image](images/chart.png "Chart")';
+
+  it.each([
+    ["image first", `${image} ${link}`, `${described} ${link}`],
+    ["link first", `${link} ${image}`, `${link} ${described}`],
+  ])("describes only the image when the %s appears on the same line", (_name, line, expected) => {
+    for (const nl of ["\n", "\r\n"]) {
+      const doc = `# Guide${nl}${nl}See ${line} today.${nl}`;
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(`# Guide${nl}${nl}See ${expected} today.${nl}`);
+      expect(fixed).toContain(link);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+      expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+    }
+  });
+});
