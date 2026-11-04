@@ -20605,3 +20605,25 @@ describe("invalid-link-target autofix: invalid link starting a blockquote line",
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+describe("autofix: a described image is left unchanged", () => {
+  it("returns the complete Markdown byte-for-byte when the only image has a description", () => {
+    const doc = [
+      "---",
+      "title: Guide",
+      "---",
+      "",
+      "# Report",
+      "",
+      'Before ![Sales chart](images/a%20b.png?v=2#top "Chart") after.',
+      "",
+      "Done.",
+      "",
+    ].join("\n");
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toEqual([]);
+    expect(applyAllFixes(doc, violations)).toBe(doc);
+  });
+});
