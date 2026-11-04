@@ -13239,6 +13239,28 @@ describe("autofix: valid link and described image no-op", () => {
     expect(fixed.match(/TODO: describe image/g)).toHaveLength(1);
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("inserts the placeholder for an undescribed image ending a paragraph and keeps the prose before it (line ending %j)", (newline) => {
+    const prose =
+      "Intro café with *emphasis*, [local](./local.md) and `code`, then the chart: ";
+    const image = '![](images/end.png?v=2#top "T")';
+    const doc = `# Title${newline}${newline}${prose}${image}${newline}${newline}Next paragraph.${newline}`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("missing-alt-text");
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(
+      `# Title${newline}${newline}${prose}![TODO: describe image](images/end.png?v=2#top "T")${newline}${newline}Next paragraph.${newline}`,
+    );
+    expect(fixed.startsWith(`# Title${newline}${newline}${prose}`)).toBe(true);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
 });
 
 describe("autofix idempotence for undescribed images: headings, tables and fenced decoys", () => {
