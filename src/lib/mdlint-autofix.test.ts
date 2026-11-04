@@ -12755,6 +12755,16 @@ describe("rule:missing-alt-text undescribed image on the last line without a fin
       "Text.\n\n![](a.png)  ",
       "Text.\n\n![TODO: describe image](a.png)  ",
     ],
+    [
+      "prose after the image",
+      "Text.\n\nSee ![](a.png) for the layout.",
+      "Text.\n\nSee ![TODO: describe image](a.png) for the layout.",
+    ],
+    [
+      "linked image",
+      "Docs\n\n[![](a.png)](https://example.com/a)",
+      "Docs\n\n[![TODO: describe image](a.png)](https://example.com/a)",
+    ],
     ["image-only document", "![](a.png)", "![TODO: describe image](a.png)"],
   ])("adds the description and no final newline (%s)", (_name, doc, expected) => {
     const rules = [ruleMissingAltText];
