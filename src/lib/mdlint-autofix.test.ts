@@ -17398,3 +17398,44 @@ describe("autofix: undescribed image beside a described image on its own line", 
     expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
   });
 });
+
+describe("autofix: invalid link after unrelated preceding lines", () => {
+  it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+  ])("changes only the invalid href and keeps every preceding line byte-for-byte (%s)", (_name, nl) => {
+    const rules = [ruleInvalidLinkTarget];
+    // Preceding lines hold look-alikes: a fenced and inline-code empty href, a
+    // valid link, a reference definition, trailing spaces and an orphan heading.
+    const preceding = [
+      "# Café guide",
+      "",
+      "Valid [docs](./guide.md) and `[inline]()` stay put.  ",
+      "",
+      "```md",
+      "[fenced]()",
+      "```",
+      "",
+      "- item with [ref][r] and *emphasis*",
+      "",
+      "[r]: https://example.com/ref",
+      "",
+    ];
+    const doc = [...preceding, "Then [broken]() here.", "Tail."].join(nl);
+    const expected = [...preceding, "Then [broken](TODO) here.", "Tail."].join(nl);
+
+    const violations = lintDocument(doc, { rules });
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    expect(violations[0].range?.from.line).toBe(preceding.length + 1);
+
+    for (const fixed of [
+      applyAllFixes(doc, violations),
+      applyFix(doc, violations[0]),
+    ]) {
+      expect(fixed).toBe(expected);
+      expect(fixed.split(nl).slice(0, preceding.length)).toEqual(preceding);
+      expect(fixed.split(nl).at(-1)).toBe("Tail.");
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+    }
+  });
+});
