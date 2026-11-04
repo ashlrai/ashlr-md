@@ -907,6 +907,23 @@ describe("rule:invalid-link-target", () => {
     ).toBe(doc);
   });
 
+  it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+  ])("leaves a valid link in a document without a final newline unchanged under every default rule (%s)", (_name, nl) => {
+    const doc = `---${nl}title: Guide${nl}---${nl}${nl}# Guide${nl}${nl}Read [the guide](./guide.md#intro) now`;
+
+    for (const violations of [
+      lintDocument(doc),
+      lintDocument(doc, { rules: [ruleInvalidLinkTarget] }),
+    ]) {
+      expect(applyAllFixes(doc, violations)).toBe(doc);
+    }
+    // No final newline is added, and a second pass is stable.
+    expect(applyAllFixes(doc, lintDocument(doc)).endsWith("now")).toBe(true);
+    expect(lintDocument(doc, { rules: [ruleInvalidLinkTarget] })).toEqual([]);
+  });
+
   it("leaves a valid link byte-identical when autofix repairs another violation on the same line", () => {
     const link = "[guide](https://example.com/a_(b)?q=1#top)";
     const doc = `See ${link} and **[bold](./bold.md)** here.   \n`;
