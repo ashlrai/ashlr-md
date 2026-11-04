@@ -750,6 +750,42 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+  ])("replaces an invalid href that starts a paragraph with TODO and preserves the prose that follows, including the wrapped line (%s)", (_name, nl) => {
+    const first = "First paragraph ends with a [valid](./ok.md) link.";
+    const doc = [
+      first,
+      "",
+      "[Paragraph opener]() continues with *emphasis*, `code` and a [web](https://example.com/a?b=1) link,",
+      "then a wrapped line with café — punctuation; and more.",
+      "",
+      "Closing paragraph is untouched.",
+      "",
+    ].join(nl);
+    const expected = doc.replace("[Paragraph opener]()", "[Paragraph opener](TODO)");
+    const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
+
+    expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+    const { from, to } = violations[0].range!;
+    expect(from.line).toBe(3);
+    expect(from.col).toBe(0);
+    expect(doc.slice(from.offset, to.offset)).toBe("[Paragraph opener]()");
+    // The character before the link is the blank-line break, i.e. a paragraph start.
+    expect(doc.slice(0, from.offset).endsWith(`${nl}${nl}`)).toBe(true);
+
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    // Everything after the rewritten href is byte-for-byte the original prose.
+    expect(fixed.slice(from.offset + "[Paragraph opener](TODO)".length)).toBe(
+      doc.slice(to.offset),
+    );
+    expect(fixed.startsWith(`${first}${nl}${nl}`)).toBe(true);
+    expect(lintDocument(fixed, { rules: [ruleInvalidLinkTarget] })).toEqual([]);
+  });
+
+  it.each([
     "-",
     "*",
     "+",
