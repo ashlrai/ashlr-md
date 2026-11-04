@@ -17149,6 +17149,65 @@ describe("missing-alt-text autofix in a blockquote", () => {
       expect(applyAllFixes(doc, violations)).toBe(expected);
     }
   });
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("inserts the placeholder in a blockquote inside a list item and keeps both markers (%j line endings)", (nl) => {
+    const rules = [ruleMissingAltText];
+    const doc = [
+      "Intro.",
+      "",
+      "- > See ![](quoted/item.png) now.",
+      "  > Tail of the quote.",
+      "",
+      "Done.",
+      "",
+    ].join(nl);
+    const expected = [
+      "Intro.",
+      "",
+      "- > See ![TODO: describe image](quoted/item.png) now.",
+      "  > Tail of the quote.",
+      "",
+      "Done.",
+      "",
+    ].join(nl);
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    expect(violations[0].fix).not.toBeNull();
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe("![](quoted/item.png)");
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // The list item's `- ` and the quote's `>` marker are preserved.
+    expect(fixed).toContain("- > See ![TODO: describe image](quoted/item.png)");
+    expect(fixed).toContain(`${nl}  > Tail of the quote.${nl}`);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("describes only the real image on a quote line whose code span shows an image example (%j line endings)", (nl) => {
+    const rules = [ruleMissingAltText];
+    const doc = `> \`![](example.png)\` is code, but ![](real.png) is not.${nl}`;
+    const expected = `> \`![](example.png)\` is code, but ![TODO: describe image](real.png) is not.${nl}`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe("![](real.png)");
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // The blockquote marker and the code span example stay untouched.
+    expect(fixed).toContain("> `![](example.png)`");
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
 });
 
 describe("invalid-link-target autofix with Unicode link text in block containers", () => {
