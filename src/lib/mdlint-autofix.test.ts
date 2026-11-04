@@ -20731,3 +20731,22 @@ describe("autofix: a described image is left unchanged", () => {
     expect(applyAllFixes(doc, violations)).toBe(doc);
   });
 });
+
+describe("autofix: invalid link at the start of a line keeps the prose that follows", () => {
+  it.each([
+    ["no indent, no final newline", "[a]() then prose.", "[a](TODO) then prose."],
+    ["indented up to three spaces", "Intro.\n\n   [a]() then *prose*.\nTail.\n", "Intro.\n\n   [a](TODO) then *prose*.\nTail.\n"],
+    ["a valid link later on the line", "[a]() and [b](./b.md) end.\n", "[a](TODO) and [b](./b.md) end.\n"],
+    ["an invalid link later on the line too", "[a]() and [b]() end.\n", "[a](TODO) and [b](TODO) end.\n"],
+    ["a following blank line and paragraph", "[a]()\n\nNext paragraph.\n", "[a](TODO)\n\nNext paragraph.\n"],
+  ])("turns the empty destination into TODO with %s", (_name, doc, expected) => {
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.length).toBeGreaterThan(0);
+    expect(violations.every((v) => v.ruleId === "invalid-link-target")).toBe(true);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
