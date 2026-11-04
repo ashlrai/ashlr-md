@@ -9718,6 +9718,37 @@ describe("rule:missing-alt-text mixed described and undescribed images", () => {
       fixed,
     );
   });
+
+  it.each([
+    ["", "\n"],
+    [" \t ", "\r\n"],
+  ])("fixes an undescribed image (alt %j) on a line directly followed by a described image, which stays unchanged (%j line endings)", (alt, nl) => {
+    // Consecutive lines in the same paragraph: no blank line between them.
+    const undescribed = `![${alt}](photos/lake.jpg)`;
+    const described = '![Sunset over the lake](photos/sunset.jpg?size=2#top "Sunset")';
+    const doc = `Gallery:${nl}${undescribed}${nl}${described}${nl}`;
+    const expected = `Gallery:${nl}![TODO: describe image](photos/lake.jpg)${nl}${described}${nl}`;
+
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("missing-alt-text");
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(undescribed);
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // The described image is byte-for-byte preserved.
+    expect(fixed).toContain(described);
+    expect(fixed.match(/TODO: describe image/g)).toHaveLength(1);
+    expect(fixed).not.toContain(undescribed);
+    // Clean after fix, and a second pass changes nothing.
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
 });
 
 describe("rule:missing-alt-text two undescribed images", () => {
