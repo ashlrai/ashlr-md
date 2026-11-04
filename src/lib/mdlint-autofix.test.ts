@@ -4841,6 +4841,31 @@ describe("rule:invalid-link-target", () => {
     // Idempotent.
     expect(applyAllFixes(expected, lintDocument(expected, { rules }))).toBe(expected);
   });
+
+  it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+  ])("replaces the invalid href on the last line of a document with no final newline and adds none (%s)", (_name, nl) => {
+    const rules = [ruleInvalidLinkTarget];
+    const doc = ["Intro with [ok](./a.md).", "", "Last line: [draft]()"].join(nl);
+    const expected = ["Intro with [ok](./a.md).", "", "Last line: [draft](TODO)"].join(
+      nl,
+    );
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("invalid-link-target");
+    const { from, to } = violations[0].range!;
+    expect(from.line).toBe(3);
+    expect(doc.slice(from.offset, to.offset)).toBe("[draft]()");
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // No final newline is added.
+    expect(fixed.endsWith("\n")).toBe(false);
+    expect(fixed.endsWith("\r")).toBe(false);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
 });
 
 // ─── 3. Rule: missing-alt-text ────────────────────────────────────────────────
