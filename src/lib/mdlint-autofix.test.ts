@@ -383,6 +383,25 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    ["plain words", "Some leading words "],
+    ["markup and punctuation", "**Bold** `code` (aside), café — "],
+    ["a valid link", "See [docs](./docs.md) then "],
+    ["a bracketed phrase", "[not a link] and (parens) "],
+    ["a valid image", "![Logo](logo.svg) before "],
+  ])("sets the destination to TODO and leaves leading text unchanged after %s", (_kind, lead) => {
+    const doc = `${lead}[broken]() trailing.\n`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(`${lead}[broken](TODO) trailing.\n`);
+    expect(fixed.startsWith(lead)).toBe(true);
+    expect(applyFix(doc, violations[0])).toBe(fixed);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
     ["LF", "\n"],
     ["CRLF", "\r\n"],
   ])("fixes an invalid link between two valid paragraphs and preserves both (%s)", (_name, nl) => {
