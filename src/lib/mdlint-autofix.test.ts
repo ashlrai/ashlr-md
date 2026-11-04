@@ -16310,3 +16310,113 @@ describe("invalid-link-target autofix with a valid link on the same line", () =>
     }
   });
 });
+
+// ─── Undescribed image followed by ordinary text ─────────────────────────────
+
+describe("undescribed image followed by ordinary text", () => {
+  it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+  ])("adds the placeholder and keeps the source and the following ordinary text byte-for-byte (%s)", (_name, nl) => {
+    const source = 'images/chart one.png?v=2&size=lg#preview "Chart"';
+    const image = `![](${source})`;
+    const repaired = `![TODO: describe image](${source})`;
+    const before = "Opening paragraph stays.";
+    const after =
+      "ordinary text follows — see [1], [ok](./ok.md) and `code`, then done.";
+    const doc = `${before}${nl}${nl}Result: ${image} and ${after}${nl}`;
+    const expected = `${before}${nl}${nl}Result: ${repaired} and ${after}${nl}`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("missing-alt-text");
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(image);
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // Acceptance: the source and the ordinary text after the image are
+    // byte-identical; only the description between the brackets changed.
+    expect(fixed).toContain(`(${source})`);
+    expect(fixed).toContain(after);
+    expect(fixed.slice(0, from.offset)).toBe(doc.slice(0, from.offset));
+    expect(fixed.slice(from.offset + repaired.length)).toBe(doc.slice(to.offset));
+    expect(fixed.length - doc.length).toBe("TODO: describe image".length);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+
+  it.each([
+    ["empty alt", "![]"],
+    ["whitespace alt", "![  ]"],
+    ["tab alt", "![\t]"],
+  ])("keeps ordinary text on the next line of the same paragraph after a %s image", (_name, open) => {
+    for (const nl of ["\n", "\r\n"]) {
+      const source = "img/diagram.svg?view=full";
+      const image = `${open}(${source})`;
+      const repaired = `![TODO: describe image](${source})`;
+      const before = "The paragraph opens with a figure:";
+      const after = "and ordinary words carry the sentence to its end.";
+      // No blank line: the text is the soft-wrapped continuation of the
+      // image's own line, so the fix must leave both lines' bytes in place.
+      const doc = `${before} ${image}${nl}${after}${nl}`;
+      const expected = `${before} ${repaired}${nl}${after}${nl}`;
+      const rules = [ruleMissingAltText];
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations).toHaveLength(1);
+      expect(violations[0].ruleId).toBe("missing-alt-text");
+      const { from, to } = violations[0].range!;
+      expect(doc.slice(from.offset, to.offset)).toBe(image);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      expect(fixed.split(nl)).toHaveLength(doc.split(nl).length);
+      expect(fixed.slice(from.offset + repaired.length)).toBe(doc.slice(to.offset));
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+    }
+  });
+
+  it("keeps ordinary text after the image at the end of a document with no final newline", () => {
+    const doc = "Result: ![](end.png) closes the report";
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe("Result: ![TODO: describe image](end.png) closes the report");
+    expect(fixed.endsWith(" closes the report")).toBe(true);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+
+  it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+  ])("under the full default rules the only change is the placeholder; source and following text stay (%s)", (_name, nl) => {
+    const source = "img/fig.png?a=1#b";
+    const image = `![](${source})`;
+    const repaired = `![TODO: describe image](${source})`;
+    const after = "ordinary text follows — see [ok](./ok.md) for the details.";
+    const doc = [
+      "---",
+      "title: Report",
+      "---",
+      "",
+      "# Report",
+      "",
+      `See ${image} then ${after}`,
+      "",
+    ].join(nl);
+    const expected = doc.replace(image, repaired);
+    const violations = lintDocument(doc);
+
+    expect(violations.map((v) => v.ruleId)).toEqual(["missing-alt-text"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain(`(${source})`);
+    expect(fixed).toContain(after);
+    expect(lintDocument(fixed)).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed))).toBe(fixed);
+  });
+});
