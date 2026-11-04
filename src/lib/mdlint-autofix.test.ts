@@ -11414,6 +11414,78 @@ describe("autofix: an invalid link inside a list item", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
     expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
   });
+
+  it.each([
+    ["-", "[ ]", ""],
+    ["-", "[x]", "#"],
+    ["*", "[ ]", "?"],
+    ["  +", "[x]", "  "],
+  ])("keeps the %j marker and the %j task box when the link follows the box directly (invalid href %j)", (marker, box, href) => {
+    const doc = `Intro.\n${marker} ${box} [draft](${href}) today, see [ok](./a.md).\n${marker} ${box} Next item.\n`;
+    const expected = `Intro.\n${marker} ${box} [draft](TODO) today, see [ok](./a.md).\n${marker} ${box} Next item.\n`;
+
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("invalid-link-target");
+    const { from, to } = violations[0].range!;
+    // The flagged span is the link alone: the marker and the box sit before it.
+    expect(doc.slice(from.offset, to.offset)).toBe(`[draft](${href})`);
+    expect(doc.slice(0, from.offset)).toBe(`Intro.\n${marker} ${box} `);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain(`${marker} ${box} [draft](TODO)`);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+
+  it.each([
+    ["-", "-", ""],
+    ["*", "*", "#"],
+    ["+", "+", "?"],
+    ["1.", "1.", " "],
+  ])("keeps the %j marker when the invalid link's label repeats it (invalid href %j)", (marker, label, href) => {
+    const doc = `Intro.\n${marker} [${label}](${href}) is kept, [ok](./a.md) too.\n`;
+    const expected = `Intro.\n${marker} [${label}](TODO) is kept, [ok](./a.md) too.\n`;
+
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("invalid-link-target");
+    const { from, to } = violations[0].range!;
+    // The link is the second marker-shaped token on the line; the real
+    // marker at column 0 is outside the flagged span.
+    expect(doc.slice(from.offset, to.offset)).toBe(`[${label}](${href})`);
+    expect(doc.slice(0, from.offset)).toBe(`Intro.\n${marker} `);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain(`${marker} [${label}](TODO)`);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("keeps the marker when the item's whole content is an empty-label invalid link (line ending %j)", (nl) => {
+    const doc = `List:${nl}- []()${nl}- [ok](./a.md)${nl}`;
+    const expected = `List:${nl}- [](TODO)${nl}- [ok](./a.md)${nl}`;
+
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("invalid-link-target");
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe("[]()");
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain("- [](TODO)");
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
 });
 
 describe("autofix: a described image with no other findings", () => {
