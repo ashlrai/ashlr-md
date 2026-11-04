@@ -13351,3 +13351,26 @@ describe("autofix: described relative image preservation", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+describe("autofix: whitespace-only href with the default rule set", () => {
+  it.each([
+    ["one space", " "],
+    ["a lone tab", "\t"],
+    ["mixed spaces and tabs", " \t  \t"],
+  ])("replaces a %s href with TODO, keeps the label, and is idempotent", (_name, ws) => {
+    const doc = `---\ntitle: Links\n---\n\n# Links\n\nSee [the guide](${ws}) and [other *label*](${ws}${ws}) here.\n`;
+    const expected =
+      "---\ntitle: Links\n---\n\n# Links\n\nSee [the guide](TODO) and [other *label*](TODO) here.\n";
+    const violations = lintDocument(doc).filter(
+      (v) => v.ruleId === "invalid-link-target",
+    );
+
+    expect(violations).toHaveLength(2);
+    const fixed = applyAllFixes(doc, lintDocument(doc));
+    expect(fixed).toBe(expected);
+    expect(
+      lintDocument(fixed).filter((v) => v.ruleId === "invalid-link-target"),
+    ).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed))).toBe(fixed);
+  });
+});
