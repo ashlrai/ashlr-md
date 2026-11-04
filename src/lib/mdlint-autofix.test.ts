@@ -15720,3 +15720,40 @@ describe("undescribed-image autofix idempotence: generated documents", () => {
     }
   });
 });
+
+describe("autofix: a described image in a document without a final newline", () => {
+  const rulesets = [
+    [ruleMissingAltText],
+    [ruleInvalidLinkTarget, ruleMissingAltText],
+    BUILTIN_RULES.filter((rule) => LINTER_DEFAULT_ENABLED_RULES.includes(rule.id)),
+  ];
+
+  it.each([
+    ["image only", "![Revenue chart](images/revenue.png)"],
+    ["image after prose", "Intro café.\n\n![Revenue chart](images/revenue.png)"],
+    ["image inside prose", "See ![Revenue chart](images/revenue.png) for *details*"],
+    ["image in a list item", "- one\n- ![Revenue chart](images/revenue.png)"],
+    ["image with title and query", '![Café chart](img/café.png?v=2#top "Revenue")'],
+    ["image with a remote source", "![Chart](https://cdn.example.com/c.png?s=2)"],
+    ["CRLF line endings", "# Report\r\n\r\n![Revenue chart](images/revenue.png)"],
+  ])("reports nothing, leaves the document unchanged and adds no newline (%s)", (_name, doc) => {
+    expect(doc.endsWith("\n")).toBe(false);
+    for (const rules of rulesets) {
+      const violations = lintDocument(doc, { rules }).filter(
+        (v) => v.ruleId === "missing-alt-text" || v.ruleId === "invalid-link-target",
+      );
+      expect(violations).toEqual([]);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(doc);
+      expect(
+        applyAllFixes(
+          fixed,
+          lintDocument(fixed, { rules }).filter(
+            (v) =>
+              v.ruleId === "missing-alt-text" || v.ruleId === "invalid-link-target",
+          ),
+        ),
+      ).toBe(doc);
+    }
+  });
+});
