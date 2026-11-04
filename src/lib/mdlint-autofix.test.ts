@@ -565,6 +565,28 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+  ])("changes only the invalid href when a valid link sits on the line before or after it (%s)", (_name, nl) => {
+    const valid =
+      'Valid: [docs](./docs.md "Docs") and [site](https://example.com/a?b=1#c).';
+    const doc = [valid, "Invalid: [the guide]().", valid, ""].join(nl);
+    const expected = [valid, "Invalid: [the guide](TODO).", valid, ""].join(nl);
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    // Only the invalid line is reported, and it is the second one.
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    expect(violations[0].range?.from.line).toBe(2);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(fixed.split(nl)[0]).toBe(valid);
+    expect(fixed.split(nl)[2]).toBe(valid);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
     "",
     "  ",
     "#",
