@@ -10820,6 +10820,43 @@ describe("autofix: invalid link in a document without a final newline", () => {
     expect(fixed.endsWith("TODO)* for details")).toBe(true);
     expect(lintDocument(fixed, { rules: [ruleInvalidLinkTarget] })).toEqual([]);
   });
+
+  it.each([
+    [
+      "link on an earlier line, before a plain-text tail",
+      "See [draft]() now.\n\nTail text stays",
+      "See [draft](TODO) now.\n\nTail text stays",
+      1,
+    ],
+    [
+      "a valid link follows the invalid one on the last line",
+      "Fix [broken]() then keep [ok](./a.md)",
+      "Fix [broken](TODO) then keep [ok](./a.md)",
+      1,
+    ],
+    [
+      "invalid links on two lines before a CRLF tail",
+      "Fix [a](#) first.\r\n\r\nThen [b]() mid-doc.\r\n\r\nEnd stays",
+      "Fix [a](TODO) first.\r\n\r\nThen [b](TODO) mid-doc.\r\n\r\nEnd stays",
+      2,
+    ],
+  ])("replaces the destination away from the end of the file and still adds no final newline (%s)", (_name, doc, expected, count) => {
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(doc.endsWith("\n")).toBe(false);
+    expect(violations).toHaveLength(count);
+    expect(violations.every((v) => v.ruleId === "invalid-link-target")).toBe(true);
+    expect(violations.every((v) => v.fix !== null)).toBe(true);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.endsWith("\n")).toBe(false);
+    // Everything after the last violation — including the absent final
+    // newline — is byte-identical; only the href bytes changed.
+    const tailStart = violations[violations.length - 1].range!.to.offset;
+    expect(fixed.endsWith(doc.slice(tailStart))).toBe(true);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
 });
 
 // ─── Bracketed prose ─────────────────────────────────────────────────────────
