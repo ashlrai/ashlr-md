@@ -11487,6 +11487,74 @@ describe("autofix: [1] prose preservation", () => {
     const doc = "Claim [1] here.   \nNext line.\n";
     expect(fix(doc)).toBe("Claim [1] here.\nNext line.\n");
   });
+
+  it("leaves every [1] and its surrounding prose unchanged across a multi-block document under the full default rule set", () => {
+    for (const nl of ["\n", "\r\n"]) {
+      const doc = [
+        "---",
+        "title: Citations",
+        "---",
+        "",
+        "# Citations",
+        "",
+        "Intro paragraph.",
+        "",
+        "## Results [1]",
+        "",
+        "Per [1] and [2], growth holds; see [draft]() and ![](chart.png).   ",
+        "",
+        "> Cited [1] here, per [notes](#).",
+        "",
+        "- Claim [1] again, see [source]().",
+        "",
+        "Code shows `[1]()` while prose says [broken]().",
+        "",
+      ].join(nl);
+      const expected = [
+        "---",
+        "title: Citations",
+        "---",
+        "",
+        "# Citations",
+        "",
+        "Intro paragraph.",
+        "",
+        "## Results [1]",
+        "",
+        "Per [1] and [2], growth holds; see [draft](TODO) and ![TODO: describe image](chart.png).",
+        "",
+        "> Cited [1] here, per [notes](TODO).",
+        "",
+        "- Claim [1] again, see [source](TODO).",
+        "",
+        "Code shows `[1]()` while prose says [broken](TODO).",
+        "",
+      ].join(nl);
+
+      const violations = lintDocument(doc);
+      expect(violations.map((v) => v.ruleId)).toEqual([
+        "invalid-link-target",
+        "missing-alt-text",
+        "no-trailing-spaces",
+        "invalid-link-target",
+        "invalid-link-target",
+        "invalid-link-target",
+      ]);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      expect(fixed.match(/\[\d+\]/g)).toHaveLength(doc.match(/\[\d+\]/g)!.length);
+      for (const prose of [
+        "## Results [1]",
+        "Per [1] and [2], growth holds",
+        "> Cited [1] here",
+        "- Claim [1] again",
+        "`[1]()`",
+      ])
+        expect(fixed).toContain(prose);
+      expect(lintDocument(fixed)).toEqual([]);
+      expect(applyAllFixes(fixed, lintDocument(fixed))).toBe(fixed);
+    }
+  });
 });
 
 describe("autofix: invalid link at the end of a document", () => {
