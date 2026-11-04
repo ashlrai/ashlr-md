@@ -16310,3 +16310,73 @@ describe("invalid-link-target autofix with a valid link on the same line", () =>
     }
   });
 });
+
+describe("autofix: undescribed image with a Unicode source", () => {
+  const rules = [ruleMissingAltText];
+
+  it.each([
+    [
+      "remote URL with a Unicode domain, path, query and fragment",
+      "https://例え.テスト/画像/星🌟.png?言語=日本語#詳細",
+      "",
+    ],
+    [
+      "remote URL with a ZWJ emoji file name",
+      "https://example.com/相册/familie-👨‍👩‍👧‍👦.webp?size=2#预览",
+      " ",
+    ],
+    [
+      "angle-bracket path with a space and a Unicode title",
+      '<my 画像/星 星.png?言語=日本語> "タイトル 🌃"',
+      "\t",
+    ],
+    [
+      "decomposed accents with a Unicode query and fragment",
+      "galerie/café-大学.png?größe=2#vorschau",
+      "",
+    ],
+  ])("inserts the placeholder and preserves the source exactly (%s)", (_name, source, alt) => {
+    for (const newline of ["\n", "\r\n"]) {
+      const image = `![${alt}](${source})`;
+      const repaired = `![TODO: describe image](${source})`;
+      const doc = `# Report${newline}${newline}See ${image} for details.${newline}`;
+      const expected = doc.replace(image, repaired);
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations).toHaveLength(1);
+      expect(violations[0].ruleId).toBe("missing-alt-text");
+      expect(violations[0].fix).not.toBeNull();
+      const { from, to } = violations[0].range!;
+      expect(doc.slice(from.offset, to.offset)).toBe(image);
+      expect(doc.slice(to.offset)).toBe(` for details.${newline}`);
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      // The fix may add only the placeholder: the source bytes are identical.
+      expect(fixed.indexOf(`](${source})`)).toBe(
+        doc.indexOf(`](${source})`) + "TODO: describe image".length - alt.length,
+      );
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+      expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+    }
+  });
+
+  it("preserves a Unicode source under the default-enabled rules", () => {
+    const source = "画像/星🌟-café.png?言語=日本語#詳細";
+    const doc = `# Gallery\n\n前置き ![](${source}) 後文, trailing   \n`;
+    const expected = `# Gallery\n\n前置き ![TODO: describe image](${source}) 後文, trailing\n`;
+    const defaultRules = BUILTIN_RULES.filter((rule) =>
+      LINTER_DEFAULT_ENABLED_RULES.includes(rule.id),
+    );
+    const violations = lintDocument(doc, { rules: defaultRules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+      "missing-alt-text",
+      "no-trailing-spaces",
+    ]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain(`](${source})`);
+    expect(lintDocument(fixed, { rules: defaultRules })).toEqual([]);
+  });
+});
