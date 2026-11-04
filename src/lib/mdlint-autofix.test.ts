@@ -86,6 +86,24 @@ describe("rule:orphaned-heading", () => {
   });
 });
 
+describe("autofix: undescribed image at the start of a line", () => {
+  it.each([
+    "\n",
+    "\r\n",
+  ])("preserves the complete trailing text with %j line endings", (nl) => {
+    const doc = `Intro.${nl}${nl}![](images/chart.png "Chart") followed by *details* and [notes](./notes.md).${nl}Next line.${nl}`;
+    const expected = `Intro.${nl}${nl}![TODO: describe image](images/chart.png "Chart") followed by *details* and [notes](./notes.md).${nl}Next line.${nl}`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
+
 // ─── 2. Rule: invalid-link-target ────────────────────────────────────────────
 
 describe("rule:invalid-link-target", () => {
