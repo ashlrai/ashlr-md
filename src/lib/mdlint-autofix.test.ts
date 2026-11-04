@@ -13701,6 +13701,35 @@ describe("autofix preserves [1] prose brackets", () => {
     expect(fixed.match(/\[1\]/g)).toHaveLength(doc.match(/\[1\]/g)?.length ?? -1);
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
+
+  it.each([
+    ["before the image", "Cited [1], see ![](fig.png) here."],
+    ["after the image", "See ![](fig.png), cited [1] here."],
+    ["on both sides", "Refs [1] and ![](fig.png) again [1]."],
+    ["touching the image", "Cite [1]![](fig.png) done."],
+    ["adjacent after the image", "Inline ![](fig.png)[1] done."],
+  ])("inserts the image placeholder and keeps the [1] prose bracket verbatim (%s)", (_name, line) => {
+    for (const nl of ["\n", "\r\n"]) {
+      const image = "![](fig.png)";
+      const doc = `${line}${nl}`;
+      const expected = `${line.replace(image, "![TODO: describe image](fig.png)")}${nl}`;
+      const rules = [ruleInvalidLinkTarget, ruleMissingAltText];
+      const violations = lintDocument(doc, { rules });
+
+      // The image is the only finding; [1] is prose, not a link or image.
+      expect(violations.map((v) => v.ruleId)).toEqual(["missing-alt-text"]);
+      expect(
+        doc.slice(violations[0].range!.from.offset, violations[0].range!.to.offset),
+      ).toBe(image);
+
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      expect(fixed.match(/\[1\]/g)).toHaveLength(doc.match(/\[1\]/g)!.length);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+      expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+    }
+  });
 });
 
 describe("autofix describes two undescribed images", () => {
