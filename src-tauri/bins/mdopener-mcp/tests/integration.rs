@@ -9151,6 +9151,144 @@ fn export_text_keeps_bracketed_todo_in_surrounding_prose() {
     );
 }
 
+/// The promise the read view makes for `[TODO]` written as prose: the
+/// rendered text keeps both of its brackets — at every position the page
+/// shows them and from every source `export_text` reads (a file path, or
+/// the open document over IPC). Only real syntax owns the brackets: a
+/// `[TODO](url)` link, a defined `[TODO]:` reference and a `[[TODO]]`
+/// wikilink read their text, as CommonMark and Obsidian read them.
+#[test]
+fn export_text_keeps_both_brackets_around_todo_prose() {
+    // Every `[TODO]` in these documents is prose, so the rendered text
+    // holds as many as the document does, each with both brackets.
+    let cases = [
+        // The whole document is the bracketed word, and a document without
+        // a closing line break opens and ends on one.
+        ("[TODO]\n", "[TODO]"),
+        ("[TODO] first, [TODO] last", "[TODO] first, [TODO] last"),
+        // Start, middle and end of a sentence.
+        ("[TODO] opens the note.\n", "[TODO] opens the note."),
+        (
+            "Mark the next step [TODO] here.\n",
+            "Mark the next step [TODO] here.",
+        ),
+        ("The note ends on [TODO].\n", "The note ends on [TODO]."),
+        // Punctuation on either bracket, and repeated uses in order.
+        (
+            "Note [TODO],then [TODO];again [TODO]:now.\n",
+            "Note [TODO],then [TODO];again [TODO]:now.",
+        ),
+        (
+            "First [TODO] marks it.\n\n[TODO] closes it.\n",
+            "First [TODO] marks it.\n\n[TODO] closes it.",
+        ),
+        // Each block the page renders it in keeps the pair: a heading, task
+        // items, a blockquote over lines, a table cell and emphasis.
+        ("## Plan [TODO] today\n", "Plan [TODO] today"),
+        (
+            "- [ ] Follow up [TODO].\n- [x] Recheck [TODO].\n",
+            "Follow up [TODO].\nRecheck [TODO].",
+        ),
+        (
+            "> quoted [TODO] note\n> and [TODO] again\n",
+            "quoted [TODO] note\nand [TODO] again",
+        ),
+        (
+            "| Item | State |\n|---|---|\n| fix | [TODO] |\n",
+            "Item\tState\nfix\t[TODO]",
+        ),
+        (
+            "Do **[TODO]** and _[TODO]_ now.\n",
+            "Do [TODO] and [TODO] now.",
+        ),
+    ];
+    for (markdown, expected) in cases {
+        // The file path, the open-document IPC path and strip_markdown all
+        // render the same text.
+        let result = run_export_text_on(markdown);
+        let rendered = result["text"].as_str().unwrap();
+        assert_eq!(rendered, expected, "{markdown:?}");
+        let ipc = MockIpc::new().on_get(
+            "/content",
+            Ok(json!({ "path": "/docs/test.md", "content": markdown })),
+        );
+        let response = tool_export_text(id(2), &json!({}), &ipc);
+        assert!(response.error.is_none(), "{markdown:?}");
+        assert_eq!(
+            content_text(&response)["text"].as_str().unwrap(),
+            expected,
+            "{markdown:?}"
+        );
+        assert_eq!(strip_markdown(markdown), expected, "{markdown:?}");
+
+        // No prose bracket is taken: as many `[TODO]`s render as were
+        // written, and the reported counts describe the rendered text.
+        assert_eq!(
+            rendered.matches("[TODO]").count(),
+            markdown.matches("[TODO]").count(),
+            "{markdown:?}"
+        );
+        assert_eq!(
+            result["char_count"].as_u64().unwrap() as usize,
+            expected.chars().count(),
+            "{markdown:?}"
+        );
+        assert_eq!(
+            result["word_count"].as_u64().unwrap() as usize,
+            count_words(expected),
+            "{markdown:?}"
+        );
+    }
+
+    // Beside the markup that owns its brackets, only the prose keeps them.
+    for (markdown, expected) in [
+        // An inline link reads its text; the prose beside it keeps both.
+        (
+            "A [TODO](https://e.x) link and [TODO] prose.\n",
+            "A TODO link and [TODO] prose.",
+        ),
+        (
+            "Check [TODO], then read [the guide](/guide).\n",
+            "Check [TODO], then read the guide.",
+        ),
+        // A wikilink drops its double brackets; the prose word keeps both.
+        ("See [[TODO]] and [TODO].\n", "See TODO and [TODO]."),
+        // Escaped brackets are literal: the page shows [TODO], and so does
+        // the export.
+        (
+            "Keep \\[TODO\\] escaped and [TODO] plain.\n",
+            "Keep [TODO] escaped and [TODO] plain.",
+        ),
+        // A `[TODO]:` definition makes `[TODO]` a reference, not prose: it
+        // reads its label's text, as CommonMark reads it.
+        ("Open [TODO] now.\n\n[TODO]: /todo\n", "Open TODO now."),
+    ] {
+        let result = run_export_text_on(markdown);
+        assert_eq!(result["text"].as_str().unwrap(), expected, "{markdown:?}");
+        assert_eq!(strip_markdown(markdown), expected, "{markdown:?}");
+    }
+
+    // One line with no document around it defines no reference either.
+    use mdopener_mcp::strip_inline_markdown;
+    for (line, expected) in [
+        ("[TODO]", "[TODO]"),
+        ("Mark [TODO] then [TODO].", "Mark [TODO] then [TODO]."),
+        ("[TODO][label] and [TODO][]", "[TODO][label] and [TODO][]"),
+        ("\\[TODO\\] and [TODO]", "[TODO] and [TODO]"),
+        ("[TODO](/u) then [TODO]", "TODO then [TODO]"),
+        ("[[TODO]] then [TODO]", "TODO then [TODO]"),
+    ] {
+        assert_eq!(strip_inline_markdown(line), expected, "{line:?}");
+    }
+
+    // export_metadata keeps the heading's raw markdown, brackets and all.
+    let metadata = run_export_metadata_on("# Plan [TODO] today\n");
+    assert_eq!(
+        metadata["headings"],
+        json!([{ "level": 1, "text": "Plan [TODO] today" }])
+    );
+}
+
 #[test]
 fn export_text_keeps_bracketed_prose_beside_inline_links() {
     let cases = [
