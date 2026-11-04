@@ -91,6 +91,9 @@ describe("autofix: whitespace-only image description", () => {
     ["spaces", "   "],
     ["a tab", "\t"],
     ["mixed spaces and tabs", " \t  \t "],
+    ["a non-breaking space", "\u00a0"],
+    ["an ideographic space", "\u3000"],
+    ["a line break inside the brackets", " \n "],
   ])("replaces %s with the placeholder and preserves the destination", (_kind, blank) => {
     const rules = [ruleMissingAltText];
     const doc = `Before ![${blank}](images/a%20b.png?v=2#top "Chart") after.\n`;
@@ -3350,8 +3353,8 @@ describe("rule:invalid-link-target", () => {
     ["several spaces", "   "],
     ["a tab", "\t"],
     ["mixed spaces and tabs", " \t \t"],
-    ["a non-breaking space", " "],
-    ["an ideographic space", "　"],
+    ["a non-breaking space", "\u00a0"],
+    ["an ideographic space", "\u3000"],
   ])("replaces a whitespace-only image description (%s) with the placeholder and keeps the source", (_name, alt) => {
     const source = 'images/caf%C3%A9 diagram.png?size=2#preview "Diagram"';
     const doc = `Intro café.\r\n\r\nSee ![${alt}](${source}) now.\r\n`;
@@ -11595,6 +11598,118 @@ describe("invalid-link-target autofix: deferred inside an image fix", () => {
     const done = fixPass(solo);
     expect(done).toBe("x ![TODO: describe image](TODO) y\n");
     expect(fixPass(done)).toBe(done);
+  });
+});
+
+describe("whitespace-only image description over an invalid or empty source", () => {
+  const rules = [ruleInvalidLinkTarget, ruleMissingAltText];
+  const fixPass = (text: string) => applyAllFixes(text, lintDocument(text, { rules }));
+
+  it.each([
+    ["a space in each", " ", " "],
+    ["mixed spaces and tabs", " \t ", "\t  "],
+    ["a line break inside the brackets", " \n ", "  "],
+    ["Unicode whitespace", "\u00a0\t", "\u2003 \u00a0"],
+  ])("describes the image while preserving the whitespace source verbatim (%s)", (_name, alt, href) => {
+    for (const nl of ["\n", "\r\n"]) {
+      const image = `![${alt}](${href})`;
+      const doc = `See ${image} here.${nl}`;
+      const violations = lintDocument(doc, { rules });
+
+      // The link violation's range sits strictly inside the image's, so the
+      // batch applies the wider image fix only (see applyAllFixes).
+      expect(violations.map((v) => v.ruleId)).toEqual([
+        "missing-alt-text",
+        "invalid-link-target",
+      ]);
+      const [imageV, linkV] = violations;
+      expect(doc.slice(imageV.range!.from.offset, imageV.range!.to.offset)).toBe(image);
+      expect(linkV.range!.from.offset).toBeGreaterThan(imageV.range!.from.offset);
+      expect(linkV.range!.to.offset).toBe(imageV.range!.to.offset);
+
+      // The description becomes the placeholder; the whitespace source — even
+      // though the next pass will flag it — survives this pass byte-for-byte.
+      const once = fixPass(doc);
+      expect(once).toBe(`See ![TODO: describe image](${href}) here.${nl}`);
+      expect(lintDocument(once, { rules }).map((v) => v.ruleId)).toEqual([
+        "invalid-link-target",
+      ]);
+      const twice = fixPass(once);
+      expect(twice).toBe(`See ![TODO: describe image](TODO) here.${nl}`);
+      expect(lintDocument(twice, { rules })).toEqual([]);
+      expect(fixPass(twice)).toBe(twice);
+    }
+  });
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("for ![ ]() the link fix creates the image violation the second pass repairs (%j)", (nl) => {
+    const doc = `See ![ ]() here.${nl}`;
+    // Only the link rule fires: the image pattern requires a nonempty source.
+    expect(lintDocument(doc, { rules }).map((v) => v.ruleId)).toEqual([
+      "invalid-link-target",
+    ]);
+    const once = fixPass(doc);
+    // The link fix keeps the whitespace label; the inserted TODO completes
+    // the image syntax, which the next pass then describes.
+    expect(once).toBe(`See ![ ](TODO) here.${nl}`);
+    expect(lintDocument(once, { rules }).map((v) => v.ruleId)).toEqual([
+      "missing-alt-text",
+    ]);
+    const twice = fixPass(once);
+    expect(twice).toBe(`See ![TODO: describe image](TODO) here.${nl}`);
+    expect(lintDocument(twice, { rules })).toEqual([]);
+    expect(fixPass(twice)).toBe(twice);
+  });
+
+  it("applies the contained whitespace-href fix on its own, reaching the same fixed point", () => {
+    const doc = "See ![ ]( ) here.\n";
+    const linkViolation = lintDocument(doc, { rules }).find(
+      (v) => v.ruleId === "invalid-link-target",
+    );
+
+    expect(linkViolation).toBeDefined();
+    // applyFix bypasses the batch's containment drop: the href is repaired
+    // directly, the whitespace description survives, and one more pass
+    // describes the image.
+    const solo = applyFix(doc, linkViolation!);
+    expect(solo).toBe("See ![ ](TODO) here.\n");
+    expect(lintDocument(solo, { rules }).map((v) => v.ruleId)).toEqual([
+      "missing-alt-text",
+    ]);
+    const done = fixPass(solo);
+    expect(done).toBe("See ![TODO: describe image](TODO) here.\n");
+    expect(fixPass(done)).toBe(done);
+  });
+
+  it("converges through the LinterToast Fix-all path, recording an entry per fix", () => {
+    clearLintHistory();
+    const doc = "See ![ ]( ) here.\n";
+
+    const once = fixAllViolations(doc, lintDocument(doc, { rules }));
+    expect(once).toBe("See ![TODO: describe image]( ) here.\n");
+    // History records every fixable violation it was handed, including the
+    // contained link fix the batch deferred.
+    expect(getLintHistory().map((entry) => entry.ruleId)).toEqual([
+      "missing-alt-text",
+      "invalid-link-target",
+    ]);
+
+    const twice = fixAllViolations(once, lintDocument(once, { rules }));
+    expect(twice).toBe("See ![TODO: describe image](TODO) here.\n");
+    const history = getLintHistory();
+    expect(history.map((entry) => entry.ruleId)).toEqual([
+      "missing-alt-text",
+      "invalid-link-target",
+      "invalid-link-target",
+    ]);
+    // The second pass's snippet shows the whitespace source intact.
+    expect(history[2].docSnippet).toContain("![TODO: describe image]( )");
+
+    const done = fixAllViolations(twice, lintDocument(twice, { rules }));
+    expect(done).toBe(twice);
+    expect(getLintHistory()).toHaveLength(3);
   });
 });
 
