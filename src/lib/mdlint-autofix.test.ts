@@ -18007,3 +18007,31 @@ describe("invalid-link-target autofix: valid link beside an invalid one", () => 
     }
   });
 });
+
+describe("autofix: undescribed image after a parenthesis, tab or checked-task list marker", () => {
+  it.each([
+    ["parenthesis ordered marker", "1) ", "\n"],
+    ["tab-indented dash", "\t- ", "\r\n"],
+    ["plus nested four spaces", "    + ", "\n"],
+    ["checked task item", "* [x] ", "\r\n"],
+  ])("adds the placeholder and leaves the marker unchanged (%s)", (_kind, marker, nl) => {
+    // Tab/4-space indents only form a list item under a parent item; alone they are code.
+    const parent =
+      marker.startsWith(" ") || marker.startsWith("\t") ? `- Parent${nl}` : "";
+    const doc = `${parent}${marker}![](a.png)${nl}${marker}![ ](dir/b%20c.png?v=1#x "B")${nl}${marker}![Ok](ok.png)${nl}`;
+    const expected = `${parent}${marker}![TODO: describe image](a.png)${nl}${marker}![TODO: describe image](dir/b%20c.png?v=1#x "B")${nl}${marker}![Ok](ok.png)${nl}`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+      "missing-alt-text",
+      "missing-alt-text",
+    ]);
+    expect(applyFix(doc, violations[0])).toBe(
+      `${parent}${marker}![TODO: describe image](a.png)${nl}${marker}![ ](dir/b%20c.png?v=1#x "B")${nl}${marker}![Ok](ok.png)${nl}`,
+    );
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
