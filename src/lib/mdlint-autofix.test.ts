@@ -16680,4 +16680,39 @@ describe("autofix: undescribed image on the final line after a valid paragraph",
     expect(fixed.startsWith(`${paragraph}\n\n`)).toBe(true);
     expect(lintDocument(fixed, { rules: defaultRules })).toEqual([]);
   });
+
+  it.each([
+    ".",
+    ",",
+    "!",
+    "?",
+    ";",
+    ":",
+    "...",
+    "…",
+    ").",
+    "?!",
+    "。",
+  ])("describes an undescribed image followed by punctuation %j and leaves the punctuation unchanged", (punct) => {
+    const rules = [ruleMissingAltText];
+    for (const newline of ["\n", "\r\n"]) {
+      const doc = `See the chart ![](images/chart.png?v=2#top "Chart")${punct} Next.${newline}`;
+      const expected = `See the chart ![TODO: describe image](images/chart.png?v=2#top "Chart")${punct} Next.${newline}`;
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      expect(fixed).toContain(`")${punct} Next.`);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+      expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+    }
+  });
+
+  it("keeps punctuation that ends the document right after an undescribed image", () => {
+    const rules = [ruleMissingAltText];
+    const doc = "Look: ![](a.png).";
+    const fixed = applyAllFixes(doc, lintDocument(doc, { rules }));
+    expect(fixed).toBe("Look: ![TODO: describe image](a.png).");
+  });
 });
