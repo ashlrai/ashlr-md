@@ -910,6 +910,29 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 
+  it.each([
+    ["adjacent links", "[a]()[b](#)", "[a](TODO)[b](TODO)"],
+    [
+      "valid link between",
+      '[a]() and [ok](./ok.md "t") and [b](?)',
+      '[a](TODO) and [ok](./ok.md "t") and [b](TODO)',
+    ],
+    ["code span in between", "[a]() `[x]()` [b](  )", "[a](TODO) `[x]()` [b](TODO)"],
+  ])("fixes two invalid links on one line, one at a time or all at once (%s)", (_name, line, expectedLine) => {
+    const doc = `Lead ${line} tail.\n`;
+    const expected = `Lead ${expectedLine} tail.\n`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(2);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    // Fixing one link leaves exactly the other to be reported and fixed.
+    const once = applyFix(doc, violations[0]);
+    const rest = lintDocument(once, { rules });
+    expect(rest).toHaveLength(1);
+    expect(applyFix(once, rest[0])).toBe(expected);
+  });
+
   it("applyFix on the single invalid link in a list and table row leaves the valid links beside it untouched", () => {
     const doc =
       "- [good](./good.md)\n- [bad]()\n\n| a | b |\n| - | - |\n| [ok](https://example.com) | [bad2](?) |\n";
