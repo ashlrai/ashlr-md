@@ -16838,3 +16838,110 @@ describe("autofix: undescribed image on the final line after a valid paragraph",
     }
   });
 });
+
+describe("invalid-link-target autofix: an invalid link inside emphasis", () => {
+  const rules = [ruleInvalidLinkTarget];
+
+  it.each([
+    ["asterisk italic", "*", "*"],
+    ["underscore italic", "_", "_"],
+    ["asterisk bold", "**", "**"],
+    ["underscore bold", "__", "__"],
+    ["asterisk bold italic", "***", "***"],
+    ["strikethrough", "~~", "~~"],
+  ])("replaces an invalid href with TODO inside %s and keeps the delimiters and link text", (_name, open, close) => {
+    for (const target of ["", "  ", "#", "?"]) {
+      for (const nl of ["\n", "\r\n"]) {
+        const link = `[the guide](${target})`;
+        const doc = `See ${open}${link}${close} for details.${nl}`;
+        const expected = `See ${open}[the guide](TODO)${close} for details.${nl}`;
+        const violations = lintDocument(doc, { rules });
+
+        expect(violations).toHaveLength(1);
+        expect(violations[0].ruleId).toBe("invalid-link-target");
+        // The violation range is the link alone: the emphasis delimiters
+        // sit outside it and are no part of the repair.
+        const { from, to } = violations[0].range!;
+        expect(doc.slice(from.offset, to.offset)).toBe(link);
+        expect(applyFix(doc, violations[0])).toBe(expected);
+        const fixed = applyAllFixes(doc, violations);
+        expect(fixed).toBe(expected);
+        expect(fixed).toContain(`${open}[the guide](TODO)${close}`);
+        expect(lintDocument(fixed, { rules })).toEqual([]);
+        expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(expected);
+      }
+    }
+  });
+
+  it("fixes an invalid link inside emphasis that also spans the words around it", () => {
+    const doc = "*see the [guide]() for details*, then [ok](./ok.md).\n";
+    const expected = "*see the [guide](TODO) for details*, then [ok](./ok.md).\n";
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("invalid-link-target");
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe("[guide]()");
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // The emphasized prose around the link is byte-for-byte identical.
+    expect(fixed.startsWith("*see the [guide](TODO) for details*")).toBe(true);
+    expect(fixed).toContain("[ok](./ok.md)");
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it("keeps emphasis inside the label of an emphasized invalid link", () => {
+    const doc = "See **[a _very_ bold guide]()** now.\n";
+    const expected = "See **[a _very_ bold guide](TODO)** now.\n";
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("invalid-link-target");
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe("[a _very_ bold guide]()");
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // The nested `_very_` inside the label survives untouched.
+    expect(fixed).toContain("[a _very_ bold guide](TODO)");
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it("fixes an invalid link inside emphasis in a heading", () => {
+    const doc = "## See *the [guide]() now*\n\nBody text.\n";
+    const expected = "## See *the [guide](TODO) now*\n\nBody text.\n";
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("invalid-link-target");
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it("fixes every emphasized invalid link in a document and keeps each emphasis pair", () => {
+    const doc = "*[one]()* then **[two](#)** and _three [three](  )_ end.\n";
+    const expected =
+      "*[one](TODO)* then **[two](TODO)** and _three [three](TODO)_ end.\n";
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(3);
+    expect(violations.every((v) => v.ruleId === "invalid-link-target")).toBe(true);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.match(/\]\(TODO\)/g)).toHaveLength(3);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it("inserts TODO into an emphasized link whose label is empty", () => {
+    const doc = "Note *[]()* here.\n";
+    const expected = "Note *[](TODO)* here.\n";
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].message).toContain("[link](empty)");
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
