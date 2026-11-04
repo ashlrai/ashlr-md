@@ -16018,6 +16018,110 @@ describe("invalid-link-target autofix: invalid link at the start of a line", () 
     expect(fixed.slice(from.offset + "[docs](TODO)".length)).toBe(doc.slice(to.offset));
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
+
+  it.each([
+    ["empty", ""],
+    ["whitespace-only", " \t "],
+    ["lone hash", "#"],
+    ["lone question mark", "?"],
+  ])("inserts TODO into a link at the very start of the document and keeps the prose tail byte-for-byte (%s href)", (_name, href) => {
+    for (const nl of ["\n", "\r\n"]) {
+      const link = `[lead](${href})`;
+      const tail = " opens the file — keep `code [x](#)` and [ok](./ok.md)  ";
+      const doc = `${link}${tail}${nl}Next line stays.${nl}`;
+      const expected = `[lead](TODO)${tail}${nl}Next line stays.${nl}`;
+      const rules = [ruleInvalidLinkTarget];
+      const violations = lintDocument(doc, { rules });
+
+      // The link inside the code span is masked, so only the document's
+      // first bytes are flagged.
+      expect(violations).toHaveLength(1);
+      expect(violations[0].ruleId).toBe("invalid-link-target");
+      const { from, to } = violations[0].range!;
+      expect(from).toMatchObject({ line: 1, col: 0, offset: 0 });
+      expect(doc.slice(from.offset, to.offset)).toBe(link);
+      expect(violations[0].fix).not.toBeNull();
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      // Everything after the repaired link is the original tail, byte-for-byte.
+      expect(fixed.slice("[lead](TODO)".length)).toBe(doc.slice(link.length));
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+      expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+    }
+  });
+
+  it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+  ])("fixes a link at the start of the line after a fenced code block and preserves the fence and the prose tail (%s)", (_name, nl) => {
+    const fence = ["```md", "[fenced]() stays code.", "```"].join(nl);
+    const tail = " opens after `[decoy](#)` code, cites [1] and [ok](./ok.md)  ";
+    const doc = `${fence}${nl}[lead](#)${tail}${nl}Closing line stays.${nl}`;
+    const expected = `${fence}${nl}[lead](TODO)${tail}${nl}Closing line stays.${nl}`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    // Only the prose link is flagged: the copy inside the fence and the code
+    // span decoy are masked, and the fix splices TODO at the real offsets.
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("invalid-link-target");
+    const { from, to } = violations[0].range!;
+    expect(from).toMatchObject({ line: 4, col: 0 });
+    expect(doc.slice(from.offset, to.offset)).toBe("[lead](#)");
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // The masked fence is untouched and the line after the repaired link is
+    // byte-for-byte the original tail.
+    expect(fixed.startsWith(`${fence}${nl}`)).toBe(true);
+    expect(fixed.split(nl)[3]).toBe(`[lead](TODO)${tail}`);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+
+  it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+  ])("fixes invalid links at the start of consecutive wrapped lines and keeps each line's prose (%s)", (_name, nl) => {
+    const doc = [
+      "Intro paragraph stays.",
+      "",
+      "[first]() opens its line and cites [1],",
+      "[second](#) opens the next line — `code` stays,",
+      "[third]( \t) opens the last wrapped line; [ok](./a.md) ends it.",
+      "",
+      "Closing paragraph stays.",
+      "",
+    ].join(nl);
+    const expected = [
+      "Intro paragraph stays.",
+      "",
+      "[first](TODO) opens its line and cites [1],",
+      "[second](TODO) opens the next line — `code` stays,",
+      "[third](TODO) opens the last wrapped line; [ok](./a.md) ends it.",
+      "",
+      "Closing paragraph stays.",
+      "",
+    ].join(nl);
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    // One soft-wrapped paragraph, three violations — each at column 0 of its
+    // own line; the fixes must compose without disturbing the prose.
+    expect(violations.map((v) => v.ruleId)).toEqual([
+      "invalid-link-target",
+      "invalid-link-target",
+      "invalid-link-target",
+    ]);
+    expect(violations.map((v) => v.range!.from.line)).toEqual([3, 4, 5]);
+    expect(violations.every((v) => v.range!.from.col === 0)).toBe(true);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
 });
 
 // ─── Undescribed image at the start of a document or a line ──────────────────
