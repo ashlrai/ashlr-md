@@ -13477,3 +13477,32 @@ describe("autofix preserves [1] prose brackets", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+describe("autofix preserves described images with Unicode alt text", () => {
+  it.each([
+    ["CJK", "![東京タワーの夜景](img/tokyo.png)"],
+    ["emoji with ZWJ sequence", "![Team 👩‍💻 shipping 🚀](img/team.png)"],
+    ["right-to-left", "![مخطط البنية](img/arch.png)"],
+    ["combining marks", "![Café naïve](img/cafe.png)"],
+    ["astral plane with a title", '![𝒜𝓁𝓉 𝓉𝑒𝓍𝓉](img/math.png "Título")'],
+  ])("keeps %s alt text byte for byte next to an invalid link", (_name, image) => {
+    const rules = [ruleInvalidLinkTarget, ruleMissingAltText];
+    const doc = `Intro café.\n\nSee ${image} and [notes](#) now.\n`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "invalid-link-target",
+    ]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(`Intro café.\n\nSee ${image} and [notes](TODO) now.\n`);
+    expect(fixed).toContain(image);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it("leaves a lone Unicode-described image untouched", () => {
+    const doc = "![日本語の説明 — résumé 🎉](a.png)\n";
+    const rules = [ruleInvalidLinkTarget, ruleMissingAltText];
+    expect(lintDocument(doc, { rules })).toEqual([]);
+    expect(applyAllFixes(doc, lintDocument(doc, { rules }))).toBe(doc);
+  });
+});
