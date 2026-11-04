@@ -354,6 +354,72 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    ["both empty", "", ""],
+    ["fragment and query markers", "#", "?"],
+    ["whitespace-only hrefs", "  ", "\t "],
+    ["one empty, one marker", "", "#"],
+  ])("fixes two invalid links in one paragraph and keeps every other byte (%s)", (_name, first, second) => {
+    for (const nl of ["\n", "\r\n"]) {
+      // Two soft-wrapped lines with no blank line between them are one
+      // paragraph; the invalid links sit on separate lines of it.
+      const paragraph = [
+        `Opening clause cites [first](${first}) for background,`,
+        `then points at [second](${second}) for the details — done.`,
+      ];
+      const doc = [
+        "Leading paragraph stays.",
+        "",
+        ...paragraph,
+        "",
+        "Closing paragraph stays.",
+        "",
+      ].join(nl);
+      const expected = [
+        "Leading paragraph stays.",
+        "",
+        "Opening clause cites [first](TODO) for background,",
+        "then points at [second](TODO) for the details — done.",
+        "",
+        "Closing paragraph stays.",
+        "",
+      ].join(nl);
+      const rules = [ruleInvalidLinkTarget];
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map((v) => v.ruleId)).toEqual([
+        "invalid-link-target",
+        "invalid-link-target",
+      ]);
+      expect(
+        violations.map((v) => doc.slice(v.range!.from.offset, v.range!.to.offset)),
+      ).toEqual([`[first](${first})`, `[second](${second})`]);
+      // Each fix repairs only its own destination.
+      expect(applyFix(doc, violations[0])).toBe(
+        doc.replace(`[first](${first})`, "[first](TODO)"),
+      );
+      expect(applyFix(doc, violations[1])).toBe(
+        doc.replace(`[second](${second})`, "[second](TODO)"),
+      );
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      expect(applyAllFixes(doc, [...violations].reverse())).toBe(expected);
+      // Both destinations became TODO.
+      expect(fixed).toContain("[first](TODO)");
+      expect(fixed).toContain("[second](TODO)");
+      // Everything outside the two link spans is byte-identical.
+      const outside = (s: string, spans: string[]) =>
+        spans
+          .map((span) => [s.indexOf(span), s.indexOf(span) + span.length])
+          .sort((a, b) => b[0] - a[0])
+          .reduce((acc, [from, to]) => acc.slice(0, from) + acc.slice(to), s);
+      expect(outside(fixed, ["[first](TODO)", "[second](TODO)"])).toBe(
+        outside(doc, [`[first](${first})`, `[second](${second})`]),
+      );
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+    }
+  });
+
+  it.each([
     [
       "valid first",
       '[good](./good.md "Good title")[bad]() end.\n',
