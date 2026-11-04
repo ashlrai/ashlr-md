@@ -20360,3 +20360,28 @@ describe("invalid-link autofix on the same line", () => {
     expect(applyAllFixes(expected, lintDocument(expected, { rules }))).toBe(expected);
   });
 });
+
+describe("rule:invalid-link-target punctuation", () => {
+  it.each([
+    ["period", "", "."],
+    ["comma", "", ","],
+    ["semicolon and colon", "", ";:"],
+    ["exclamation and question", "", "!?"],
+    ["ellipsis", "", "..."],
+    ["parentheses", "(", ")"],
+    ["quotes", '"', '"'],
+    ["em dash", "—", "—"],
+    ["brackets", "[", "]"],
+    ["emphasis markers", "*", "*"],
+  ])("gives the link the placeholder href and leaves adjacent %s unchanged", (_kind, before, after) => {
+    const doc = `Go ${before}[the guide]()${after} now.\n`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    const expected = `Go ${before}[the guide](TODO)${after} now.\n`;
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+});
