@@ -17777,3 +17777,53 @@ describe("invalid-link-target autofix: start-of-line edge cases", () => {
     expect(lintDocument(expected, { rules })).toEqual([]);
   });
 });
+
+describe("invalid-link-target autofix: valid link beside an invalid one", () => {
+  // The only differing bytes between input and output must be the empty
+  // destination, which becomes `TODO`.
+  const changedSpan = (before: string, after: string) => {
+    let start = 0;
+    while (start < before.length && before[start] === after[start]) start++;
+    let end = 0;
+    while (
+      end < before.length - start &&
+      before[before.length - 1 - end] === after[after.length - 1 - end]
+    )
+      end++;
+    return {
+      removed: before.slice(start, before.length - end),
+      added: after.slice(start, after.length - end),
+    };
+  };
+
+  it.each([
+    ["valid link first", "[ok](./ok.md) and [bad]()", "[ok](./ok.md) and [bad](TODO)"],
+    ["valid link last", "[bad]() and [ok](./ok.md)", "[bad](TODO) and [ok](./ok.md)"],
+    [
+      "valid link as the invalid link's label text",
+      "[see ./ok.md]() then [./ok.md](./ok.md)",
+      "[see ./ok.md](TODO) then [./ok.md](./ok.md)",
+    ],
+    [
+      "whitespace-only destination",
+      "[ok](https://a.dev/x) [bad](   )",
+      "[ok](https://a.dev/x) [bad](TODO)",
+    ],
+  ])("changes only the invalid destination: %s", (_name, body, expected) => {
+    const rules = [ruleInvalidLinkTarget];
+    for (const nl of ["\n", "\r\n"]) {
+      const doc = `# Links${nl}${nl}${body}${nl}`;
+      const violations = lintDocument(doc, { rules });
+      expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(`# Links${nl}${nl}${expected}${nl}`);
+      expect(applyFix(doc, violations[0])).toBe(fixed);
+
+      const { removed, added } = changedSpan(doc, fixed);
+      expect(added).toBe("TODO");
+      expect(removed.trim()).toBe("");
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+    }
+  });
+});
