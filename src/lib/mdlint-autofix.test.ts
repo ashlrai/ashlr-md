@@ -102,6 +102,24 @@ describe("autofix: undescribed image with a Unicode source", () => {
   });
 });
 
+describe("autofix: undescribed image with spaces in its filename", () => {
+  it.each([
+    ["unbracketed literal spaces", "images/team photo 2026.png"],
+    ["literal spaces", '<images/team photo 2026.png> "Team photo"'],
+    ["percent-encoded spaces", "images/team%20photo%202026.png?size=2#view"],
+  ])("adds the placeholder and preserves %s exactly", (_name, destination) => {
+    const rules = [ruleMissingAltText];
+    const doc = `Before ![](${destination}) after.\n`;
+    const expected = `Before ![TODO: describe image](${destination}) after.\n`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+});
+
 describe("autofix: undescribed image with a relative path", () => {
   it.each([
     ["a bare relative path", "images/chart.png"],
