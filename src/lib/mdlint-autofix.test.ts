@@ -15042,6 +15042,100 @@ describe("invalid-link autofix idempotence in task lists and nested ordered list
   });
 });
 
+describe("invalid-link autofix idempotence across entry points and default rules", () => {
+  const rules = [ruleInvalidLinkTarget];
+  const fixPass = (text: string) => applyAllFixes(text, lintDocument(text, { rules }));
+
+  beforeEach(() => {
+    clearLintHistory();
+  });
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("applyFix, applyAllFixes and Fix All reach one fixpoint for an invalid link with %j line endings", (nl) => {
+    const doc = `Read [draft]() then [guide](./guide.md) today.${nl}`;
+    const expected = `Read [draft](TODO) then [guide](./guide.md) today.${nl}`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "invalid-link-target",
+    ]);
+    expect(violations[0].fix).not.toBeNull();
+    // Every autofix entry point produces the same single-link fixpoint.
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(fixAllViolations(doc, violations)).toBe(expected);
+    expect(getLintHistory().map((entry) => entry.ruleId)).toEqual([
+      "invalid-link-target",
+    ]);
+
+    // A second autofix lints clean, returns the first pass's document
+    // byte-for-byte and records no new history.
+    const second = lintDocument(expected, { rules });
+    expect(second).toEqual([]);
+    expect(fixPass(expected)).toBe(expected);
+    expect(fixPass(fixPass(doc))).toBe(expected);
+    const history = [...getLintHistory()];
+    expect(fixAllViolations(expected, second)).toBe(expected);
+    expect(getLintHistory()).toEqual(history);
+  });
+
+  it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+  ])("a second Fix All returns the first pass's document byte-for-byte under the default rules, even with a warning left over (%s)", (_name, nl) => {
+    const defaultRules = BUILTIN_RULES.filter((rule) =>
+      LINTER_DEFAULT_ENABLED_RULES.includes(rule.id),
+    );
+    const doc = [
+      "# Draft",
+      "",
+      "## Notes",
+      "",
+      "Open [guide]() and [refs](#) here.   ",
+      "",
+    ].join(nl);
+    const expected = [
+      "# Draft",
+      "",
+      "## Notes",
+      "",
+      "Open [guide](TODO) and [refs](TODO) here.",
+      "",
+    ].join(nl);
+    const violations = lintDocument(doc, { rules: defaultRules });
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "orphaned-heading",
+      "invalid-link-target",
+      "invalid-link-target",
+      "no-trailing-spaces",
+    ]);
+
+    const once = fixAllViolations(doc, violations);
+    expect(once).toBe(expected);
+    expect(getLintHistory().map((entry) => entry.ruleId)).toEqual([
+      "invalid-link-target",
+      "invalid-link-target",
+      "no-trailing-spaces",
+    ]);
+
+    // The orphaned-heading warning persists but has no fix, so a second
+    // autofix returns the first pass's document byte-for-byte and appends
+    // nothing to the history.
+    const remaining = lintDocument(once, { rules: defaultRules });
+    expect(remaining.map((violation) => violation.ruleId)).toEqual([
+      "orphaned-heading",
+    ]);
+    expect(remaining[0].fix).toBeNull();
+    const history = [...getLintHistory()];
+    expect(fixAllViolations(once, remaining)).toBe(once);
+    expect(applyAllFixes(once, remaining)).toBe(once);
+    expect(getLintHistory()).toEqual(history);
+  });
+});
+
 describe("autofix idempotence for undescribed images: inline wrappers, attributes and skipped forms", () => {
   const rules = [ruleMissingAltText];
   const fixPass = (text: string) => applyAllFixes(text, lintDocument(text, { rules }));
