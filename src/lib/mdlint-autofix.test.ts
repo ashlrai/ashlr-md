@@ -21123,3 +21123,22 @@ describe("autofix: invalid link inside a blockquote", () => {
     expect(applyAllFixes(doc, violations)).toBe(expected);
   });
 });
+
+describe("invalid link at the start of a paragraph", () => {
+  it.each([
+    ["", "\n"],
+    ["#", "\r\n"],
+    ["?", "\n"],
+    [" ", "\r\n"],
+  ])("repairs destination %j and preserves following prose with %j line endings", (destination, nl) => {
+    const doc = `Opening paragraph.${nl}${nl}[Guide](${destination}) explains the setup, then continues.${nl}More prose follows.${nl}`;
+    const expected = `Opening paragraph.${nl}${nl}[Guide](TODO) explains the setup, then continues.${nl}More prose follows.${nl}`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+});
