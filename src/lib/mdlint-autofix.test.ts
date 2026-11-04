@@ -1220,6 +1220,35 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 
+  it.each([
+    [
+      "empty destination at the end of a CRLF line",
+      "# T\r\n\r\nSee [guide]()\r\nNext.\r\n",
+      "# T\r\n\r\nSee [guide](TODO)\r\nNext.\r\n",
+    ],
+    [
+      "fragment-only destination on the last CRLF line, no final newline",
+      "# T\r\n\r\nSee [guide](#)",
+      "# T\r\n\r\nSee [guide](TODO)",
+    ],
+    [
+      "whitespace destination in a CRLF list item",
+      "- a\r\n- [guide](  )\r\n- b\r\n",
+      "- a\r\n- [guide](TODO)\r\n- b\r\n",
+    ],
+  ])("applyFix on one violation replaces the destination and keeps CRLF (%s)", (_name, doc, expected) => {
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    const fixed = applyFix(doc, violations[0]);
+    expect(fixed).toBe(expected);
+    // No bare LF or CR was introduced and no CRLF was lost.
+    expect(fixed.match(/\r\n/g)?.length ?? 0).toBe(doc.match(/\r\n/g)?.length ?? 0);
+    expect(fixed.replaceAll("\r\n", "")).not.toMatch(/[\r\n]/);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
   it("replaces each of two invalid destinations with TODO and preserves both link labels", () => {
     const doc = "Read [First Guide]() and [Second *Guide*](#) today.\n";
     const expected = "Read [First Guide](TODO) and [Second *Guide*](TODO) today.\n";
