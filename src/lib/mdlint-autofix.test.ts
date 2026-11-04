@@ -102,6 +102,27 @@ describe("autofix: undescribed image at the start of a line", () => {
     expect(fixed).toBe(expected);
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
+
+  it.each([
+    [
+      "no title, prose after",
+      "![](a.png) then *prose* here.",
+      "![TODO: describe image](a.png) then *prose* here.",
+    ],
+    ["image alone on its line", "![](a.png)", "![TODO: describe image](a.png)"],
+    [
+      "two line-start images, each with prose",
+      "![](a.png) one.\n![](b.png) two.",
+      "![TODO: describe image](a.png) one.\n![TODO: describe image](b.png) two.",
+    ],
+  ])("fills the placeholder and keeps following prose (%s)", (_name, line, expectedLine) => {
+    const rules = [ruleMissingAltText];
+    const doc = `Intro.\n\n${line}\nTail.\n`;
+    const fixed = applyAllFixes(doc, lintDocument(doc, { rules }));
+
+    expect(fixed).toBe(`Intro.\n\n${expectedLine}\nTail.\n`);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
 });
 
 // ─── 2. Rule: invalid-link-target ────────────────────────────────────────────
