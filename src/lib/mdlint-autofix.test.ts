@@ -18989,6 +18989,26 @@ describe("invalid-link-target autofix: empty destination keeps the link text", (
   });
 
   it.each([
+    ["CJK and accented text", "概要 café", ""],
+    ["combining marks", "cafe\u0301", "   "],
+    ["emoji and a zero-width joiner", "👩‍💻 guide 🚀", "#"],
+    ["right-to-left text", "دليل الإعداد", "?"],
+  ])("preserves Unicode label text (%s) when fixing the href", (_name, label, href) => {
+    for (const nl of ["\n", "\r\n"]) {
+      const doc = `😀 Intro.${nl}See [${label}](${href}) and [${label}](./guide.md).${nl}`;
+      const violations = lintDocument(doc, { rules });
+      expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+
+      const expected = `😀 Intro.${nl}See [${label}](TODO) and [${label}](./guide.md).${nl}`;
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+      expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+    }
+  });
+
+  it.each([
     "\n",
     "\r\n",
   ])("fixes only the empty destination beside a valid link with the same label (%j)", (nl) => {
