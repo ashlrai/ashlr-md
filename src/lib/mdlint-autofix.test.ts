@@ -580,6 +580,18 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(expected, { rules })).toEqual([]);
   });
 
+  it("fills both invalid links on one line with TODO and preserves surrounding text", () => {
+    const doc = "Read [one]() and then [two]( ) before you [ok](./ok.md) finish.\n";
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+    expect(violations).toHaveLength(2);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(
+      "Read [one](TODO) and then [two](TODO) before you [ok](./ok.md) finish.\n",
+    );
+    expect(lintDocument(fixed, { rules })).toHaveLength(0);
+  });
+
   it("replaces a whitespace-only link destination and preserves surrounding text", () => {
     const doc = "Before, read [the guide]( \t ) carefully; then continue.\r\n";
     const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
