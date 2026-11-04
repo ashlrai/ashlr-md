@@ -11454,6 +11454,28 @@ describe("autofix: [sic] prose preservation", () => {
       expect(applyAllFixes(fixed, lintDocument(fixed))).toBe(fixed);
     }
   });
+
+  it("keeps [sic] inside a valid link title and as a valid link label while fixing an invalid link", () => {
+    const doc = 'See [guide](./guide.md "[sic]") and [sic](#errata), then [draft]().\n';
+    const expected =
+      'See [guide](./guide.md "[sic]") and [sic](#errata), then [draft](TODO).\n';
+    const violations = lintDocument(doc, { rules });
+
+    // Only [draft]() is a violation: the title's "[sic]" sits inside a valid
+    // link destination and [sic](#errata) is a real fragment link.
+    expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+    expect(
+      doc.slice(violations[0].range!.from.offset, violations[0].range!.to.offset),
+    ).toBe("[draft]()");
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(fixed).toContain('[guide](./guide.md "[sic]")');
+    expect(fixed).toContain("[sic](#errata)");
+    expect(fixed.match(/\[sic\]/g)).toHaveLength(2);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(fix(fixed)).toBe(fixed);
+  });
 });
 
 // ─── [1] footnote reference survives autofix untouched ──────────────────────
