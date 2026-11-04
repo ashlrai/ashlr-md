@@ -18560,3 +18560,94 @@ describe("autofix: undescribed image directly touching a described image", () =>
     }
   });
 });
+
+describe("invalid-link-target autofix: empty destination keeps the link text", () => {
+  const rules = [ruleInvalidLinkTarget];
+
+  it.each([
+    ["plain words", "the setup guide"],
+    ["inline markup", "**bold** _and_ ~struck~"],
+    ["Unicode", "café — 概要"],
+    ["punctuation", "Wait, what? Yes: really!"],
+  ])("preserves the link text (%s) and sets the destination to TODO", (_name, label) => {
+    const doc = `See [${label}]() for details.\n`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+    // The reported range spans the whole link, label included.
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(`[${label}]()`);
+
+    const expected = `See [${label}](TODO) for details.\n`;
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain(`[${label}](TODO)`);
+    expect(fixed).not.toContain(`[${label}]()`);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("fixes only the empty destination beside a valid link with the same label (%j)", (nl) => {
+    const doc = `Intro.${nl}${nl}[guide](./guide.md) is fine; [guide]() is not.${nl}`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+    const expected = `Intro.${nl}${nl}[guide](./guide.md) is fine; [guide](TODO) is not.${nl}`;
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain("[guide](./guide.md)");
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it("repairs each empty destination at its own offset when identical links repeat", () => {
+    const doc = "[dup]() then [dup]() then [dup](./ok.md)\n";
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual([
+      "invalid-link-target",
+      "invalid-link-target",
+    ]);
+    // A single fix touches only its own occurrence.
+    expect(applyFix(doc, violations[0])).toBe(
+      "[dup](TODO) then [dup]() then [dup](./ok.md)\n",
+    );
+    expect(applyFix(doc, violations[1])).toBe(
+      "[dup]() then [dup](TODO) then [dup](./ok.md)\n",
+    );
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe("[dup](TODO) then [dup](TODO) then [dup](./ok.md)\n");
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("fixes an empty destination at both document edges with %j line endings", (nl) => {
+    const doc = `[first]() opens.${nl}${nl}Closes [last]()`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual([
+      "invalid-link-target",
+      "invalid-link-target",
+    ]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(`[first](TODO) opens.${nl}${nl}Closes [last](TODO)`);
+    expect(fixed.endsWith(nl)).toBe(false);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it("makes the same repair under the full default rule set", () => {
+    const doc = "---\ntitle: Guide\n---\n\nRead [the guide]() first.\n";
+    const violations = lintDocument(doc);
+
+    expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe("---\ntitle: Guide\n---\n\nRead [the guide](TODO) first.\n");
+    expect(lintDocument(fixed)).toEqual([]);
+  });
+});
