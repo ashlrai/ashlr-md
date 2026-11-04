@@ -90,6 +90,27 @@ describe("autofix: undescribed image at the start of a line", () => {
   it.each([
     "\n",
     "\r\n",
+  ])("is idempotent after fixing mixed images with %j line endings", (nl) => {
+    const rules = [ruleMissingAltText];
+    const doc = `Café: ![](a.png "Chart")![ \t ](images/b.png?v=2#top)${nl}![Logo](logo.svg) stays. ![](last.png)`;
+    const expected = `Café: ![TODO: describe image](a.png "Chart")![TODO: describe image](images/b.png?v=2#top)${nl}![Logo](logo.svg) stays. ![TODO: describe image](last.png)`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+      "missing-alt-text",
+      "missing-alt-text",
+      "missing-alt-text",
+    ]);
+    const once = applyAllFixes(doc, violations);
+    expect(once).toBe(expected);
+    const remaining = lintDocument(once, { rules });
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(once, remaining)).toBe(once);
+  });
+
+  it.each([
+    "\n",
+    "\r\n",
   ])("preserves the complete trailing text with %j line endings", (nl) => {
     const doc = `Intro.${nl}${nl}![](images/chart.png "Chart") followed by *details* and [notes](./notes.md).${nl}Next line.${nl}`;
     const expected = `Intro.${nl}${nl}![TODO: describe image](images/chart.png "Chart") followed by *details* and [notes](./notes.md).${nl}Next line.${nl}`;
