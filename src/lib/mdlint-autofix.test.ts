@@ -227,6 +227,42 @@ describe("autofix: empty image description", () => {
   });
 });
 
+describe("autofix: undescribed image whose URL has a query string", () => {
+  const rules = [ruleMissingAltText];
+
+  it.each([
+    ["one parameter", "https://cdn.example.com/a.png?v=2"],
+    ["several parameters", "https://cdn.example.com/a.png?w=640&h=480&fit=crop"],
+    ["percent-escapes and a fragment", "https://example.com/a.png?q=a%20b%26c#top"],
+    ["a bare question mark", "https://example.com/a.png?"],
+    ["a relative path", "img/a.png?cache=bust&v=1"],
+  ])("adds the placeholder and keeps the full URL (%s)", (_kind, url) => {
+    for (const alt of ["", "   "]) {
+      const doc = `Look: ![${alt}](${url}) done.\n`;
+      const violations = lintDocument(doc, { rules });
+      expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(`Look: ![TODO: describe image](${url}) done.\n`);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+    }
+  });
+
+  it("keeps the query string and title when both are present", () => {
+    const doc = '![](https://example.com/a.png?x=1&y=2 "Chart")\n';
+    const fixed = applyAllFixes(doc, lintDocument(doc, { rules }));
+    expect(fixed).toBe(
+      '![TODO: describe image](https://example.com/a.png?x=1&y=2 "Chart")\n',
+    );
+  });
+
+  it("leaves an already described image with a query string untouched", () => {
+    const doc = "![Chart](https://example.com/a.png?x=1&y=2)\n";
+    expect(lintDocument(doc, { rules })).toEqual([]);
+    expect(applyAllFixes(doc, lintDocument(doc, { rules }))).toBe(doc);
+  });
+});
+
 describe("autofix: undescribed image with a Unicode filename", () => {
   it.each([
     ["CJK", "画像/日本語.png"],
