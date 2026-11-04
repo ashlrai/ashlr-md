@@ -21543,3 +21543,25 @@ describe("autofix: invalid link with an empty destination", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+describe("autofix: invalid link with a Unicode label from other scripts", () => {
+  it.each([
+    ["Hangul", "한국어 가이드"],
+    ["Thai", "คู่มือภาษาไทย"],
+    ["Devanagari with conjuncts", "हिन्दी मार्गदर्शिका"],
+    ["bidi controls around Hebrew", "‫מדריך‬ ‏עברית‏"],
+    ["fullwidth punctuation", "ガイド（第１章）！"],
+  ])("keeps the %s label exactly and sets the destination to TODO", (_kind, label) => {
+    const rules = [ruleInvalidLinkTarget];
+    const doc = `前 [${label}]() 後\n`;
+    const expected = `前 [${label}](TODO) 後\n`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.slice(fixed.indexOf("[") + 1, fixed.indexOf("](TODO)"))).toBe(label);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
