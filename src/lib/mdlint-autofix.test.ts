@@ -421,6 +421,20 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 
+  it("fixes an invalid href in a CRLF document without changing its line endings", () => {
+    const doc = "# Title\r\n\r\nSee [guide]() now.\r\n\r\nLast line.\r\n";
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe("# Title\r\n\r\nSee [guide](TODO) now.\r\n\r\nLast line.\r\n");
+    // Every newline is still CRLF: no bare LF or CR appeared, and the count is unchanged.
+    expect(fixed.match(/\r\n/g)).toHaveLength(5);
+    expect(fixed.replaceAll("\r\n", "")).not.toMatch(/[\r\n]/);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
   it("replaces each of two invalid destinations with TODO and preserves both link labels", () => {
     const doc = "Read [First Guide]() and [Second *Guide*](#) today.\n";
     const expected = "Read [First Guide](TODO) and [Second *Guide*](TODO) today.\n";
