@@ -10578,6 +10578,44 @@ describe("autofix: bracketed prose preservation", () => {
   });
 
   it.each([
+    [
+      "prose on both sides of the link",
+      'He wrote "we was" [sic] and [sic] again, then broke [link]().',
+      'He wrote "we was" [sic] and [sic] again, then broke [link](TODO).',
+      "[link]()",
+    ],
+    [
+      "prose adjacent to the link",
+      "Teh [sic][broken]() end.",
+      "Teh [sic][broken](TODO) end.",
+      "[broken]()",
+    ],
+    [
+      "link label also reads [sic]",
+      'A quote "[sic]" next to a real link [sic]() here.',
+      'A quote "[sic]" next to a real link [sic](TODO) here.',
+      "[sic]()",
+    ],
+  ])("keeps prose [sic] verbatim while fixing an invalid link beside it (%s)", (_name, line, expectedLine, invalid) => {
+    for (const nl of ["\n", "\r\n"]) {
+      const doc = `${line}${nl}`;
+      const expected = `${expectedLine}${nl}`;
+      const violations = lintDocument(doc, { rules: defaultRules });
+
+      // Only the [label](href) form is a link: bare [sic] prose is never flagged.
+      expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+      expect(
+        doc.slice(violations[0].range!.from.offset, violations[0].range!.to.offset),
+      ).toBe(invalid);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      expect(fixed.split("[sic]")).toHaveLength(doc.split("[sic]").length);
+      expect(lintDocument(fixed, { rules: defaultRules })).toEqual([]);
+    }
+  });
+
+  it.each([
     ["LF", "\n"],
     ["CRLF", "\r\n"],
   ])("turns an invalid href into TODO across multi-line prose and leaves other lines and breaks alone (%s)", (_label, nl) => {
