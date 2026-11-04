@@ -997,6 +997,44 @@ describe("autofix: undescribed image inside a list item", () => {
     expect(applyAllFixes(doc, violations)).toBe(expected);
     expect(lintDocument(expected, { rules })).toEqual([]);
   });
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("fixes an image in every item of one list, in any order, keeping each marker (%j)", (nl) => {
+    const doc = `- ![](a.png)${nl}2. ![ ](b.png)${nl}- Plain ![ok](c.png)${nl}  - ![](d.png "D")${nl}`;
+    const expected = `- ![TODO: describe image](a.png)${nl}2. ![TODO: describe image](b.png)${nl}- Plain ![ok](c.png)${nl}  - ![TODO: describe image](d.png "D")${nl}`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(3);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(applyAllFixes(doc, [...violations].reverse())).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+
+  it("fixes an image in an indented continuation paragraph and in a blockquoted item", () => {
+    const doc = "- Item text.\n\n  ![](inner.png)\n\n> - ![](quoted.png)\n";
+    const expected =
+      "- Item text.\n\n  ![TODO: describe image](inner.png)\n\n> - ![TODO: describe image](quoted.png)\n";
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(2);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+
+  it("leaves image syntax inside a fenced code block in a list item alone", () => {
+    const doc = "- Example:\n\n  ```md\n  ![](x.png)\n  ```\n- ![](real.png)\n";
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(applyAllFixes(doc, violations)).toBe(
+      "- Example:\n\n  ```md\n  ![](x.png)\n  ```\n- ![TODO: describe image](real.png)\n",
+    );
+  });
 });
 
 // ─── 2. Rule: invalid-link-target ────────────────────────────────────────────
