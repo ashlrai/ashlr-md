@@ -8514,6 +8514,47 @@ describe("rule:missing-alt-text", () => {
   });
 });
 
+// ─── rule:missing-alt-text autofix: idempotence ─────────────────────────────
+
+describe("rule:missing-alt-text autofix: idempotence", () => {
+  const rules = [ruleMissingAltText];
+  const fixPass = (text: string) => applyAllFixes(text, lintDocument(text, { rules }));
+
+  it.each([
+    ["empty alt", "![](images/chart.png)"],
+    ["whitespace alt with title", '![ ](img/photo.png "Photo")'],
+    ["angle-bracket destination", "![](<img/a b.png>)"],
+    ["query and fragment", "![](images/v2.png?size=2#top)"],
+    ["tab-only alt", "![\t](chart.png)"],
+    ["linked image", "[![](badge.svg)](https://example.com)"],
+    ["multiple undescribed images", "![](a.png) and ![](b.png)"],
+  ])("applying autofix twice produces the same result as applying once (%s)", (_name, image) => {
+    for (const nl of ["\n", "\r\n"]) {
+      const doc = `# Report${nl}${nl}See ${image} for details.${nl}`;
+      const once = fixPass(doc);
+      const twice = fixPass(once);
+
+      expect(twice).toBe(once);
+      expect(lintDocument(once, { rules })).toEqual([]);
+    }
+  });
+
+  it("applying autofix twice to an undescribed image via applyFix produces the same result as applying once", () => {
+    const doc = "Intro.\n\n![](chart.png)\n";
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].fix).not.toBeNull();
+    const once = applyFix(doc, violations[0]);
+    // A second lint finds nothing — the fixed image now has alt text.
+    const secondViolations = lintDocument(once, { rules });
+    expect(secondViolations).toEqual([]);
+    // Re-applying autofix to the already-fixed document is a no-op.
+    const twice = applyAllFixes(once, secondViolations);
+    expect(twice).toBe(once);
+  });
+});
+
 // ─── 4. Chained violations + multi-fix application ───────────────────────────
 
 describe("chained violations and multi-line fixes", () => {
