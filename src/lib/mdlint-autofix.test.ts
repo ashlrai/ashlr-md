@@ -197,6 +197,22 @@ describe("rule:invalid-link-target", () => {
     );
   });
 
+  it.each([
+    "",
+    "  ",
+    "#",
+  ])("preserves punctuation in the label when fixing destination %j", (destination) => {
+    const doc = `Before [Wait, what? Yes: really!](${destination}) after.\r\n`;
+    const expected = "Before [Wait, what? Yes: really!](TODO) after.\r\n";
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+
   it("replaces a whitespace-only link destination and preserves surrounding text", () => {
     const doc = "Before, read [the guide]( \t ) carefully; then continue.\r\n";
     const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
