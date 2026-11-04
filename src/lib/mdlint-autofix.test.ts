@@ -744,6 +744,22 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(expected, { rules })).toEqual([]);
   });
 
+  it.each([
+    ["two words", "[Read the docs]()", "[Read the docs](TODO)"],
+    ["inner double spaces", "[Read  the   docs]()", "[Read  the   docs](TODO)"],
+    ["punctuation", "[Docs, FAQ & more!]()", "[Docs, FAQ & more!](TODO)"],
+    ["non-ASCII words", "[日本語 の ガイド]()", "[日本語 の ガイド](TODO)"],
+  ])("turns a link with a multiword label (%s) and empty href into the same label with a TODO href", (_kind, doc, expected) => {
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(`${doc}\n`, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    const fixed = applyAllFixes(`${doc}\n`, violations);
+    expect(fixed).toBe(`${expected}\n`);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+
   it("fixes two identical empty-href links independently, one TODO each", () => {
     const doc = "[same]() and [same]() again.\n";
     const rules = [ruleInvalidLinkTarget];
