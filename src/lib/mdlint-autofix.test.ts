@@ -17725,3 +17725,25 @@ describe("invalid-link-target autofix: every invalid href shape inside a blockqu
     }
   });
 });
+
+describe("invalid-link-target autofix: start-of-line edge cases", () => {
+  it.each([
+    ["document start, no trailing newline", "[a]() tail", "[a](TODO) tail"],
+    [
+      "text glued to the link",
+      "[a]()tail, more.\nNext.\n",
+      "[a](TODO)tail, more.\nNext.\n",
+    ],
+    ["three-space indent", "x\n\n   [a]() tail\n", "x\n\n   [a](TODO) tail\n"],
+    ["link is the whole line", "[a]()\nNext.\n", "[a](TODO)\nNext.\n"],
+  ])("sets the destination to TODO and keeps following text: %s", (_name, doc, expected) => {
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+    expect(violations[0].range!.from.col).toBe(doc.includes("   [a]") ? 3 : 0);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+});
