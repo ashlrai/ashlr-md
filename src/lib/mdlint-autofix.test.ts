@@ -421,6 +421,39 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    [
+      "invalid first",
+      "[same]()",
+      "[same](./same.md)",
+      "[same](TODO)",
+      "[same](./same.md)",
+    ],
+    [
+      "valid first",
+      "[same](./same.md)",
+      "[same]()",
+      "[same](./same.md)",
+      "[same](TODO)",
+    ],
+  ])("replaces only the invalid destination when a valid link has the same label (%s)", (_name, a, b, fixedA, fixedB) => {
+    for (const nl of ["\n", "\r\n"]) {
+      const doc = `Intro.${nl}${nl}See ${a} and ${b}.${nl}`;
+      const expected = `Intro.${nl}${nl}See ${fixedA} and ${fixedB}.${nl}`;
+      const rules = [ruleInvalidLinkTarget];
+      const violations = lintDocument(doc, { rules });
+
+      // Exactly one diagnostic, and it points at the empty-destination link.
+      expect(violations).toHaveLength(1);
+      expect(
+        doc.slice(violations[0].range!.from.offset, violations[0].range!.to.offset),
+      ).toBe("[same]()");
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      expect(applyAllFixes(doc, violations)).toBe(expected);
+      expect(lintDocument(expected, { rules })).toEqual([]);
+    }
+  });
+
+  it.each([
     ["both empty", "", ""],
     ["fragment and query markers", "#", "?"],
     ["whitespace-only hrefs", "  ", "\t "],
