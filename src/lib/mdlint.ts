@@ -597,7 +597,7 @@ export const ruleInvalidLinkTarget: LintRule = {
         const originalMatch = m[0];
         violations.push({
           ruleId: "invalid-link-target",
-          message: `Invalid link target: [${text.slice(0, 30)}](${href || "empty"})`,
+          message: `Invalid link target: [${text.slice(0, 30) || "link"}](${href || "empty"})`,
           severity: "warning",
           range: range(doc, from, to),
           fix: (d) => {

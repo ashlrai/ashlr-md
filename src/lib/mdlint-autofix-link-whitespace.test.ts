@@ -80,12 +80,19 @@ describe("invalid link autofix with a whitespace-only href", () => {
     expect(applyAllFixes(fixed, remaining)).toBe(expected);
   });
 
-  it("keeps an empty label empty and names it 'link' in the message", () => {
-    const doc = "See [](  ) here.\n";
+  it.each([
+    "",
+    "  ",
+    "#",
+    "?",
+  ])("keeps an empty label empty and names it 'link' in the message (href %j)", (href) => {
+    const doc = `See [](${href}) here.\n`;
     const violations = lintDocument(doc, { rules });
 
     expect(violations).toHaveLength(1);
-    expect(violations[0].message).toBe("Invalid link target: [link](  )");
+    expect(violations[0].message).toBe(
+      `Invalid link target: [link](${href || "empty"})`,
+    );
     const expected = "See [](TODO) here.\n";
     expect(applyFix(doc, violations[0])).toBe(expected);
     expect(applyAllFixes(doc, violations)).toBe(expected);
