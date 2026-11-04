@@ -11254,6 +11254,42 @@ describe("rule:invalid-link-target empty href inside a table cell", () => {
   });
 });
 
+describe("rule:invalid-link-target invalid href with Unicode label inside a table cell", () => {
+  it.each([
+    ["empty", ""],
+    ["whitespace-only", " \t "],
+    ["lone hash", "#"],
+    ["lone question mark", "?"],
+  ])("fixes a %s destination, keeps the Unicode label byte-for-byte and leaves the row intact", (_name, href) => {
+    for (const nl of ["\n", "\r\n"]) {
+      const label = "利用ガイド café 👩🏽‍💻";
+      const link = `[${label}](${href})`;
+      const doc = [
+        "| 名前 | リンク |",
+        "| ---- | ------ |",
+        `| 概要 | ${link} — see [ok](./ok.md) |`,
+        "",
+      ].join(nl);
+      const expected = doc.replace(link, `[${label}](TODO)`);
+      const rules = [ruleInvalidLinkTarget];
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+      const { from, to } = violations[0].range!;
+      // The reported range spans the whole link, Unicode label included.
+      expect(doc.slice(from.offset, to.offset)).toBe(link);
+      expect(violations[0].fix).not.toBeNull();
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      // The label is preserved exactly around the repaired destination.
+      expect(fixed).toContain(`[${label}](TODO)`);
+      expect(fixed).toContain("[ok](./ok.md)");
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+    }
+  });
+});
+
 describe("invalid link and unrelated prose on separate lines", () => {
   it.each([
     ["LF", "\n"],
