@@ -143,6 +143,35 @@ describe("autofix: undescribed image at the start of a line", () => {
   });
 });
 
+describe("autofix: undescribed image inside a list item", () => {
+  it.each([
+    ["unordered dash", "- ", "\n"],
+    ["unordered star, nested", "  * ", "\n"],
+    ["ordered", "12. ", "\r\n"],
+    ["task item", "- [ ] ", "\n"],
+  ])("adds the placeholder and keeps the marker and image target (%s)", (_kind, marker, nl) => {
+    const doc = `Intro.${nl}${nl}${marker}![](images/chart.png "Chart") then *prose*.${nl}${marker}Plain item.${nl}${nl}Tail.${nl}`;
+    const expected = `Intro.${nl}${nl}${marker}![TODO: describe image](images/chart.png "Chart") then *prose*.${nl}${marker}Plain item.${nl}${nl}Tail.${nl}`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it("fixes an image mid-item without touching a described sibling", () => {
+    const doc = "- See ![](a.png) and ![ok](b.png)\n";
+    const rules = [ruleMissingAltText];
+    const fixed = applyAllFixes(doc, lintDocument(doc, { rules }));
+
+    expect(fixed).toBe("- See ![TODO: describe image](a.png) and ![ok](b.png)\n");
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
+
 // ─── 2. Rule: invalid-link-target ────────────────────────────────────────────
 
 describe("rule:invalid-link-target", () => {
