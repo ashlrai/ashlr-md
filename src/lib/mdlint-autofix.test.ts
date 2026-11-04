@@ -672,6 +672,27 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    ["empty href, no trailing newline", "()", ""],
+    ["empty href, trailing LF", "()", "\n"],
+    ["empty href, trailing CRLF", "()", "\r\n"],
+    ["whitespace-only href, trailing blank lines", "( \t )", "\n\n"],
+    ["fragment-only href, trailing LF", "(#)", "\n"],
+  ])("turns an invalid href at the very end of a document into TODO and keeps the preceding text (%s)", (_kind, href, tail) => {
+    const before =
+      "# Title\n\nSome **bold** prose, a [valid](./a.md) link, café 🎉, and then [the end]";
+    const doc = `${before}${href}${tail}`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(`${before}(TODO)${tail}`);
+    expect(fixed.startsWith(before)).toBe(true);
+    expect(applyFix(doc, violations[0])).toBe(fixed);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
     ["plain words", "Some leading words "],
     ["markup and punctuation", "**Bold** `code` (aside), café — "],
     ["a valid link", "See [docs](./docs.md) then "],
