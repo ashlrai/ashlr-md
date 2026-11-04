@@ -221,6 +221,23 @@ describe("rule:invalid-link-target", () => {
     }
   });
 
+  it.each([
+    ["a title", '[install](./guide.md#install-steps "Install steps")'],
+    ["an angle-bracket destination", "[install](<./my guide.md#install steps>)"],
+    ["emphasis in the text", "[**install** _now_](./guide.md#install-steps)"],
+    ["a query before the fragment", "[install](./guide.md?v=2#install-steps)"],
+  ])("leaves a valid fragment link with %s byte-identical under autofix", (_name, link) => {
+    for (const nl of ["\n", "\r\n"]) {
+      const doc = `# Guide${nl}${nl}Start: ${link}${nl}${nl}Then [broken]() and trailing   ${nl}`;
+      const fixed = applyAllFixes(doc, lintDocument(doc));
+
+      expect(fixed).toContain(link);
+      expect(fixed).toContain("[broken](TODO)");
+      // The valid link also survives a second autofix pass.
+      expect(applyAllFixes(fixed, lintDocument(fixed))).toContain(link);
+    }
+  });
+
   describe("preserves valid mailto links", () => {
     it.each([
       ["plain address", "[contact](mailto:team@example.com)"],
