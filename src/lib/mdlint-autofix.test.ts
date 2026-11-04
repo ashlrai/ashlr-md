@@ -94,6 +94,15 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(doc, { rules: [ruleInvalidLinkTarget] })).toHaveLength(0);
   });
 
+  it("fills an empty link destination with TODO and preserves the surrounding prose", () => {
+    const doc = "Before the link, read [the guide]() carefully, then continue.\n";
+    const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
+    expect(violations).toHaveLength(1);
+    expect(applyAllFixes(doc, violations)).toBe(
+      "Before the link, read [the guide](TODO) carefully, then continue.\n",
+    );
+  });
+
   it("reports no invalid-link-target diagnostic for titled, angle-bracket and reference links", () => {
     const doc = [
       '[titled](./guide.md "Guide")',
