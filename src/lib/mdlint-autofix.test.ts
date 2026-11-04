@@ -16327,3 +16327,27 @@ describe("invalid-link-target autofix with a valid link on the same line", () =>
     }
   });
 });
+
+describe("invalid-link-target autofix beside a described image", () => {
+  const image = "![Architecture diagram](img/arch.png)";
+  const invalid = "[home](#)";
+
+  it.each([
+    ["image first", `${image} ${invalid}`, `${image} [home](TODO)`],
+    ["link first", `${invalid} ${image}`, `[home](TODO) ${image}`],
+  ])("fixes the link and preserves the image exactly (%s)", (_name, line, expectedLine) => {
+    const rules = [ruleInvalidLinkTarget, ruleMissingAltText];
+    for (const nl of ["\n", "\r\n"]) {
+      const doc = `# Title${nl}${nl}${line}${nl}`;
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations).toHaveLength(1);
+      expect(violations[0].ruleId).toBe("invalid-link-target");
+
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(`# Title${nl}${nl}${expectedLine}${nl}`);
+      expect(fixed).toContain(image);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+    }
+  });
+});
