@@ -1064,6 +1064,20 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(once, opts)).toEqual([]);
   });
 
+  it("a second autofix leaves the first result unchanged for empty, lone # and lone ? destinations", () => {
+    const doc = "Go [alpha]() then [beta](#) then [gamma](?) and [ok](./ok.md).\n";
+    const opts = { rules: [ruleInvalidLinkTarget] };
+    const fixOnce = (text: string) => applyAllFixes(text, lintDocument(text, opts));
+
+    const first = fixOnce(doc);
+    expect(first).toBe(
+      "Go [alpha](TODO) then [beta](TODO) then [gamma](TODO) and [ok](./ok.md).\n",
+    );
+    // The second pass finds nothing to report and returns the first result byte for byte.
+    expect(lintDocument(first, opts)).toEqual([]);
+    expect(fixOnce(first)).toBe(first);
+  });
+
   it.each([
     ["-"],
     ["*"],
