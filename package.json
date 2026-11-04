@@ -81,5 +81,8 @@
     "typescript": "~5.8.3",
     "vite": "^7.0.4",
     "vitest": "2"
+  },
+  "patchedDependencies": {
+    "@milkdown/ctx@7.21.2": "patches/@milkdown%2Fctx@7.21.2.patch"
   }
 }
