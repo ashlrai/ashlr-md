@@ -13898,6 +13898,72 @@ describe("autofix keeps [TODO] prose at document edges, in tables and in fences"
   });
 });
 
+describe("autofix preserves [TODO] prose in masked regions and touching a repair", () => {
+  const rules = [ruleInvalidLinkTarget, ruleMissingAltText, ruleNoTrailingSpaces];
+  const fixPass = (text: string) => applyAllFixes(text, lintDocument(text, { rules }));
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("keeps every [TODO] in front matter, indented code and prose while fixing only the body's broken link (%j endings)", (nl) => {
+    // Front matter and indented code are masked for the link and image
+    // rules: their [TODO] spans — and the code's own [bad]() — stay text.
+    const doc = [
+      "---",
+      "tags: [TODO]",
+      "---",
+      "",
+      "Para line.",
+      "",
+      "    code [TODO] and [bad]() here",
+      "",
+      "Body [TODO] and [bad]().",
+      "",
+    ].join(nl);
+    const expected = [
+      "---",
+      "tags: [TODO]",
+      "---",
+      "",
+      "Para line.",
+      "",
+      "    code [TODO] and [bad]() here",
+      "",
+      "Body [TODO] and [bad](TODO).",
+      "",
+    ].join(nl);
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("invalid-link-target");
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe("[bad]()");
+
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // All three bracketed [TODO] spans survive; the inserted placeholder
+    // adds no brackets of its own.
+    expect(fixed.match(/\[TODO\]/g)).toHaveLength(3);
+    expect(fixed.split("[TODO]").length).toBe(doc.split("[TODO]").length);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(fixPass(fixed)).toBe(fixed);
+  });
+
+  it.each([
+    ["before the link", "x[TODO][bad]() y.\n", "x[TODO][bad](TODO) y.\n"],
+    ["after the link", "[bad]()[TODO] end.\n", "[bad](TODO)[TODO] end.\n"],
+  ])("retains the brackets of a [TODO] touching the repaired link (%s)", (_label, doc, expected) => {
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("invalid-link-target");
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain("[TODO]");
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
+
 describe("autofix preserves [TODO] prose alongside undescribed images", () => {
   const rules = [ruleInvalidLinkTarget, ruleMissingAltText];
 
