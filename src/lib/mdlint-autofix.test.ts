@@ -1445,6 +1445,26 @@ describe("rule:invalid-link-target", () => {
   it.each([
     ["LF", "\n"],
     ["CRLF", "\r\n"],
+  ])("fixes an invalid link on the final line without adding a final newline (%s)", (_name, nl) => {
+    const doc = `Intro.${nl}${nl}See [reference]() for details.`;
+    const expected = `Intro.${nl}${nl}See [reference](TODO) for details.`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.endsWith("\n")).toBe(false);
+    expect(fixed.endsWith("\r")).toBe(false);
+    const remaining = lintDocument(fixed, { rules });
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(fixed, remaining)).toBe(fixed);
+  });
+
+  it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
   ])("replaces the invalid href when the whole document is one invalid link and keeps the single final newline (%s)", (_name, nl) => {
     const doc = `[only link]()${nl}`;
     const rules = [ruleInvalidLinkTarget];
