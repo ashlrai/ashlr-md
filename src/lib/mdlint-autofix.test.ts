@@ -20977,3 +20977,50 @@ describe("autofix: undescribed image beside a described image", () => {
     expect(lintDocument(expected, { rules })).toEqual([]);
   });
 });
+
+describe("autofix: invalid link inside a heading", () => {
+  it.each([
+    [
+      "an ATX heading",
+      "## Read [the guide]() first\n",
+      "## Read [the guide](TODO) first\n",
+      "## Read ",
+      " first",
+    ],
+    [
+      "an ATX heading with closing hashes",
+      "# Intro [the guide]() #\n",
+      "# Intro [the guide](TODO) #\n",
+      "# Intro ",
+      " #",
+    ],
+    [
+      "a CRLF heading",
+      "### Intro [the guide]()\r\n\r\nBody.\r\n",
+      "### Intro [the guide](TODO)\r\n\r\nBody.\r\n",
+      "### Intro ",
+      "",
+    ],
+    [
+      "a setext heading",
+      "Intro [the guide]()\n===\n",
+      "Intro [the guide](TODO)\n===\n",
+      "Intro ",
+      "",
+    ],
+  ])("sets the href to TODO and keeps the heading text and link label intact in %s", (_kind, doc, expected, headPrefix, headSuffix) => {
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    // The href is now exactly TODO, and the label and heading text are untouched.
+    expect(fixed).toContain("[the guide](TODO)");
+    expect(fixed).not.toContain("[the guide]()");
+    expect(fixed).toContain(headPrefix + "[the guide]");
+    expect(fixed).toContain(`(TODO)${headSuffix}`);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
