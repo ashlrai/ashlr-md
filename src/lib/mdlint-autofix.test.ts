@@ -21142,3 +21142,34 @@ describe("invalid link at the start of a paragraph", () => {
     expect(lintDocument(expected, { rules })).toEqual([]);
   });
 });
+
+describe("autofix: undescribed image on a later line", () => {
+  it.each([
+    "\n",
+    "\r\n",
+  ])("gives only the targeted image the placeholder and leaves every preceding line unchanged with %j line endings", (nl) => {
+    const preceding = [
+      "# Gallery",
+      "",
+      "Opening café paragraph.",
+      "![Logo](logo.png)",
+      "```md",
+      "![](in-code.png)",
+      "```",
+      "",
+    ].join(nl);
+    const doc = `${preceding}${nl}Chart: ![](images/chart.png "Chart") end.${nl}Tail line.${nl}`;
+    const expected = `${preceding}${nl}Chart: ![TODO: describe image](images/chart.png "Chart") end.${nl}Tail line.${nl}`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    expect(violations[0].range?.from.line).toBe(9);
+    const fixed = applyFix(doc, violations[0]);
+    expect(fixed).toBe(expected);
+    expect(fixed.startsWith(`${preceding}${nl}`)).toBe(true);
+    expect(fixed.endsWith(`${nl}Tail line.${nl}`)).toBe(true);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
