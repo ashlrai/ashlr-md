@@ -21072,3 +21072,87 @@ describe("autofix: invalid link inside a blockquote", () => {
     expect(applyAllFixes(doc, violations)).toBe(expected);
   });
 });
+
+describe("invalid-link-target autofix: Unicode link text", () => {
+  const rules = [ruleInvalidLinkTarget];
+
+  it.each([
+    ["empty", ""],
+    ["a lone #", "#"],
+    ["a lone ?", "?"],
+    ["whitespace-only", " \t "],
+    ["an ideographic space", "　"],
+  ])("keeps the Unicode label byte-for-byte and replaces a %s href with TODO", (_kind, href) => {
+    const label = "日本語 の ガイド — café 🧭";
+    const doc = `前文 [${label}](${href}) 後文 [ok](./ok.md).\n`;
+    const expected = `前文 [${label}](TODO) 後文 [ok](./ok.md).\n`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(`[${label}](${href})`);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
+    ["combining marks", "é ñ"],
+    ["RTL Arabic", "مرحبا بالعالم"],
+    ["a ZWJ emoji sequence", "👩‍💻 dev team"],
+    ["astral-plane letters", "𝒳𝒴 𝓏"],
+    ["emphasis inside a CJK label", "**重要** ガイド"],
+  ])("fixes an empty href and keeps a label with %s", (_kind, label) => {
+    const doc = `See [${label}]() now.\n`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(`See [${label}](TODO) now.\n`);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it("preserves a decomposed (NFD) label without normalizing it to NFC", () => {
+    const label = "café au lait";
+    // The fixture must be genuinely decomposed for this test to mean anything.
+    expect(label).not.toBe(label.normalize("NFC"));
+    const doc = `See [${label}](#) now.\n`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(`See [${label}](TODO) now.\n`);
+    // "café" below is NFC (́); the fix must not fold the label into it.
+    expect(fixed).not.toContain("[café au lait](TODO)");
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it("fixes two identical Unicode-labelled invalid links independently", () => {
+    const doc = "[同じ]() と [同じ]() も。\n";
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(2);
+    expect(applyFix(doc, violations[1])).toBe("[同じ]() と [同じ](TODO) も。\n");
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe("[同じ](TODO) と [同じ](TODO) も。\n");
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it("fixes only the invalid link when a valid Unicode-labelled link shares the line", () => {
+    const doc = "案内 [ガイド](./guide.md) と [続き]() おわり\n";
+    const expected = "案内 [ガイド](./guide.md) と [続き](TODO) おわり\n";
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe("[続き]()");
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain("[ガイド](./guide.md)");
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
