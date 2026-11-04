@@ -10555,6 +10555,44 @@ fn export_text_keeps_bracketed_prose_at_paragraph_end_before_other_blocks() {
     assert_eq!(content_text(&response)["text"].as_str().unwrap(), expected);
 }
 
+/// Bracketed prose closing a paragraph keeps both brackets inside a list
+/// item, a task item or a table cell, and when the brackets nest, trail a
+/// colon, hold an emoji, sit inside inline HTML or are escaped.
+#[test]
+fn export_text_keeps_bracketed_prose_closing_a_paragraph_in_containers_and_odd_shapes() {
+    for (markdown, expected) in [
+        (
+            "- item ends [sic]\n- second [b]\n",
+            "item ends [sic]\nsecond [b]",
+        ),
+        ("1. first [a]\n2. second [b]\n", "first [a]\nsecond [b]"),
+        (
+            "- [ ] task [sic]\n- [x] done [ok]\n",
+            "task [sic]\ndone [ok]",
+        ),
+        (
+            "| h | h2 |\n|---|---|\n| cell [a] | x [b] |\n",
+            "h\th2\ncell [a]\tx [b]",
+        ),
+        ("Nested [a [b]]\n", "Nested [a [b]]"),
+        ("Ends with colon [sic]:\n", "Ends with colon [sic]:"),
+        ("Ends with emoji [🙂]\n", "Ends with emoji [🙂]"),
+        ("<span>Tail [a]</span>\n", "Tail [a]"),
+        ("Escaped \\[a\\] and [b]\n", "Escaped [a] and [b]"),
+        ("Ends [ ]\n", "Ends [ ]"),
+        ("Ends [[]]\n", "Ends [[]]"),
+    ] {
+        let result = run_export_text_on(markdown);
+        let text = result["text"].as_str().unwrap();
+        assert_eq!(text, expected, "{markdown:?}");
+        assert_eq!(
+            result["char_count"].as_u64().unwrap() as usize,
+            expected.chars().count(),
+            "{markdown:?}"
+        );
+    }
+}
+
 /// A line after a paragraph that looks like a `[label]:` reference
 /// definition goes on with the paragraph — a definition cannot interrupt
 /// one, as CommonMark reads it — so it shows as text and registers no
