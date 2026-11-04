@@ -10177,6 +10177,85 @@ describe("rule:missing-alt-text two undescribed images", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
     expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
   });
+
+  it.each([
+    ["", "", "\n"],
+    [" ", "  ", "\r\n"],
+    [" \t ", "", "\n"],
+  ])("describes both undescribed images in one paragraph and keeps both paths intact (alts %j and %j, %j line endings)", (firstAlt, secondAlt, nl) => {
+    const first = `![${firstAlt}](images/first%20pic.png?v=1#top "First")`;
+    const second = `![${secondAlt}](../assets/two.svg?view=full)`;
+    const doc = `Intro.${nl}${nl}Compare ${first} with ${second} in this paragraph.${nl}`;
+    const fixedFirst =
+      '![TODO: describe image](images/first%20pic.png?v=1#top "First")';
+    const fixedSecond = "![TODO: describe image](../assets/two.svg?view=full)";
+    const expected = `Intro.${nl}${nl}Compare ${fixedFirst} with ${fixedSecond} in this paragraph.${nl}`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+      "missing-alt-text",
+      "missing-alt-text",
+    ]);
+    // Each violation's range covers exactly its own image.
+    expect(
+      violations.map(({ range }) => doc.slice(range!.from.offset, range!.to.offset)),
+    ).toEqual([first, second]);
+    expect(violations.every(({ fix }) => fix !== null)).toBe(true);
+    // A single fix describes only its own image, leaving the other for a
+    // later pass.
+    expect(applyFix(doc, violations[0])).toBe(
+      `Intro.${nl}${nl}Compare ${fixedFirst} with ${second} in this paragraph.${nl}`,
+    );
+    expect(applyFix(doc, violations[1])).toBe(
+      `Intro.${nl}${nl}Compare ${first} with ${fixedSecond} in this paragraph.${nl}`,
+    );
+
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // Both descriptions receive the placeholder.
+    expect(fixed.match(/!\[TODO: describe image\]/g)).toHaveLength(2);
+    // Both image paths are byte-for-byte intact.
+    expect(fixed).toContain('(images/first%20pic.png?v=1#top "First")');
+    expect(fixed).toContain("(../assets/two.svg?view=full)");
+    // Clean after fix; a second pass changes nothing.
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("describes two undescribed images on soft-wrapped lines of one paragraph and keeps both paths intact (%j line endings)", (nl) => {
+    // Consecutive lines with no blank line between them are one paragraph.
+    const first = "![](photos/before.jpg)";
+    const second = '![ ](<photos/after photo.jpg> "After")';
+    const doc = `The gallery grows: ${first}${nl}then ${second} for the after shot.${nl}`;
+    const expected =
+      "The gallery grows: ![TODO: describe image](photos/before.jpg)" +
+      `${nl}then ![TODO: describe image](<photos/after photo.jpg> "After") for the after shot.${nl}`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+      "missing-alt-text",
+      "missing-alt-text",
+    ]);
+    // Same paragraph, reported on consecutive lines in document order.
+    expect(violations.map(({ range }) => range!.from.line)).toEqual([1, 2]);
+    expect(violations.every(({ fix }) => fix !== null)).toBe(true);
+
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // Both descriptions receive the placeholder; both paths stay intact.
+    expect(fixed).toContain("![TODO: describe image](photos/before.jpg)");
+    expect(fixed).toContain(
+      '![TODO: describe image](<photos/after photo.jpg> "After")',
+    );
+    expect(fixed.match(/!\[TODO: describe image\]/g)).toHaveLength(2);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
 });
 
 describe("autofix: empty document", () => {
