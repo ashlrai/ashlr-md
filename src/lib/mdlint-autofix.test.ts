@@ -12867,3 +12867,23 @@ describe("autofix: [1] prose preservation across block contexts", () => {
     expect(fixAll(fixed)).toBe(fixed);
   });
 });
+
+describe("rule:invalid-link-target mixed valid and invalid links on one line", () => {
+  it("replaces only the invalid href and leaves every neighbouring valid link byte-for-byte", () => {
+    const valid = [
+      "[web](https://example.com/a?b=1#c)",
+      "[rel](./notes/today.md)",
+      "[anchor](#intro)",
+      '[titled](./guide.md "Guide")',
+    ];
+    const doc = `# Links\n\n${valid[0]} ${valid[1]} [broken]() ${valid[2]} ${valid[3]}\n`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(doc.replace("[broken]()", "[broken](TODO)"));
+    for (const link of valid) expect(fixed).toContain(link);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
