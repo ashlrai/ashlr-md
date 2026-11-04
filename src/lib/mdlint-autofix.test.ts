@@ -13147,3 +13147,43 @@ describe("autofix: valid link and described image no-op", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+describe("autofix idempotence for undescribed images: headings, tables and fenced decoys", () => {
+  const rules = [ruleMissingAltText];
+  const fixPass = (text: string) => applyAllFixes(text, lintDocument(text, { rules }));
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("a second autofix produces exactly the first result (line ending %j)", (nl) => {
+    const doc = [
+      "# Title ![](logo.png)",
+      "",
+      "| a | b |",
+      "| - | - |",
+      '| ![](cell.png "T") | ![kept](ok.png) |',
+      "",
+      "```md",
+      "![](fenced.png)",
+      "```",
+      "",
+    ].join(nl);
+    const expected = [
+      "# Title ![TODO: describe image](logo.png)",
+      "",
+      "| a | b |",
+      "| - | - |",
+      '| ![TODO: describe image](cell.png "T") | ![kept](ok.png) |',
+      "",
+      "```md",
+      "![](fenced.png)",
+      "```",
+      "",
+    ].join(nl);
+
+    const first = fixPass(doc);
+    expect(first).toBe(expected);
+    expect(fixPass(first)).toBe(first);
+    expect(lintDocument(first, { rules })).toEqual([]);
+  });
+});
