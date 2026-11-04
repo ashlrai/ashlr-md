@@ -15530,4 +15530,20 @@ describe("rule:missing-alt-text autofix", () => {
     );
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("fixes an undescribed image that is the last thing in the document without adding a final newline with %j line endings", (newline) => {
+    const doc = `Intro.${newline}${newline}![](images/last.png "Last")`;
+    const expected = `Intro.${newline}${newline}![TODO: describe image](images/last.png "Last")`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).not.toMatch(/[\r\n]$/);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
 });
