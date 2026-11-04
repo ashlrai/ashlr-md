@@ -21502,3 +21502,35 @@ describe("autofix: undescribed image in a blockquote under the default rules", (
     expect(applyAllFixes(fixed, lintDocument(fixed))).toBe(fixed);
   });
 });
+
+describe("autofix: described and undescribed images sharing a destination", () => {
+  it.each([
+    true,
+    false,
+  ])("preserves the described image bytes under default rules (described first: %s)", (describedFirst) => {
+    const described = '![Cafe\u0301 東京](images/shared.png?v=2#top "Figure")';
+    const missing = '![](images/shared.png?v=2#top "Figure")';
+    const repaired = '![TODO: describe image](images/shared.png?v=2#top "Figure")';
+    const pair = (image: string) =>
+      describedFirst ? `${described} ${image}` : `${image} ${described}`;
+    const doc = `---\r\ntitle: Gallery\r\n---\r\n\r\n${pair(missing)}\r\n`;
+    const expected = `---\r\ntitle: Gallery\r\n---\r\n\r\n${pair(repaired)}\r\n`;
+    const violations = lintDocument(doc);
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    expect(
+      doc.slice(violations[0].range!.from.offset, violations[0].range!.to.offset),
+    ).toBe(missing);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    const preserved = fixed.slice(
+      fixed.indexOf(described),
+      fixed.indexOf(described) + described.length,
+    );
+    expect(new TextEncoder().encode(preserved)).toEqual(
+      new TextEncoder().encode(described),
+    );
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(lintDocument(fixed)).toEqual([]);
+  });
+});
