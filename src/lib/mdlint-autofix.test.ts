@@ -6228,6 +6228,33 @@ describe("rule:invalid-link-target", () => {
       expect(applyAllFixes(fixed, remaining)).toBe(expected);
     }
   });
+
+  it.each([
+    ["plain prose", " and keep reading the notes afterwards."],
+    ["stacked punctuation", "…!? (really) — tail"],
+    ["markdown constructs", " with `code`, *em* and [a valid link](./ok.md)."],
+    ["a parenthesized aside", "(see the appendix) for more."],
+    ["Unicode text", " — café 後文 مرحبا tail."],
+  ])("replaces the invalid destination with TODO and keeps the %s byte-identical", (_name, trailing) => {
+    const rules = [ruleInvalidLinkTarget];
+    for (const href of ["", " \t ", "#", "?"]) {
+      for (const nl of ["\n", "\r\n"]) {
+        const doc = `Intro stays.${nl}${nl}See [the guide](${href})${trailing}${nl}Outro stays.${nl}`;
+        const expected = `Intro stays.${nl}${nl}See [the guide](TODO)${trailing}${nl}Outro stays.${nl}`;
+        const violations = lintDocument(doc, { rules });
+
+        expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+        expect(applyFix(doc, violations[0])).toBe(expected);
+        const fixed = applyAllFixes(doc, violations);
+        expect(fixed).toBe(expected);
+        // Everything after the repaired link is the original trailing text.
+        expect(fixed.endsWith(`${trailing}${nl}Outro stays.${nl}`)).toBe(true);
+        const remaining = lintDocument(fixed, { rules });
+        expect(remaining).toEqual([]);
+        expect(applyAllFixes(fixed, remaining)).toBe(expected);
+      }
+    }
+  });
 });
 
 // ─── 3. Rule: missing-alt-text ────────────────────────────────────────────────
