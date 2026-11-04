@@ -12318,6 +12318,70 @@ describe("invalid link followed by a newline and ordinary prose", () => {
   });
 });
 
+describe("invalid link preceded by ordinary text", () => {
+  it.each([
+    ["empty", ""],
+    ["whitespace-only", " \t "],
+    ["lone hash", "#"],
+    ["lone question mark", "?"],
+  ])("rewrites only the %s destination; the preceding text and the label stay byte-identical", (_name, href) => {
+    for (const nl of ["\n", "\r\n"]) {
+      const lead = "Ordinary prose comes first — see [1] and (note), then ";
+      const link = `[the full guide](${href})`;
+      const doc = `${lead}${link}${nl}`;
+      const rules = [ruleInvalidLinkTarget];
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+      const { from, to } = violations[0].range!;
+      // The reported range covers the link alone, not the prose before it.
+      expect(doc.slice(from.offset, to.offset)).toBe(link);
+      expect(to.offset).toBe(doc.length - nl.length);
+
+      const expected = `${lead}[the full guide](TODO)${nl}`;
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      // Every byte before the link — all of the prose — is unchanged, and
+      // the label sits at the same offset with the destination replaced.
+      expect(fixed.slice(0, from.offset)).toBe(doc.slice(0, from.offset));
+      expect(fixed.slice(from.offset)).toBe(`[the full guide](TODO)${nl}`);
+      expect(fixed.split(nl)).toHaveLength(doc.split(nl).length);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+      expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+    }
+  });
+
+  it("fixes an invalid link abutting ordinary text and a multiline lead without touching either", () => {
+    for (const nl of ["\n", "\r\n"]) {
+      const lead = [
+        "# Notes",
+        "",
+        "First a plain sentence with (parens) and [1].",
+        "",
+      ].join(nl);
+      const doc = `${lead}end of clause.[draft](#) done.${nl}`;
+      const rules = [ruleInvalidLinkTarget];
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+      const { from, to } = violations[0].range!;
+      expect(doc.slice(from.offset, to.offset)).toBe("[draft](#)");
+      // "end of clause." is ordinary text that touches the link's bracket.
+      expect(doc.slice(0, from.offset)).toBe(`${lead}end of clause.`);
+
+      const expected = `${lead}end of clause.[draft](TODO) done.${nl}`;
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      expect(fixed.slice(0, from.offset)).toBe(doc.slice(0, from.offset));
+      expect(fixed.indexOf("[draft]")).toBe(from.offset);
+      expect(fixed.match(/\]\(TODO\)/g)).toHaveLength(1);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+    }
+  });
+});
+
 describe("invalid-link-target autofix: idempotence across document shapes", () => {
   const rules = [ruleInvalidLinkTarget];
   const fixPass = (text: string) => applyAllFixes(text, lintDocument(text, { rules }));
