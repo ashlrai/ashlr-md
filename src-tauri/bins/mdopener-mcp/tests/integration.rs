@@ -11182,6 +11182,23 @@ fn export_text_keeps_prose_brackets_and_punctuation_on_both_sides() {
     }
 }
 
+#[test]
+fn export_text_keeps_punctuation_beside_prose_brackets_and_reference_links() {
+    let markdown = "( [draft] ),[pending]:next! '[sic]'? [guide], [missing]; \\[literal\\].\n\n[guide]: /guide\n";
+    let expected = "( [draft] ),[pending]:next! '[sic]'? guide, [missing]; [literal].";
+
+    let result = run_export_text_on(markdown);
+    assert_eq!(result["text"].as_str().unwrap(), expected);
+
+    let ipc = MockIpc::new().on_get(
+        "/content",
+        Ok(json!({ "path": "/docs/test.md", "content": markdown })),
+    );
+    let response = tool_export_text(id(2), &json!({}), &ipc);
+    assert!(response.error.is_none());
+    assert_eq!(content_text(&response)["text"].as_str().unwrap(), expected);
+}
+
 /// Inside the pair, punctuation is text like the words around it:
 /// quotation marks and apostrophes (a `"` is a link's title mark only in
 /// a `(...)` tail), ellipses, interrobangs, en and em dashes, `%`, `/`
