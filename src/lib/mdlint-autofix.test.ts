@@ -15168,3 +15168,21 @@ describe("whitespace-only image description that spans a line break", () => {
     expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
   });
 });
+
+describe("invalid link at the end of a CRLF line", () => {
+  it.each([
+    ["empty", "[guide]()"],
+    ["bare hash", "[guide](#)"],
+  ])("replaces the %s destination and keeps the CRLF right after it", (_name, link) => {
+    const doc = `First line.\r\nSee ${link}\r\nLast line.\r\n`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe("First line.\r\nSee [guide](TODO)\r\nLast line.\r\n");
+    expect(fixed.match(/\r\n/g)).toHaveLength(3);
+    expect(fixed.replaceAll("\r\n", "")).not.toMatch(/[\r\n]/);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
