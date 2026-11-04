@@ -86,6 +86,24 @@ describe("rule:orphaned-heading", () => {
   });
 });
 
+describe("autofix: whitespace-only image description", () => {
+  it.each([
+    ["spaces", "   "],
+    ["a tab", "\t"],
+    ["mixed spaces and tabs", " \t  \t "],
+  ])("replaces %s with the placeholder and preserves the destination", (_kind, blank) => {
+    const rules = [ruleMissingAltText];
+    const doc = `Before ![${blank}](images/a%20b.png?v=2#top "Chart") after.\n`;
+    const expected = `Before ![TODO: describe image](images/a%20b.png?v=2#top "Chart") after.\n`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
+
 describe("autofix: undescribed image at the start of a line", () => {
   it.each([
     "\n",
