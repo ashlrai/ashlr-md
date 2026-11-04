@@ -1654,6 +1654,31 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    ["paren-style ordered", "3)", ""],
+    ["two-digit ordered", "12)", " "],
+    ["checked task", "- [x]", "#"],
+  ])("fixes an invalid link in a %s list item and keeps the %j marker intact (invalid href %j)", (_name, marker, href) => {
+    for (const nl of ["\n", "\r\n"]) {
+      const doc = `Intro.${nl}${nl}${marker} Read [draft](${href}) today.${nl}${nl}Outro.${nl}`;
+      const expected = `Intro.${nl}${nl}${marker} Read [draft](TODO) today.${nl}${nl}Outro.${nl}`;
+      const rules = [ruleInvalidLinkTarget];
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations).toHaveLength(1);
+      expect(violations[0].ruleId).toBe("invalid-link-target");
+      expect(violations[0].fix).not.toBeNull();
+      const { from, to } = violations[0].range!;
+      expect(doc.slice(from.offset, to.offset)).toBe(`[draft](${href})`);
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      // The marker keeps its own line and is byte-for-byte intact after the fix.
+      expect(fixed).toContain(`${nl}${marker} Read [draft](TODO) today.${nl}`);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+    }
+  });
+
+  it.each([
     "\n",
     "\r\n",
   ])("fixes a nested task-list link while preserving its context with %j line endings", (newline) => {
