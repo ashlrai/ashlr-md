@@ -18769,3 +18769,155 @@ describe("invalid-link-target autofix: empty destination keeps the link text", (
     expect(lintDocument(fixed)).toEqual([]);
   });
 });
+
+// ─── Described image: byte-for-byte preservation ────────────────────────────
+
+describe("autofix: described image byte-for-byte preservation", () => {
+  const utf8 = (text: string): Uint8Array => new TextEncoder().encode(text);
+
+  /** First byte offset of `needle` inside `haystack` at or after `from`, or -1. */
+  const byteIndexOf = (haystack: Uint8Array, needle: Uint8Array, from = 0): number => {
+    for (let i = from; i + needle.length <= haystack.length; i++) {
+      let hit = true;
+      for (let j = 0; j < needle.length; j++) {
+        if (haystack[i + j] !== needle[j]) {
+          hit = false;
+          break;
+        }
+      }
+      if (hit) return i;
+    }
+    return -1;
+  };
+
+  /**
+   * Assert the image's exact UTF-8 byte sequence occurs exactly once in
+   * `fixed` and return its byte offset there.
+   */
+  const expectUniqueImageBytes = (fixed: string, image: string): number => {
+    const haystack = utf8(fixed);
+    const needle = utf8(image);
+    const at = byteIndexOf(haystack, needle);
+    expect(at).toBeGreaterThanOrEqual(0);
+    expect(haystack.slice(at, at + needle.length)).toEqual(needle);
+    expect(byteIndexOf(haystack, needle, at + 1)).toBe(-1);
+    return at;
+  };
+
+  const rules = [ruleMissingAltText, ruleInvalidLinkTarget, ruleNoTrailingSpaces];
+  const describedImages: [string, string][] = [
+    ["a single word", "![Logo](logo.svg)"],
+    ["Unicode and emoji", "![Café ☕ terrace](images/caf%C3%A9.png)"],
+    ["emphasis and a code span", "![Chart *Q3* `net`](img/q3.png)"],
+    [
+      "a titled destination with query and fragment",
+      '![Costs, all-in](img/c.png?v=2#top "Q3 (est.)")',
+    ],
+    ["an angle-bracket destination", "![Logo mark](<my dir/logo (1).svg>)"],
+    ["the placeholder text itself", "![TODO: describe image](img/fixed.png)"],
+  ];
+
+  it.each(
+    describedImages,
+  )("keeps a described image's exact bytes while fixes land before and after it (%s)", (_name, image) => {
+    const undescribed = "![](raw.png)";
+    const repaired = "![TODO: describe image](raw.png)";
+    const doc =
+      `# Gallery\n\n${undescribed} first.\n\n${image} stays.\n\n` +
+      "See [guide]() next.   \nEnd.\n";
+    const expected =
+      `# Gallery\n\n${repaired} first.\n\n${image} stays.\n\n` +
+      "See [guide](TODO) next.\nEnd.\n";
+    const imageStart = doc.indexOf(image);
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+      "missing-alt-text",
+      "invalid-link-target",
+      "no-trailing-spaces",
+    ]);
+    // No reported range overlaps the described image's span.
+    for (const v of violations) {
+      expect(
+        v.range!.to.offset <= imageStart ||
+          v.range!.from.offset >= imageStart + image.length,
+      ).toBe(true);
+      // And each fix on its own leaves the image's bytes in place.
+      expectUniqueImageBytes(applyFix(doc, v), image);
+    }
+
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // Only the earlier repair shifts the image, by exactly its byte growth.
+    const shift = utf8(repaired).length - utf8(undescribed).length;
+    expect(expectUniqueImageBytes(fixed, image)).toBe(
+      byteIndexOf(utf8(doc), utf8(image)) + shift,
+    );
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+
+  it.each(
+    describedImages,
+  )("keeps a described image at byte offset 0 when every fix lands after it (%s)", (_name, image) => {
+    for (const nl of ["\n", "\r\n"]) {
+      const doc =
+        `${image} opens.${nl}${nl}![](raw.png) mid.${nl}${nl}` +
+        `See [guide]() next.   ${nl}`;
+      const expected =
+        `${image} opens.${nl}${nl}![TODO: describe image](raw.png) mid.${nl}${nl}` +
+        `See [guide](TODO) next.${nl}`;
+      const fixed = applyAllFixes(doc, lintDocument(doc, { rules }));
+
+      expect(fixed).toBe(expected);
+      expect(expectUniqueImageBytes(fixed, image)).toBe(0);
+      expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+    }
+  });
+
+  it("survives a document-level fix and the Fix all entry point under every built-in rule", () => {
+    clearLintHistory();
+    const image = '![Café ☕ terrace](images/caf%C3%A9.png?v=2#top "Terrace")';
+    const doc = `# Gallery\n\n${image}\n\nSee [guide]() next.\n`;
+    const violations = lintDocument(doc);
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+      "invalid-link-target",
+      "frontmatter-required",
+    ]);
+    const fixed = applyAllFixes(doc, violations);
+    const prefix = "---\ntitle: \ntags: []\n---\n\n# Gallery\n\n";
+    expect(fixed).toBe(`${prefix}${image}\n\nSee [guide](TODO) next.\n`);
+    // The prepended frontmatter moves the image down by the block's byte
+    // length; the image's own bytes are identical.
+    expect(expectUniqueImageBytes(fixed, image)).toBe(utf8(prefix).length);
+    // A second pass, which trims the inserted `title: ` line's trailing space,
+    // still leaves the image's bytes alone.
+    expectUniqueImageBytes(applyAllFixes(fixed, lintDocument(fixed)), image);
+    // The editor's Fix all entry point produces the same bytes.
+    expect(fixAllViolations(doc, violations)).toBe(fixed);
+    clearLintHistory();
+  });
+
+  it.each([
+    ["image only", "![Logo](logo.svg)\n"],
+    ["CRLF line endings", "# T\r\n\r\n![Logo](logo.svg)\r\n"],
+    [
+      "several described images",
+      '- ![One](a.png)\n- ![Two](b.png "T")\n\n> ![Three](c.png)\n',
+    ],
+  ])("a document of described images passes byte-identical through autofix (%s)", (_name, doc) => {
+    const defaultRules = BUILTIN_RULES.filter((rule) =>
+      LINTER_DEFAULT_ENABLED_RULES.includes(rule.id),
+    );
+    const allButFrontmatter = BUILTIN_RULES.filter(
+      (rule) => rule.id !== "frontmatter-required",
+    );
+    for (const ruleSet of [[ruleMissingAltText], defaultRules, allButFrontmatter]) {
+      const violations = lintDocument(doc, { rules: ruleSet });
+      expect(violations).toEqual([]);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(doc);
+      expect(utf8(fixed)).toEqual(utf8(doc));
+    }
+  });
+});
