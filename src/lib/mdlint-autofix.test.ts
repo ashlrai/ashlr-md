@@ -785,6 +785,36 @@ describe("rule:invalid-link-target", () => {
     expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
   });
 
+  it.each([
+    ["an empty href", ""],
+    ["a lone #", "#"],
+    ["a lone ?", "?"],
+    ["a whitespace-only href", "   "],
+  ])("keeps the label and title of a titled link with %s while TODO-fixing its untitled neighbour", (_kind, href) => {
+    // The rule deliberately leaves a titled destination alone, so the titled
+    // link's label and title must survive a fix pass byte-for-byte.
+    const titled = `[the *full* guide](${href} "Open the guide")`;
+    const doc = `${titled} then [the guide](${href}) and ${titled}.\n`;
+    const expected = `${titled} then [the guide](TODO) and ${titled}.\n`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+
+  it("keeps a quoted title-like label when the href is replaced with TODO", () => {
+    const doc = `See [the "Open the guide" page]() now.\n`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(applyAllFixes(doc, violations)).toBe(
+      `See [the "Open the guide" page](TODO) now.\n`,
+    );
+  });
+
   it("fixes two identical empty-href links independently, one TODO each", () => {
     const doc = "[same]() and [same]() again.\n";
     const rules = [ruleInvalidLinkTarget];
