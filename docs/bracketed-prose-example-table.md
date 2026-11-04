@@ -75,6 +75,7 @@ Inputs and outputs are JSON strings: `\n` is a newline, `\t` is a tab, and `\\` 
 | `export_text_keeps_bracketed_phrases_adjacent_to_punctuation` | `export_text` | ` "She wrote: '[exact wording]'; he agreed!\n" ` | ` "She wrote: '[exact wording]'; he agreed!" ` |
 | `export_text_keeps_bracketed_phrases_adjacent_to_punctuation` | `export_text` | ` "Status:[**needs review**]?! See [the guide](/guide), then [sic]; done.\n" ` | ` "Status:[needs review]?! See the guide, then [sic]; done." ` |
 | `export_text_keeps_punctuation_immediately_after_prose_brackets` | `export_text` | ` "Compare [sic],next; [TODO]:now; [1]!really; [x]?yes; [note].End.\n" ` | ` "Compare [sic],next; [TODO]:now; [1]!really; [x]?yes; [note].End." ` |
+| `export_text_keeps_bracketed_phrases_holding_punctuation` | `export_text` | ` "Mark [wait...] then [yes!?] done.\n" ` | ` "Mark [wait...] then [yes!?] done." ` |
 | `export_text_keeps_adjacent_bracketed_phrases_in_order` | `export_text` | ` "The notes say [first phrase][second phrase] here.\n" ` | ` "The notes say [first phrase][second phrase] here." ` |
 | `export_text_keeps_adjacent_bracketed_phrases_in_order` | `export_text` | ` "Review [TODO][sic] before [the release](/release).\n" ` | ` "Review [TODO][sic] before the release." ` |
 | `export_text_keeps_adjacent_bracketed_phrases_in_order` | `export_text` | ` "Keep [first][second] together.\n\n[first]: /guide\n" ` | ` "Keep [first][second] together." ` |
