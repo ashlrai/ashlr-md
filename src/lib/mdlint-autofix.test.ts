@@ -86,6 +86,22 @@ describe("rule:orphaned-heading", () => {
   });
 });
 
+describe("autofix: undescribed image with a Unicode source", () => {
+  it("inserts the placeholder while preserving the source exactly", () => {
+    const rules = [ruleMissingAltText];
+    const source = "images/café/東京-🖼️.png?言語=日本語#詳細";
+    const doc = `前文 ![](${source}) 後文\n`;
+    const expected = `前文 ![TODO: describe image](${source}) 後文\n`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
+
 describe("autofix: whitespace-only image description", () => {
   it.each([
     ["spaces", "   "],
