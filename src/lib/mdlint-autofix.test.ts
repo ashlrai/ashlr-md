@@ -19203,3 +19203,38 @@ describe("autofix: described image byte-for-byte preservation", () => {
     }
   });
 });
+
+describe("autofix: empty alt text with alternate title quoting and non-image contexts", () => {
+  it.each([
+    [
+      "single-quoted title",
+      "![](a.png 'Chart')\n",
+      "![TODO: describe image](a.png 'Chart')\n",
+    ],
+    [
+      "parenthesised title",
+      "![](a.png (Chart))\n",
+      "![TODO: describe image](a.png (Chart))\n",
+    ],
+    ["heading", "# ![](a.png) Title\n", "# ![TODO: describe image](a.png) Title\n"],
+  ])("sets the alt text to the placeholder and keeps the rest of the source (%s)", (_name, doc, expected) => {
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
+    ["a reference-style image", "![][ref]\n\n[ref]: a.png\n"],
+    ["an HTML comment", "<!-- ![](a.png) -->\n"],
+    ["an inline code span", "`![](a.png)`\n"],
+  ])("reports nothing and leaves %s byte-identical", (_name, doc) => {
+    const violations = lintDocument(doc, { rules: [ruleMissingAltText] });
+
+    expect(violations).toEqual([]);
+    expect(applyAllFixes(doc, violations)).toBe(doc);
+  });
+});
