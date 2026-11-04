@@ -15892,6 +15892,26 @@ describe("autofix: a described image in a document without a final newline", () 
       ).toBe(doc);
     }
   });
+
+  it.each([
+    ["dash", "- ", "\n"],
+    ["star", "* ", "\r\n"],
+    ["plus", "+ ", "\n"],
+    ["ordered", "12. ", "\r\n"],
+    ["task", "- [ ] ", "\n"],
+    ["nested", "  - ", "\n"],
+  ])("adds the alt-text placeholder to an undescribed image on a %s list-item line and keeps the marker", (_name, marker, nl) => {
+    const doc = `Intro.${nl}${nl}${marker}![](img/fig.png "Fig") after${nl}${marker}keep${nl}`;
+    const expected = `Intro.${nl}${nl}${marker}![TODO: describe image](img/fig.png "Fig") after${nl}${marker}keep${nl}`;
+    const rules = [ruleInvalidLinkTarget, ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain(`${marker}![TODO: describe image]`);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
 });
 
 describe("autofix: undescribed image between Unicode words", () => {
