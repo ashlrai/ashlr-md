@@ -13203,6 +13203,107 @@ describe("rule:missing-alt-text undescribed image in a loose ordered list with c
   });
 });
 
+describe("rule:missing-alt-text undescribed image on a wrapped line of a list item", () => {
+  const rules = [ruleMissingAltText];
+
+  it.each([
+    ["-", "", "\n"],
+    ["*", " ", "\r\n"],
+    ["+", "", "\n"],
+    ["1.", " ", "\r\n"],
+    ["12)", "", "\n"],
+  ])("inserts the placeholder on the continuation line and keeps marker %j, the first line and neighbouring items (alt %j, line ending %j)", (marker, alt, nl) => {
+    const indent = " ".repeat(marker.length + 1);
+    const image = `![${alt}](img/chart.png?v=2#top "Chart")`;
+    const lines = (a: string) => [
+      `${marker} First line of the item with ![Kept](kept.png),`,
+      `${indent}wrapped to a second line showing ![${a}](img/chart.png?v=2#top "Chart"),`,
+      `${indent}then a third line, still one item.`,
+      `${marker} Second item.`,
+      "",
+    ];
+    const doc = lines(alt).join(nl);
+    const expected = lines("TODO: describe image").join(nl);
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual(["missing-alt-text"]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(image);
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // The marker, both items and the described image are byte-identical.
+    expect(fixed).toContain(`${marker} First line`);
+    expect(fixed).toContain(`${marker} Second item.`);
+    expect(fixed).toContain("![Kept](kept.png)");
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+
+  it.each([
+    ["- [ ]", "\n"],
+    ["* [x]", "\r\n"],
+    ["+ [X]", "\n"],
+  ])("inserts the placeholder in an image-only task item and keeps marker and box %j (line ending %j)", (marker, nl) => {
+    const doc = [
+      `${marker} ![](img/check.png)`,
+      `${marker} ![Done](img/done.png)`,
+      `${marker} text only`,
+      "",
+    ].join(nl);
+    const expected = [
+      `${marker} ![TODO: describe image](img/check.png)`,
+      `${marker} ![Done](img/done.png)`,
+      `${marker} text only`,
+      "",
+    ].join(nl);
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual(["missing-alt-text"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // Box and marker are untouched: the placeholder went inside the brackets.
+    expect(fixed).toContain(`${marker} ![TODO: describe image](img/check.png)`);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+
+  it.each([
+    ["\n"],
+    ["\r\n"],
+  ])("under the full default rule set keeps the marker and a code-span decoy while filling the wrapped-line image (line ending %j)", (nl) => {
+    const doc = [
+      "---",
+      "title: Figures",
+      "---",
+      "",
+      "# Figures",
+      "",
+      "Items:",
+      "",
+      "- First line of the item,",
+      "  wrapped to show ![](img/chart.png) beside a `![](fake.png)` decoy,",
+      "  then a third line.",
+      "- Second item.",
+      "",
+    ].join(nl);
+    const violations = lintDocument(doc);
+
+    expect(violations.map((v) => v.ruleId)).toEqual(["missing-alt-text"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(
+      doc.replace("![](img/chart.png)", "![TODO: describe image](img/chart.png)"),
+    );
+    // The masked code span is left alone and every list marker is intact.
+    expect(fixed).toContain("![](fake.png)`");
+    expect(fixed).toContain("- First line of the item,");
+    expect(fixed).toContain("- Second item.");
+    expect(lintDocument(fixed)).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed))).toBe(fixed);
+  });
+});
+
 describe("invalid-link-target autofix: invalid link at the start of a paragraph", () => {
   it.each([
     [
