@@ -20803,3 +20803,22 @@ describe("autofix: undescribed image with a Unicode path", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+describe("autofix: undescribed image at the end of a line before a hard break", () => {
+  it.each([
+    ["backslash break", "\\"],
+    ["two-space break", "  "],
+  ])("describes the image and leaves the prose and %s unchanged", (_name, brk) => {
+    const lead = "Prose with `code`, *emphasis* and [a link](./a.md): ";
+    const doc = `${lead}![](shot.png)${brk}\nNext line.\n`;
+    const expected = `${lead}![TODO: describe image](shot.png)${brk}\nNext line.\n`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.startsWith(`${lead}![TODO: describe image]`)).toBe(true);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
