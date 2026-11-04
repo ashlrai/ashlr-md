@@ -146,6 +146,22 @@ describe("autofix: undescribed image at the start of a line", () => {
 // ─── 2. Rule: invalid-link-target ────────────────────────────────────────────
 
 describe("rule:invalid-link-target", () => {
+  it.each([
+    ["unordered", "-", "", "\n"],
+    ["ordered", "12.", " \t ", "\r\n"],
+    ["nested", "  *", "", "\n"],
+  ])("fixes a destination inside a %s list item without changing its surroundings", (_kind, marker, destination, nl) => {
+    const doc = `Intro.${nl}${nl}${marker} Before [the guide](${destination}) and after.${nl}  Continuation text.${nl}${nl}Tail.${nl}`;
+    const expected = `Intro.${nl}${nl}${marker} Before [the guide](TODO) and after.${nl}  Continuation text.${nl}${nl}Tail.${nl}`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+
   it("passes on valid links", () => {
     const doc = "See [docs](https://example.com) and [local](./file.md).\n";
     expect(lintDocument(doc, { rules: [ruleInvalidLinkTarget] })).toHaveLength(0);
