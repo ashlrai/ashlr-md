@@ -16519,3 +16519,31 @@ describe("autofix: undescribed image with a Unicode source", () => {
     expect(lintDocument(fixed, { rules: defaultRules })).toEqual([]);
   });
 });
+
+describe("two undescribed images on one line", () => {
+  const rules = [ruleMissingAltText];
+
+  it.each([
+    ["\n"],
+    ["\r\n"],
+  ])("reports both on the same line and fixes both, keeping each source (%j)", (newline) => {
+    const first = '![](images/one.png?size=2#top "One")';
+    const second = "![   ](<images/two chart.svg>)";
+    const doc = `# Gallery${newline}${newline}Left ${first}, right ${second}.${newline}`;
+    const expected = `# Gallery${newline}${newline}Left ![TODO: describe image](images/one.png?size=2#top "One"), right ![TODO: describe image](<images/two chart.svg>).${newline}`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(2);
+    expect(violations.every((v) => v.ruleId === "missing-alt-text")).toBe(true);
+    expect(violations.every((v) => v.fix !== null)).toBe(true);
+    const [a, b] = violations.map((v) => v.range!);
+    expect(a.from.line).toBe(b.from.line);
+    expect(a.from.col).toBeLessThan(b.from.col);
+
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    // A second pass is a no-op.
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+});
