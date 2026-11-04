@@ -10328,6 +10328,194 @@ describe("invalid-link-target autofix: repeated application", () => {
   });
 });
 
+describe("invalid-link-target autofix: a second pass is a no-op", () => {
+  const rules = [ruleInvalidLinkTarget];
+  const fixPass = (text: string) => applyAllFixes(text, lintDocument(text, { rules }));
+
+  it("applying autofix twice to an invalid link produces the same result as applying it once", () => {
+    for (const nl of ["\n", "\r\n"]) {
+      const doc = `Before [g]() mid [h](#) after.${nl}`;
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map((v) => v.ruleId)).toEqual([
+        "invalid-link-target",
+        "invalid-link-target",
+      ]);
+      const once = applyAllFixes(doc, violations);
+      expect(once).toBe(`Before [g](TODO) mid [h](TODO) after.${nl}`);
+      // Re-lint the fixed document and apply fixes again: identical output.
+      expect(applyAllFixes(once, lintDocument(once, { rules }))).toBe(once);
+      expect(fixPass(fixPass(doc))).toBe(once);
+    }
+  });
+
+  it.each([
+    ["empty href", "[g]()", "[g](TODO)"],
+    ["whitespace-only href", "[g](   )", "[g](TODO)"],
+    ["tab-only href", "[g](\t)", "[g](TODO)"],
+    ["spaces and tabs", "[g]( \t )", "[g](TODO)"],
+    ["non-breaking space", "[g]( )", "[g](TODO)"],
+    ["em space", "[g]( )", "[g](TODO)"],
+    ["fragment marker", "[g](#)", "[g](TODO)"],
+    ["query marker", "[g](?)", "[g](TODO)"],
+    ["empty label", "[](?)", "[](TODO)"],
+    ["nested bracket in the label", "[a[b]()", "[a[b](TODO)"],
+  ])("fixes a link with %s exactly once (%s → %s)", (_name, link, repaired) => {
+    for (const nl of ["\n", "\r\n"]) {
+      const doc = `Open ${link} then [ok](./a.md).${nl}`;
+      const expected = `Open ${repaired} then [ok](./a.md).${nl}`;
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+      expect(
+        doc.slice(violations[0].range!.from.offset, violations[0].range!.to.offset),
+      ).toBe(link);
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const once = applyAllFixes(doc, violations);
+      expect(once).toBe(expected);
+      // Nothing left to report, so a second application cannot change anything.
+      expect(lintDocument(once, { rules })).toEqual([]);
+      expect(fixPass(once)).toBe(once);
+      expect(fixPass(fixPass(doc))).toBe(once);
+    }
+  });
+
+  it.each([
+    ["inside a heading", "# T [a]()\n\nBody.\n"],
+    ["inside emphasis", "*[a]()* rest.\n"],
+    ["in a blockquote", "> see [a](?) now.\n"],
+    ["in a list item", "- see [a]( ) now.\n"],
+    ["in an ordered list item", "1. see [a](#) now.\n"],
+    ["in a table row", "| c [a](?) |\n"],
+    ["in a setext heading", "Setext [a]()\n======\n"],
+    ["at document start", "[a]() rest"],
+    ["at document end", "rest [a]()"],
+    ["adjacent invalid links", "[a]()[b]()"],
+    ["before an unclosed paren", "[a](#) (\n"],
+    ["inside image syntax", "x ![](?) y\n"],
+    ["empty image syntax", "x ![]() y\n"],
+  ])("leaves the document unchanged on a second pass: %s", (_name, doc) => {
+    const once = fixPass(doc);
+
+    expect(once).not.toBe(doc);
+    expect(lintDocument(once, { rules })).toEqual([]);
+    expect(fixPass(once)).toBe(once);
+  });
+
+  it("is a no-op on the second pass even while an unfixable violation remains", () => {
+    const mixed = [ruleOrphanedHeading, ruleInvalidLinkTarget];
+    const pass = (text: string) =>
+      applyAllFixes(text, lintDocument(text, { rules: mixed }));
+    const doc = "# A\n\n## B\n\nSee [a]()\n";
+    const once = pass(doc);
+
+    expect(once).toBe("# A\n\n## B\n\nSee [a](TODO)\n");
+    // The orphaned heading is still reported — it has no fix — but applying the
+    // pass again does not change the document.
+    expect(lintDocument(once, { rules: mixed }).map((v) => v.ruleId)).toEqual([
+      "orphaned-heading",
+    ]);
+    expect(pass(once)).toBe(once);
+  });
+});
+
+describe("invalid-link-target autofix: deferred inside an image fix", () => {
+  const rules = [ruleInvalidLinkTarget, ruleMissingAltText];
+  const fixPass = (text: string) => applyAllFixes(text, lintDocument(text, { rules }));
+
+  it.each([
+    ["fragment href", "![](?)", "![TODO: describe image](?)", "![](TODO)"],
+    ["hash href", "![](#)", "![TODO: describe image](#)", "![](TODO)"],
+    ["blank href", "![](  )", "![TODO: describe image](  )", "![](TODO)"],
+    [
+      "whitespace alt, fragment href",
+      "![ ](?)",
+      "![TODO: describe image](?)",
+      "![ ](TODO)",
+    ],
+    ["non-breaking space href", "![]( )", "![TODO: describe image]( )", "![](TODO)"],
+  ])("converges on the second pass when the link violation sits inside the image fix (%s)", (_name, bad, afterFirst, linkRepaired) => {
+    for (const nl of ["\n", "\r\n"]) {
+      const doc = `x ${bad} y${nl}`;
+      const violations = lintDocument(doc, { rules });
+
+      // Both rules fire; the link violation's range sits strictly inside the
+      // image violation's, so the batch fixes the image only (see the
+      // containment drop in applyAllFixes).
+      expect(violations.map((v) => v.ruleId)).toEqual([
+        "missing-alt-text",
+        "invalid-link-target",
+      ]);
+      const once = fixPass(doc);
+      expect(once).toBe(`x ${afterFirst} y${nl}`);
+      // The invalid href survives pass 1 and is repaired by pass 2.
+      expect(lintDocument(once, { rules }).map((v) => v.ruleId)).toEqual([
+        "invalid-link-target",
+      ]);
+      const twice = fixPass(once);
+      expect(twice).toBe(`x ![TODO: describe image](TODO) y${nl}`);
+      // From the second pass on, the document is a fixed point.
+      expect(lintDocument(twice, { rules })).toEqual([]);
+      expect(fixPass(twice)).toBe(twice);
+
+      // Under the link rule alone the same document is fixed in a single
+      // pass: the deferral is a property of the batch, not of the fix.
+      const linkOnce = applyAllFixes(
+        doc,
+        lintDocument(doc, { rules: [ruleInvalidLinkTarget] }),
+      );
+      expect(linkOnce).toBe(`x ${linkRepaired} y${nl}`);
+      expect(
+        applyAllFixes(
+          linkOnce,
+          lintDocument(linkOnce, { rules: [ruleInvalidLinkTarget] }),
+        ),
+      ).toBe(linkOnce);
+    }
+  });
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("for ![]() the link fix creates the violation the second pass repairs (%j)", (nl) => {
+    const doc = `x ![]() y${nl}`;
+    // Only the link rule fires: the image pattern requires a nonempty src.
+    expect(lintDocument(doc, { rules }).map((v) => v.ruleId)).toEqual([
+      "invalid-link-target",
+    ]);
+    const once = fixPass(doc);
+    expect(once).toBe(`x ![](TODO) y${nl}`);
+    // The inserted href completes the image syntax — with empty alt text,
+    // which a second pass then repairs.
+    expect(lintDocument(once, { rules }).map((v) => v.ruleId)).toEqual([
+      "missing-alt-text",
+    ]);
+    const twice = fixPass(once);
+    expect(twice).toBe(`x ![TODO: describe image](TODO) y${nl}`);
+    expect(lintDocument(twice, { rules })).toEqual([]);
+    expect(fixPass(twice)).toBe(twice);
+  });
+
+  it("applies the contained link fix on its own, reaching the same fixed point", () => {
+    const doc = "x ![](?) y\n";
+    const linkViolation = lintDocument(doc, { rules }).find(
+      (v) => v.ruleId === "invalid-link-target",
+    );
+
+    expect(linkViolation).toBeDefined();
+    // applyFix bypasses the batch's containment drop: the href is repaired
+    // directly, and one more pass describes the image.
+    const solo = applyFix(doc, linkViolation!);
+    expect(solo).toBe("x ![](TODO) y\n");
+    expect(lintDocument(solo, { rules }).map((v) => v.ruleId)).toEqual([
+      "missing-alt-text",
+    ]);
+    const done = fixPass(solo);
+    expect(done).toBe("x ![TODO: describe image](TODO) y\n");
+    expect(fixPass(done)).toBe(done);
+  });
+});
+
 describe("rule:missing-alt-text mixed described and undescribed images", () => {
   it.each([
     ["\n", "\n\n"],
