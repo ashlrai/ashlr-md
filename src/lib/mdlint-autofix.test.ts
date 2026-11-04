@@ -17001,3 +17001,46 @@ describe("autofix: undescribed image on the final line after a valid paragraph",
     }
   });
 });
+
+describe("autofix: undescribed image inside a list item", () => {
+  it.each([
+    ["dash bullet", "- "],
+    ["star bullet", "* "],
+    ["plus bullet", "+ "],
+    ["ordered item", "1. "],
+    ["ordered paren item", "12) "],
+    ["task item", "- [ ] "],
+    ["nested bullet", "  - "],
+    ["bullet inside a blockquote", "> - "],
+  ])("inserts the placeholder and keeps the list marker and destination (%s)", (_name, marker) => {
+    const rules = [ruleMissingAltText];
+    const source = '<images/my chart.png?v=2#top> "Chart"';
+    for (const newline of ["\n", "\r\n"]) {
+      for (const alt of ["", "   "]) {
+        const doc = `Intro.${newline}${newline}${marker}![${alt}](${source}) caption${newline}${marker}![kept](b.png)${newline}`;
+        const expected = `Intro.${newline}${newline}${marker}![TODO: describe image](${source}) caption${newline}${marker}![kept](b.png)${newline}`;
+        const violations = lintDocument(doc, { rules });
+
+        expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+        const fixed = applyAllFixes(doc, violations);
+        expect(fixed).toBe(expected);
+        expect(fixed.startsWith(`Intro.${newline}${newline}${marker}![TODO`)).toBe(
+          true,
+        );
+        expect(lintDocument(fixed, { rules })).toEqual([]);
+        expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+      }
+    }
+  });
+
+  it("fixes an image after prose in a list item without touching the sibling item's link", () => {
+    const rules = [ruleMissingAltText];
+    const doc =
+      '1. See ![](a.png "A") and [notes](./notes.md).\n2. Next [link](b.md).\n';
+    const fixed = applyAllFixes(doc, lintDocument(doc, { rules }));
+
+    expect(fixed).toBe(
+      '1. See ![TODO: describe image](a.png "A") and [notes](./notes.md).\n2. Next [link](b.md).\n',
+    );
+  });
+});
