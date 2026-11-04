@@ -16568,6 +16568,30 @@ describe("invalid-link autofix idempotence in task lists and nested ordered list
   });
 });
 
+describe("invalid-link autofix idempotence for repeated destinations", () => {
+  it.each([
+    ["empty", ""],
+    ["whitespace", " \t "],
+    ["fragment marker", "#"],
+    ["query marker", "?"],
+  ])("repairs repeated %s targets once and preserves the rest", (_name, target) => {
+    const rules = [ruleInvalidLinkTarget];
+    const doc = `Café [draft](${target}) / [draft](${target}) and [ready](./ready.md).\r\n\`[example](${target})\``;
+    const expected = `Café [draft](TODO) / [draft](TODO) and [ready](./ready.md).\r\n\`[example](${target})\``;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "invalid-link-target",
+      "invalid-link-target",
+    ]);
+    const once = applyAllFixes(doc, violations);
+    expect(once).toBe(expected);
+    const remaining = lintDocument(once, { rules });
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(once, remaining)).toBe(once);
+  });
+});
+
 describe("invalid-link autofix idempotence across entry points and default rules", () => {
   const rules = [ruleInvalidLinkTarget];
   const fixPass = (text: string) => applyAllFixes(text, lintDocument(text, { rules }));
