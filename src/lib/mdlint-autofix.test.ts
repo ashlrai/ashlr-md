@@ -18902,6 +18902,23 @@ describe("invalid-link-target autofix: empty destination keeps the link text", (
   const rules = [ruleInvalidLinkTarget];
 
   it.each([
+    "",
+    "   ",
+    "#",
+    "?",
+  ])("preserves a complete multiword label when replacing invalid href %j", (href) => {
+    const doc = `Read [the complete  setup guide](${href}), then [reference](./reference.md).\n`;
+    const violations = lintDocument(doc, { rules });
+    expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+
+    const expected =
+      "Read [the complete  setup guide](TODO), then [reference](./reference.md).\n";
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+
+  it.each([
     ["plain words", "the setup guide"],
     ["inline markup", "**bold** _and_ ~struck~"],
     ["Unicode", "café — 概要"],
