@@ -19203,3 +19203,33 @@ describe("autofix: described image byte-for-byte preservation", () => {
     }
   });
 });
+
+describe("autofix: undescribed image whose source has a directory path", () => {
+  it.each([
+    ["nested relative", "assets/img/diagrams/a.png"],
+    ["dot-slash", "./assets/a.png"],
+    ["parent traversal", "../../shared/assets/a.png"],
+    ["root-absolute", "/static/images/2024/a.png"],
+    ["trailing-dot directories", "docs.v2/img.d/a.png"],
+    ["backslash separators", "assets\\img\\a.png"],
+    ["directory with query and title", 'assets/img/a.png?v=2#top "Chart"'],
+  ])("keeps the full source path (%s)", (_kind, dest) => {
+    const rules = [ruleMissingAltText];
+    const doc = `Before ![](${dest}) after.\n`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(`Before ![TODO: describe image](${dest}) after.\n`);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it("fixes several directory-path images on one line independently", () => {
+    const rules = [ruleMissingAltText];
+    const doc = "![](a/b/one.png) and ![ ](../c/d/two.png)\n";
+    const fixed = applyAllFixes(doc, lintDocument(doc, { rules }));
+    expect(fixed).toBe(
+      "![TODO: describe image](a/b/one.png) and ![TODO: describe image](../c/d/two.png)\n",
+    );
+  });
+});
