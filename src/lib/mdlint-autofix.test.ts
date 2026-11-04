@@ -15147,3 +15147,24 @@ describe("undescribed image followed by a newline and ordinary prose", () => {
     }
   });
 });
+
+describe("whitespace-only image description that spans a line break", () => {
+  it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+  ])("becomes the placeholder and keeps the source and surrounding lines (%s)", (_name, nl) => {
+    const source = "images/chart.png?v=2#top";
+    const doc = `Before${nl}![ ${nl} ](${source})${nl}After [ok](./ok.md).${nl}`;
+    const expected = `Before${nl}![TODO: describe image](${source})${nl}After [ok](./ok.md).${nl}`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("missing-alt-text");
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain(`(${source})`);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+});
