@@ -102,6 +102,28 @@ describe("autofix: undescribed image with a Unicode source", () => {
   });
 });
 
+describe("autofix: undescribed image with a relative path", () => {
+  it.each([
+    ["a bare relative path", "images/chart.png"],
+    ["a dot-slash path", "./images/chart.png"],
+    ["a parent-directory path", "../assets/img/chart.png"],
+    ["a deep parent-directory path", "../../shared/../assets/chart.png"],
+    ["a relative path with query and fragment", "./img/chart.png?v=2#top"],
+  ])("preserves %s and inserts the placeholder", (_kind, source) => {
+    const rules = [ruleMissingAltText];
+    const doc = `Intro.\n\n![](${source})\n\nOutro.\n`;
+    const expected = `Intro.\n\n![TODO: describe image](${source})\n\nOutro.\n`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain(`](${source})`);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
+
 describe("autofix: whitespace-only image description", () => {
   it.each([
     ["spaces", "   "],
