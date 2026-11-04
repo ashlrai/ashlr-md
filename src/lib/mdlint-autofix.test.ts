@@ -21142,3 +21142,34 @@ describe("invalid link at the start of a paragraph", () => {
     expect(lintDocument(expected, { rules })).toEqual([]);
   });
 });
+
+describe("invalid-link autofix on a later line", () => {
+  it.each([
+    "\n",
+    "\r\n",
+  ])("preserves all preceding lines with %j line endings", (nl) => {
+    const preceding =
+      [
+        "# Café guide",
+        "",
+        "A valid [reference](./guide.md) and `inline code`.",
+        "Another line stays exactly as written.",
+        "",
+      ].join(nl) + nl;
+    const suffix = `${nl}The following line stays too.${nl}`;
+    const doc = `${preceding}Read [draft](?) for details.${suffix}`;
+    const expected = `${preceding}Read [draft](TODO) for details.${suffix}`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    const { from, to } = violations[0].range!;
+    expect(from.line).toBe(6);
+    expect(doc.slice(from.offset, to.offset)).toBe("[draft](?)");
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.slice(0, preceding.length)).toBe(preceding);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
