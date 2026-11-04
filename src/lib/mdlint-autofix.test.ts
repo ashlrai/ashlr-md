@@ -18647,6 +18647,30 @@ describe("invalid-link-target autofix: every invalid href shape inside a blockqu
   });
 });
 
+describe("invalid-link-target autofix: indented prose", () => {
+  it.each([
+    ["one space and an empty destination", " ", ""],
+    ["two spaces and a whitespace-only destination", "  ", " \t "],
+    ["three spaces and a lone fragment", "   ", "#"],
+    ["three spaces and a lone query", "   ", "?"],
+  ])("preserves indentation and surrounding text with %s", (_name, indent, href) => {
+    const rules = [ruleInvalidLinkTarget];
+    for (const nl of ["\n", "\r\n"]) {
+      const doc = `Intro.${nl}${nl}${indent}Before [guide](${href}) and *after*.${nl}Tail.${nl}`;
+      const expected = `Intro.${nl}${nl}${indent}Before [guide](TODO) and *after*.${nl}Tail.${nl}`;
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+      const { from, to } = violations[0].range!;
+      expect(doc.slice(from.offset, to.offset)).toBe(`[guide](${href})`);
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+    }
+  });
+});
+
 describe("invalid-link-target autofix: start-of-line edge cases", () => {
   it.each([
     ["document start, no trailing newline", "[a]() tail", "[a](TODO) tail"],
