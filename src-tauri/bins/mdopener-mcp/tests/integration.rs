@@ -6485,7 +6485,10 @@ fn export_text_keeps_both_brackets_of_a_plain_note_on_its_own_line() {
         ("[note]", "[note]"),
         ("[note]\r\n", "[note]"),
         ("  [note]  \n", "[note]"),
-        ("Before.\n\n[note]\n\nAfter.\n", "Before.\n\n[note]\n\nAfter."),
+        (
+            "Before.\n\n[note]\n\nAfter.\n",
+            "Before.\n\n[note]\n\nAfter.",
+        ),
         ("Before.\n[note]\nAfter.\n", "Before.\n[note]\nAfter."),
         ("[note]\n[note]\n", "[note]\n[note]"),
     ] {
@@ -6498,6 +6501,49 @@ fn export_text_keeps_both_brackets_of_a_plain_note_on_its_own_line() {
         );
     }
     assert_eq!(strip_markdown("[note]\n").trim(), "[note]");
+}
+
+#[test]
+fn export_text_keeps_bracketed_numbers_at_the_start_of_a_paragraph() {
+    for (markdown, expected) in [
+        ("[1] First citation.\n", "[1] First citation."),
+        (
+            "[12] Twelfth note, still prose.\n",
+            "[12] Twelfth note, still prose.",
+        ),
+        ("[2024] was a good year.\n", "[2024] was a good year."),
+        ("[0] zero-based.\n", "[0] zero-based."),
+        (
+            "[3.5] a decimal in brackets.\n",
+            "[3.5] a decimal in brackets.",
+        ),
+        ("[1][2] stacked numbers.\n", "[1][2] stacked numbers."),
+        ("[1] Smith, 2020 [2] Jones.\n", "[1] Smith, 2020 [2] Jones."),
+        (
+            "Intro.\n\n[1] First.\n\n[2] Second.\n",
+            "Intro.\n\n[1] First.\n\n[2] Second.",
+        ),
+        ("[1] First.\n[2] Second.\n", "[1] First.\n[2] Second."),
+        (
+            "[1] See [the guide](https://example.com) now.\n",
+            "[1] See the guide now.",
+        ),
+        ("[1] **bold** and _it_.\n", "[1] bold and it."),
+        ("> [1] quoted.\n", "[1] quoted."),
+        ("- [1] listed.\n", "[1] listed."),
+        ("[1]\n", "[1]"),
+        ("[１] fullwidth.\n", "[１] fullwidth."),
+    ] {
+        let result = run_export_text_on(markdown);
+        let text = result["text"].as_str().unwrap();
+        assert_eq!(text, expected, "{markdown:?}");
+        assert_eq!(
+            result["char_count"].as_u64().unwrap() as usize,
+            expected.chars().count(),
+            "{markdown:?}"
+        );
+    }
+    assert_eq!(strip_markdown("[1] First.\n").trim(), "[1] First.");
 }
 
 #[test]
@@ -6609,12 +6655,27 @@ fn export_text_preserves_repeated_bracketed_phrase_and_surrounding_text() {
 fn export_text_keeps_bracketed_prose_in_a_blockquote() {
     for (markdown, expected) in [
         ("> Said [sic] twice [sic].\n", "Said [sic] twice [sic]."),
-        ("> [first]\n> > [nested]\n> [last]\n", "[first]\n[nested]\n[last]"),
-        ("> [lazy start]\ncontinues [here]\n", "[lazy start]\ncontinues [here]"),
-        ("> Mark it [needs\n> review] now.\n", "Mark it [needs\nreview] now."),
-        ("> [**bold** words] and [_soft_]\n", "[bold words] and [soft]"),
+        (
+            "> [first]\n> > [nested]\n> [last]\n",
+            "[first]\n[nested]\n[last]",
+        ),
+        (
+            "> [lazy start]\ncontinues [here]\n",
+            "[lazy start]\ncontinues [here]",
+        ),
+        (
+            "> Mark it [needs\n> review] now.\n",
+            "Mark it [needs\nreview] now.",
+        ),
+        (
+            "> [**bold** words] and [_soft_]\n",
+            "[bold words] and [soft]",
+        ),
         ("> see [the guide](/x) [sic]\n", "see the guide [sic]"),
-        ("Intro [a]\n\n> [b] quoted\n\nOutro [c]\n", "Intro [a]\n\n[b] quoted\n\nOutro [c]"),
+        (
+            "Intro [a]\n\n> [b] quoted\n\nOutro [c]\n",
+            "Intro [a]\n\n[b] quoted\n\nOutro [c]",
+        ),
         ("> [café] [要確認]\n", "[café] [要確認]"),
     ] {
         let result = run_export_text_on(markdown);
@@ -6892,8 +6953,7 @@ fn extracted_heading_text_keeps_its_brackets_and_contents() {
     );
     let resp = handle_resource_read(id(1), "mdopener://recent-documents", &ipc);
     let result = resp.result.unwrap();
-    let v: Value =
-        serde_json::from_str(result["contents"][0]["text"].as_str().unwrap()).unwrap();
+    let v: Value = serde_json::from_str(result["contents"][0]["text"].as_str().unwrap()).unwrap();
     assert_eq!(v["documents"][0]["title"], "Roadmap [Q1]", "{v}");
 }
 
@@ -9931,8 +9991,14 @@ fn bracketed_prose_example_table_matches_outputs() {
 #[test]
 fn export_text_keeps_standalone_bracket_number_at_end_of_paragraph() {
     for (markdown, expected) in [
-        ("The results were conclusive [1]\n", "The results were conclusive [1]"),
-        ("The results were conclusive [1].\n", "The results were conclusive [1]."),
+        (
+            "The results were conclusive [1]\n",
+            "The results were conclusive [1]",
+        ),
+        (
+            "The results were conclusive [1].\n",
+            "The results were conclusive [1].",
+        ),
         (
             "First paragraph ends here [1]\n\nSecond paragraph ends here [2]\n",
             "First paragraph ends here [1]\n\nSecond paragraph ends here [2]",
@@ -9945,7 +10011,11 @@ fn export_text_keeps_standalone_bracket_number_at_end_of_paragraph() {
         ("- A list claim [1]\n", "A list claim [1]"),
     ] {
         let result = run_export_text_on(markdown);
-        assert_eq!(result["text"].as_str().unwrap(), expected, "input: {markdown:?}");
+        assert_eq!(
+            result["text"].as_str().unwrap(),
+            expected,
+            "input: {markdown:?}"
+        );
     }
 }
 
@@ -10549,7 +10619,10 @@ fn export_text_keeps_bracketed_prose_at_the_start_of_a_paragraph() {
             "[draft (v2)] leads the paragraph.\n",
             "[draft (v2)] leads the paragraph.",
         ),
-        ("[café mű] leads the paragraph.\n", "[café mű] leads the paragraph."),
+        (
+            "[café mű] leads the paragraph.\n",
+            "[café mű] leads the paragraph.",
+        ),
         (
             "[one][two] lead the paragraph together.\n",
             "[one][two] lead the paragraph together.",
@@ -10560,7 +10633,10 @@ fn export_text_keeps_bracketed_prose_at_the_start_of_a_paragraph() {
             "![alt] leads the paragraph.",
         ),
         // An escaped bracket at the paragraph's start is literal.
-        ("\\[note] leads the paragraph.\n", "[note] leads the paragraph."),
+        (
+            "\\[note] leads the paragraph.\n",
+            "[note] leads the paragraph.",
+        ),
         // The bracketed opening keeps its brackets while a real link after
         // it reads its text.
         (
@@ -17529,7 +17605,10 @@ fn export_text_keeps_unicode_brackets_for_the_open_document_over_ipc() {
             "# [Заголовок]\r\n\r\n[Ελληνικά] and [日本]\r\n",
             "[Заголовок]\n\n[Ελληνικά] and [日本]",
         ),
-        ("[e\u{301}te\u{301}] [𠮷野家]\n", "[e\u{301}te\u{301}] [𠮷野家]"),
+        (
+            "[e\u{301}te\u{301}] [𠮷野家]\n",
+            "[e\u{301}te\u{301}] [𠮷野家]",
+        ),
         ("［全角］ 【隅付き】 「鉤」\n", "［全角］ 【隅付き】 「鉤」"),
     ];
     for (markdown, expected) in cases {
