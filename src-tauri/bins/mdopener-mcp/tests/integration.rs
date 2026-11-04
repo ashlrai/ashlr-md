@@ -17434,3 +17434,37 @@ fn export_text_keeps_brackets_and_unicode_in_more_scripts_and_marks() {
         );
     }
 }
+
+/// The open-document route (no `path`, content from the app over IPC) keeps
+/// brackets and Unicode like the file route, with a BOM and CRLF line ends.
+#[test]
+fn export_text_keeps_unicode_brackets_for_the_open_document_over_ipc() {
+    let cases: &[(&str, &str)] = &[
+        (
+            "\u{FEFF}[Привет] [日本語] [مرحبا] [한국어]\n",
+            "[Привет] [日本語] [مرحبا] [한국어]",
+        ),
+        (
+            "# [Заголовок]\r\n\r\n[Ελληνικά] and [日本]\r\n",
+            "[Заголовок]\n\n[Ελληνικά] and [日本]",
+        ),
+        ("[e\u{301}te\u{301}] [𠮷野家]\n", "[e\u{301}te\u{301}] [𠮷野家]"),
+        ("［全角］ 【隅付き】 「鉤」\n", "［全角］ 【隅付き】 「鉤」"),
+    ];
+    for (markdown, expected) in cases {
+        let ipc = MockIpc::new().on_get(
+            "/content",
+            Ok(json!({ "path": "/docs/uni.md", "content": markdown })),
+        );
+        let response = tool_export_text(id(2), &json!({}), &ipc);
+        assert!(response.error.is_none(), "{markdown:?}");
+        let result = content_text(&response);
+        assert_eq!(result["text"].as_str().unwrap(), *expected, "{markdown:?}");
+        assert_eq!(
+            result["char_count"].as_u64().unwrap() as usize,
+            expected.chars().count(),
+            "{markdown:?}"
+        );
+        assert_eq!(result["path"].as_str(), Some("/docs/uni.md"));
+    }
+}
