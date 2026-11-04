@@ -5709,6 +5709,44 @@ describe("rule:invalid-link-target", () => {
     expect(fixed.endsWith("\r")).toBe(false);
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
+
+  it.each([
+    "",
+    " ",
+    "#",
+    "?",
+  ])("replaces the invalid destination %j of a link that fills the final line without adding a newline", (href) => {
+    const rules = [ruleInvalidLinkTarget];
+    const link = `[draft](${href})`;
+    const leading = "Intro keeps [ok](./ok.md) and `[code]()` intact.";
+
+    for (const nl of ["\n", "\r\n"]) {
+      const lines = [leading, "", link];
+      const doc = lines.join(nl);
+      const expected = [leading, "", "[draft](TODO)"].join(nl);
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations).toHaveLength(1);
+      expect(violations[0].ruleId).toBe("invalid-link-target");
+      const { from, to } = violations[0].range!;
+      // The link is the entire final line and the end of the document.
+      expect(from.line).toBe(3);
+      expect(from.col).toBe(0);
+      expect(doc.slice(from.offset, to.offset)).toBe(link);
+      expect(to.offset).toBe(doc.length);
+      expect(violations[0].fix).not.toBeNull();
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      // The destination was replaced; no newline was added at the end.
+      expect(fixed.endsWith("\n")).toBe(false);
+      expect(fixed.endsWith("\r")).toBe(false);
+      expect(fixed.slice(0, from.offset)).toBe(doc.slice(0, from.offset));
+      const remaining = lintDocument(fixed, { rules });
+      expect(remaining).toEqual([]);
+      expect(applyAllFixes(fixed, remaining)).toBe(expected);
+    }
+  });
 });
 
 // ─── 3. Rule: missing-alt-text ────────────────────────────────────────────────
