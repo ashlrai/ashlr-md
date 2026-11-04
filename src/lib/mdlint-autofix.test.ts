@@ -19452,3 +19452,45 @@ describe("autofix: image alt text made only of rare Unicode whitespace", () => {
     expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(expected);
   });
 });
+
+describe("autofix: undescribed image beside punctuation", () => {
+  it.each([
+    ["a trailing period", "See ![](a.png).", "See ![TODO: describe image](a.png)."],
+    [
+      "a leading colon and trailing comma",
+      "Chart: ![](a.png), done",
+      "Chart: ![TODO: describe image](a.png), done",
+    ],
+    ["wrapping parentheses", "(![](a.png))", "(![TODO: describe image](a.png))"],
+    [
+      "quotes and an em dash",
+      '"![ ](a.png)"—ok',
+      '"![TODO: describe image](a.png)"—ok',
+    ],
+    [
+      "brackets and an exclamation mark",
+      "[![](a.png)]!",
+      "[![TODO: describe image](a.png)]!",
+    ],
+    [
+      "a list bullet and semicolon",
+      "- ![](a.png);",
+      "- ![TODO: describe image](a.png);",
+    ],
+    [
+      "a link wrapper",
+      "[![](a.png)](https://x.test/?a=1&b=2).",
+      "[![TODO: describe image](a.png)](https://x.test/?a=1&b=2).",
+    ],
+    ["CJK punctuation", "図：![](図.png)。", "図：![TODO: describe image](図.png)。"],
+  ])("keeps punctuation unchanged with %s", (_kind, doc, expected) => {
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(expected);
+  });
+});
