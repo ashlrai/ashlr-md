@@ -372,6 +372,40 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 
+  it.each([
+    [
+      "before the link",
+      "As shown in [1], see [broken]() for details.",
+      "As shown in [1], see [broken](TODO) for details.",
+    ],
+    [
+      "after the link",
+      "See [broken]() for details, as in [1].",
+      "See [broken](TODO) for details, as in [1].",
+    ],
+    [
+      "both sides",
+      "Prior work [1] cites [broken]() and [1] again.",
+      "Prior work [1] cites [broken](TODO) and [1] again.",
+    ],
+    ["adjacent to the link", "Refs [1][broken]() end.", "Refs [1][broken](TODO) end."],
+  ])("repairs the invalid link and keeps a bracketed number [1] verbatim (%s)", (_name, line, expectedLine) => {
+    for (const nl of ["\n", "\r\n"]) {
+      const doc = `${line}${nl}`;
+      const expected = `${expectedLine}${nl}`;
+      const rules = [ruleInvalidLinkTarget];
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations).toHaveLength(1);
+      expect(violations[0].ruleId).toBe("invalid-link-target");
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      expect(fixed.split("[1]")).toHaveLength(doc.split("[1]").length);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+    }
+  });
+
   it("replaces an invalid href while preserving punctuation and surrounding text", () => {
     const doc =
       'Read it (see [guide]()), "[quote]()"; then [next](), — done! Really [end]()?\n';
