@@ -6740,6 +6740,14 @@ fn export_text_keeps_bracketed_prose_in_a_blockquote() {
         ),
         ("> see [the guide](/x) [sic]\n", "see the guide [sic]"),
         (
+            "> First [note].\n>\n> Second [note]!\n",
+            "First [note].\n\nSecond [note]!",
+        ),
+        (
+            "> [unresolved] beside [source] and [unresolved].\n\n[source]: /guide\n",
+            "[unresolved] beside source and [unresolved].",
+        ),
+        (
             "Intro [a]\n\n> [b] quoted\n\nOutro [c]\n",
             "Intro [a]\n\n[b] quoted\n\nOutro [c]",
         ),
