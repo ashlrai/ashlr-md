@@ -2672,6 +2672,7 @@ describe("rule:invalid-link-target", () => {
     " \u2003 ",
     " \n ",
     " \t\n\t ",
+    " \r\n ",
   ])("replaces the whitespace-only destination %j with TODO, preserving the link text and surrounding prose", (destination) => {
     const doc = `Drafts: see [release notes](${destination}) before [the guide](./guide.md), then publish.\n`;
     const expected =
