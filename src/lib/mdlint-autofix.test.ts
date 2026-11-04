@@ -15061,4 +15061,25 @@ describe("autofix: described image with a relative path", () => {
       "---\ntitle: Doc\n---\n\n# Title\n\n![Relative diagram](../img/a.png)\n";
     expect(applyAllFixes(doc, lintDocument(doc))).toBe(doc);
   });
+
+  it.each([
+    [
+      "heading",
+      "## Overview ![](logo.svg)\n",
+      "## Overview ![TODO: describe image](logo.svg)\n",
+    ],
+    [
+      "table cell",
+      '| a | b |\n| - | - |\n| ![](x.png "T") | y |\n',
+      '| a | b |\n| - | - |\n| ![TODO: describe image](x.png "T") | y |\n',
+    ],
+  ])("sets an empty image description in a %s to the placeholder and preserves the source", (_name, doc, expected) => {
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
 });
