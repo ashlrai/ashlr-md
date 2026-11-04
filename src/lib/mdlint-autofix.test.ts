@@ -19186,3 +19186,124 @@ describe("autofix: described image byte-for-byte preservation", () => {
     }
   });
 });
+
+describe("invalid-link autofix across separate lines", () => {
+  it.each([
+    ["empty and fragment", "", "#"],
+    ["whitespace-only and bare query", " \t ", "?"],
+    ["two whitespace shapes", "  ", "\t"],
+  ])("turns both invalid hrefs (%s) into TODO and keeps every surrounding byte", (_name, first, second) => {
+    for (const nl of ["\n", "\r\n"]) {
+      const head = "Top: café ☕ — [1], `x()` and [ok](./ok.md).";
+      const mid = [
+        "A [valid](./docs.md) link on its own line.",
+        "",
+        "> quoted [not a link] and *emphasis*.",
+      ].join(nl);
+      const tail = "Tail: (parens) &amp; done.";
+      const firstLink = `[alpha](${first})`;
+      const secondLink = `[omega](${second})`;
+      const doc = [
+        head,
+        `First ${firstLink} mid-sentence.`,
+        mid,
+        `Last line ends ${secondLink} here.`,
+        tail,
+        "",
+      ].join(nl);
+      const expected = doc
+        .replace(firstLink, "[alpha](TODO)")
+        .replace(secondLink, "[omega](TODO)");
+      const rules = [ruleInvalidLinkTarget];
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map((v) => v.ruleId)).toEqual([
+        "invalid-link-target",
+        "invalid-link-target",
+      ]);
+      // Violations arrive in document order, each spanning its own link alone.
+      expect(violations[0].range!.from.line).toBe(2);
+      expect(violations[1].range!.from.line).toBe(6);
+      expect(
+        violations.map((v) => doc.slice(v.range!.from.offset, v.range!.to.offset)),
+      ).toEqual([firstLink, secondLink]);
+      expect(violations.every((v) => v.fix !== null)).toBe(true);
+
+      // Each fix repairs only the href on its own line.
+      expect(applyFix(doc, violations[0])).toBe(
+        doc.replace(firstLink, "[alpha](TODO)"),
+      );
+      expect(applyFix(doc, violations[1])).toBe(
+        doc.replace(secondLink, "[omega](TODO)"),
+      );
+
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      expect(applyAllFixes(doc, [...violations].reverse())).toBe(expected);
+      // Both invalid hrefs became TODO …
+      expect(fixed).toContain("[alpha](TODO)");
+      expect(fixed).toContain("[omega](TODO)");
+      expect(fixed.match(/\(TODO\)/g)).toHaveLength(2);
+      // … and nothing else moved: the line count is unchanged and removing
+      // the two link spans leaves byte-identical surroundings.
+      expect(fixed.split(nl)).toHaveLength(doc.split(nl).length);
+      expect(fixed.replace("[alpha](TODO)", "").replace("[omega](TODO)", "")).toBe(
+        doc.replace(firstLink, "").replace(secondLink, ""),
+      );
+      const remaining = lintDocument(fixed, { rules });
+      expect(remaining).toEqual([]);
+      expect(applyAllFixes(fixed, remaining)).toBe(expected);
+      // The toast's Fix all entry point produces the same bytes.
+      clearLintHistory();
+      expect(fixAllViolations(doc, violations)).toBe(expected);
+      clearLintHistory();
+    }
+  });
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("fixes identical invalid links on separate lines and keeps a pre-existing TODO destination untouched (%j)", (nl) => {
+    const decoy = "[done](TODO)";
+    const link = "[draft](#)";
+    const doc = [
+      `First ${link} here.`,
+      `Middle ${decoy} and [ok](./ok.md).`,
+      `Last ${link} there.`,
+      "",
+    ].join(nl);
+    const expected = [
+      "First [draft](TODO) here.",
+      `Middle ${decoy} and [ok](./ok.md).`,
+      "Last [draft](TODO) there.",
+      "",
+    ].join(nl);
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    // A destination that already reads TODO is a valid link and is not flagged.
+    expect(violations.map((v) => v.ruleId)).toEqual([
+      "invalid-link-target",
+      "invalid-link-target",
+    ]);
+    expect(violations.map((v) => v.range!.from.offset)).toEqual([
+      doc.indexOf(link),
+      doc.lastIndexOf(link),
+    ]);
+    // Each fix rewrites only its own occurrence of the identical link.
+    expect(applyFix(doc, violations[0])).toBe(doc.replace(link, "[draft](TODO)"));
+    expect(applyFix(doc, violations[1])).toBe(
+      `${doc.slice(0, doc.lastIndexOf(link))}[draft](TODO)${doc.slice(doc.lastIndexOf(link) + link.length)}`,
+    );
+
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(applyAllFixes(doc, [...violations].reverse())).toBe(expected);
+    // Two fresh TODO destinations plus the pre-existing one; the middle
+    // line and both link lines' prose are byte-identical.
+    expect(fixed.match(/\(TODO\)/g)).toHaveLength(3);
+    expect(fixed.split(nl)[1]).toBe(`Middle ${decoy} and [ok](./ok.md).`);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+});
