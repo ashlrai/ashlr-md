@@ -19439,3 +19439,27 @@ describe("autofix: image alt text made only of rare Unicode whitespace", () => {
     expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(expected);
   });
 });
+
+describe("autofix: invalid link beside punctuation at line edges", () => {
+  it.each([
+    ["punctuation before at line start", "...", "", "", "... "],
+    ["colon-terminated lead-in", "Note:", "", ".", " "],
+    ["comma, colon and question mark in the label", "", "", "?", " "],
+  ])("%s keeps the placeholder documented and the punctuation unchanged", (name, lead, _unused, tail, gap) => {
+    const label = name.startsWith("comma") ? "Why, exactly: this?" : "broken";
+    for (const target of ["", "   ", "#"]) {
+      for (const nl of ["\n", "\r\n"]) {
+        const link = `[${label}](${target})`;
+        const doc = `${lead}${gap}${link}${tail}${nl}- item;${link},${nl}`;
+        const expected = `${lead}${gap}[${label}](TODO)${tail}${nl}- item;[${label}](TODO),${nl}`;
+        const rules = [ruleInvalidLinkTarget];
+        const violations = lintDocument(doc, { rules });
+
+        expect(violations).toHaveLength(2);
+        const fixed = applyAllFixes(doc, violations);
+        expect(fixed).toBe(expected);
+        expect(lintDocument(fixed, { rules })).toEqual([]);
+      }
+    }
+  });
+});
