@@ -15800,6 +15800,50 @@ describe("invalid link at the end of a CRLF line", () => {
   });
 });
 
+describe("invalid link on a CRLF-delimited line", () => {
+  const rules = [ruleInvalidLinkTarget];
+
+  it.each([
+    ["empty", "[guide]()"],
+    ["whitespace-only", "[guide](   )"],
+    ["bare hash", "[guide](#)"],
+    ["bare query", "[guide](?)"],
+  ])("writes the TODO placeholder into the %s destination and keeps every CRLF", (_name, link) => {
+    // The link is the whole content of its line, with a CRLF on both sides.
+    const doc = `# Links\r\n\r\n${link}\r\n\r\nTrailing line.\r\n`;
+    const expected = `# Links\r\n\r\n[guide](TODO)\r\n\r\nTrailing line.\r\n`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("invalid-link-target");
+    // The reported range covers the link only — not the \r that ends its line.
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(link);
+    expect(doc[to.offset]).toBe("\r");
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // The placeholder landed exactly once and every line ending is still CRLF.
+    expect(fixed.match(/\]\(TODO\)/g)).toHaveLength(1);
+    expect(fixed.match(/\r\n/g)).toHaveLength(doc.match(/\r\n/g)!.length);
+    expect(fixed.replaceAll("\r\n", "")).not.toMatch(/[\r\n]/);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it("keeps the CRLF of a lone CRLF-delimited line inside an LF document", () => {
+    // Mixed endings: the fix must not normalize or drop the one \r.
+    const doc = "Intro.\nSee [guide]() mid-line.\r\nOutro.\n";
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe("Intro.\nSee [guide](TODO) mid-line.\r\nOutro.\n");
+    expect(fixed.match(/\r\n/g)).toHaveLength(1);
+    expect(fixed).toContain("\nSee [guide](TODO) mid-line.\r\n");
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
+
 describe("rule:missing-alt-text autofix", () => {
   it("describes an image at the end of a CRLF-delimited line without changing line endings", () => {
     const doc = "First line.\r\nSee ![](images/chart.png)\r\nLast line.\r\n";
