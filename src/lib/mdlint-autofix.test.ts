@@ -18400,3 +18400,33 @@ describe("autofix: undescribed image beside a described image with brackets in i
     }
   });
 });
+
+describe("autofix: undescribed image directly touching a described image", () => {
+  it.each([
+    [
+      "undescribed first",
+      "![](same.png)",
+      "![Logo](same.png)",
+      "![TODO: describe image](same.png)![Logo](same.png)",
+    ],
+    [
+      "described first",
+      "![Logo](same.png)",
+      "![](same.png)",
+      "![Logo](same.png)![TODO: describe image](same.png)",
+    ],
+  ])("adds the placeholder only to the undescribed image (%s)", (_name, a, b, expectedPair) => {
+    const rules = [ruleMissingAltText];
+    for (const nl of ["\n", "\r\n"]) {
+      const doc = `${a}${b}${nl}Tail.${nl}`;
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(`${expectedPair}${nl}Tail.${nl}`);
+      expect(applyFix(doc, violations[0])).toBe(fixed);
+      expect(fixed.split("![Logo](same.png)")).toHaveLength(2);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+    }
+  });
+});
