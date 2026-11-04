@@ -18007,3 +18007,23 @@ describe("invalid-link-target autofix: valid link beside an invalid one", () => 
     }
   });
 });
+
+describe("invalid-link-target autofix: Unicode link text", () => {
+  it.each([
+    ["Café", ""],
+    ["cafe\u0301", " \t "],
+    ["日本語 🔗", "#"],
+    ["مرحبا 👩🏽‍💻", "?"],
+  ])("preserves the label %s while replacing href %j", (label, href) => {
+    const rules = [ruleInvalidLinkTarget];
+    const doc = `Read [${label}](${href}) next.\r\n`;
+    const expected = `Read [${label}](TODO) next.\r\n`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+});
