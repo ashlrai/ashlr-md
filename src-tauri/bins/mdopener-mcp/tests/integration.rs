@@ -6602,6 +6602,32 @@ fn export_text_preserves_repeated_bracketed_phrase_and_surrounding_text() {
     }
 }
 
+/// Bracketed prose inside a blockquote keeps its brackets and words: nested
+/// quotes, lazy continuation, a phrase wrapped over quoted lines, emphasis
+/// inside the brackets, a link beside them, and a quote after a paragraph.
+#[test]
+fn export_text_keeps_bracketed_prose_in_a_blockquote() {
+    for (markdown, expected) in [
+        ("> Said [sic] twice [sic].\n", "Said [sic] twice [sic]."),
+        ("> [first]\n> > [nested]\n> [last]\n", "[first]\n[nested]\n[last]"),
+        ("> [lazy start]\ncontinues [here]\n", "[lazy start]\ncontinues [here]"),
+        ("> Mark it [needs\n> review] now.\n", "Mark it [needs\nreview] now."),
+        ("> [**bold** words] and [_soft_]\n", "[bold words] and [soft]"),
+        ("> see [the guide](/x) [sic]\n", "see the guide [sic]"),
+        ("Intro [a]\n\n> [b] quoted\n\nOutro [c]\n", "Intro [a]\n\n[b] quoted\n\nOutro [c]"),
+        ("> [café] [要確認]\n", "[café] [要確認]"),
+    ] {
+        let result = run_export_text_on(markdown);
+        let text = result["text"].as_str().unwrap();
+        assert_eq!(text, expected, "{markdown:?}");
+        assert_eq!(
+            result["char_count"].as_u64().unwrap() as usize,
+            expected.chars().count(),
+            "{markdown:?}"
+        );
+    }
+}
+
 /// `char_count` said only "character counts", leaving an agent to guess
 /// bytes or characters. The description says Unicode characters, and the
 /// count of a non-ASCII document is its chars, not its bytes.
