@@ -11459,6 +11459,57 @@ describe("rule:invalid-link-target CRLF document", () => {
     expect(applyFix(doc, violations[0])).toBe(fixed);
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
+
+  it.each([
+    ["empty", "[draft]()"],
+    ["whitespace-only", "[draft]( \t )"],
+    ["lone fragment", "[draft](#)"],
+    ["lone query", "[draft](?)"],
+  ])("applyFix sets the %s href to TODO mid-document and keeps every CRLF byte-identical", (_name, link) => {
+    const doc = [
+      "# Notes",
+      "",
+      `Intro ${link} mid-line; keep [ok](./ok.md) and \`[x]()\` in code.`,
+      "Tail — café.",
+      "",
+    ].join("\r\n");
+    const expected = doc.replace(link, "[draft](TODO)");
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(link);
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain("[draft](TODO)");
+    // Every CRLF survives; no bare LF or lone CR is introduced.
+    expect(fixed.match(/\r\n/g)).toHaveLength(doc.match(/\r\n/g)!.length);
+    expect(fixed.replace(/\r\n/g, "")).not.toMatch(/[\r\n]/);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it("fixes every invalid link in a CRLF document and leaves the endings and a valid link untouched", () => {
+    const doc =
+      "# A\r\n\r\nSee [one]() and [two](  ), keep [ok](./ok.md).\r\n\r\n- [three](?)\r\n";
+    const expected =
+      "# A\r\n\r\nSee [one](TODO) and [two](TODO), keep [ok](./ok.md).\r\n\r\n- [three](TODO)\r\n";
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual([
+      "invalid-link-target",
+      "invalid-link-target",
+      "invalid-link-target",
+    ]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.match(/\r\n/g)).toHaveLength(doc.match(/\r\n/g)!.length);
+    expect(fixed.replace(/\r\n/g, "")).not.toMatch(/[\r\n]/);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
 });
 
 describe("rule:missing-alt-text CRLF document", () => {
