@@ -15802,3 +15802,70 @@ describe("autofix: a described image in a document without a final newline", () 
     }
   });
 });
+
+describe("autofix: undescribed image between Unicode words", () => {
+  const rules = [ruleMissingAltText];
+
+  it.each([
+    ["CJK neighbors", "単語", "単語", "words/chart.png"],
+    ["emoji neighbors", "🌸", "🐈", "photos/cat.png"],
+    ["ZWJ and skin-tone neighbors", "👨‍👩‍👧‍👦", "👩🏽‍💻", "img/family.png"],
+    ["combining-mark neighbors", "cafe\u0301", "nai\u0308ve", "assets/dia.png"],
+    ["mixed-script neighbors", "مرحبا", "こんにちは", "i18n/view.png"],
+    ["fullwidth neighbors", "Ｗｏｒｄ", "Ｔｅｘｔ", "img/wide.png"],
+  ])("inserts the description and preserves the abutting prose (%s)", (_name, before, after, src) => {
+    for (const newline of ["\n", "\r\n"]) {
+      const image = `![](${src})`;
+      const repaired = `![TODO: describe image](${src})`;
+      const doc = `${before}${image}${after}${newline}`;
+      const expected = `${before}${repaired}${after}${newline}`;
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations).toHaveLength(1);
+      expect(violations[0].ruleId).toBe("missing-alt-text");
+      expect(violations[0].range).toEqual({
+        from: { offset: before.length, line: 1, col: before.length },
+        to: {
+          offset: before.length + image.length,
+          line: 1,
+          col: before.length + image.length,
+        },
+      });
+      expect(
+        doc.slice(violations[0].range!.from.offset, violations[0].range!.to.offset),
+      ).toBe(image);
+
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      expect(fixed.startsWith(before)).toBe(true);
+      expect(fixed.endsWith(`${after}${newline}`)).toBe(true);
+      expect(fixed).toContain(repaired);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+      expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+    }
+  });
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("fixes the image mid-sentence between spaced and unspaced Unicode words (%j line endings)", (newline) => {
+    const before = "前文と🗺️ 博物館";
+    const after = "駅へ🚶 مرحبا.";
+    const image = "![](img/地図.png)";
+    const doc = `# メモ${newline}${newline}${before}${image} ${after}${newline}終わり${newline}`;
+    const expected = `# メモ${newline}${newline}${before}![TODO: describe image](img/地図.png) ${after}${newline}終わり${newline}`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("missing-alt-text");
+    expect(
+      doc.slice(violations[0].range!.from.offset, violations[0].range!.to.offset),
+    ).toBe(image);
+
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain(before);
+    expect(fixed).toContain(after);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
