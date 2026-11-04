@@ -202,6 +202,28 @@ describe("autofix: undescribed image at the start of a line", () => {
     expect(fixed).toBe(expected);
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
+
+  it("fixes each of several images on one line, even when they share a destination", () => {
+    const rules = [ruleMissingAltText];
+    const doc = `![](same.png) ![Kept](keep.png) ![ ](same.png "T") ![](same.png)\n`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(3);
+    // Each violation fixed alone touches only its own image.
+    const dst = ["same.png", 'same.png "T"', "same.png"];
+    const solo = violations.map((v) => applyFix(doc, v));
+    solo.forEach((out, i) => {
+      expect(out).toContain(`![TODO: describe image](${dst[i]})`);
+      expect(out.split("TODO: describe image")).toHaveLength(2);
+      expect(out).toContain("![Kept](keep.png)");
+    });
+
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(
+      `![TODO: describe image](same.png) ![Kept](keep.png) ![TODO: describe image](same.png "T") ![TODO: describe image](same.png)\n`,
+    );
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
 });
 
 describe("autofix: undescribed image on a CRLF-delimited line", () => {
