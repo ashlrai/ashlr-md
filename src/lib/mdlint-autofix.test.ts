@@ -14473,6 +14473,100 @@ describe("invalid-link autofix inside surrounding prose", () => {
   });
 });
 
+describe("invalid-link autofix with Unicode surrounding prose", () => {
+  const rules = [ruleInvalidLinkTarget];
+
+  it.each([
+    ["empty", ""],
+    ["whitespace-only", " \t "],
+    ["lone hash", "#"],
+    ["lone question mark", "?"],
+  ])("rewrites only the %s destination; the Unicode prose on both sides stays byte-identical", (_name, href) => {
+    for (const nl of ["\n", "\r\n"]) {
+      // Astral emoji (two UTF-16 units each), a combining mark, CJK, RTL
+      // text and a ZWJ family: byte, code-unit and grapheme offsets around
+      // the link all differ, so a fix using the wrong units lands mid-prose.
+      const before = "🌸 前文 cafe\u0301 — ";
+      const link = `[guide](${href})`;
+      const after = " と مرحبا 👨‍👩‍👧‍👦 fin.";
+      const doc = `${before}${link}${after}${nl}`;
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+      // The reported range covers the link alone, in UTF-16 code units.
+      expect(violations[0].range).toEqual({
+        from: { offset: before.length, line: 1, col: before.length },
+        to: {
+          offset: before.length + link.length,
+          line: 1,
+          col: before.length + link.length,
+        },
+      });
+      expect(violations[0].fix).not.toBeNull();
+
+      const expected = `${before}[guide](TODO)${after}${nl}`;
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      // The prose on either side is byte-for-byte the original text: the
+      // prefix ends where the link began and the suffix resumes right after
+      // the repaired link.
+      expect(fixed.slice(0, before.length)).toBe(before);
+      expect(fixed.slice(before.length + "[guide](TODO)".length)).toBe(`${after}${nl}`);
+      expect(fixed.match(/\]\(TODO\)/g)).toHaveLength(1);
+      expect(fixed.length - doc.length).toBe("TODO".length - href.length);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+      expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+    }
+  });
+
+  it("fixes the link mid-document and leaves the Unicode heading, code-span decoy, valid link and tail byte-identical", () => {
+    for (const nl of ["\n", "\r\n"]) {
+      const heading = "# メモ 🗺️";
+      const decoy = "Keep `🙈 [ignored](#)` as code";
+      const before = "前の文 🌷 cafe\u0301 — ";
+      const link = "[guide](?)";
+      const valid = "[案内](./guide.md#概要)";
+      const tail = "終わり 🚀 שלום";
+      const doc = [
+        heading,
+        "",
+        decoy,
+        `${before}${link} と ${valid} です`,
+        tail,
+        "",
+      ].join(nl);
+      const expected = [
+        heading,
+        "",
+        decoy,
+        `${before}[guide](TODO) と ${valid} です`,
+        tail,
+        "",
+      ].join(nl);
+      const violations = lintDocument(doc, { rules });
+
+      // The decoy inside the code span and the valid link are not findings.
+      expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+      const { from, to } = violations[0].range!;
+      expect(from.offset).toBe(doc.indexOf(link));
+      expect(from.line).toBe(4);
+      expect(doc.slice(from.offset, to.offset)).toBe(link);
+
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      // Everything outside the repaired destination — the masked decoy, the
+      // valid link and every Unicode line — is byte-for-byte intact.
+      expect(fixed).toContain(decoy);
+      expect(fixed).toContain(valid);
+      expect(fixed.match(/\]\(TODO\)/g)).toHaveLength(1);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+      expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+    }
+  });
+});
+
 describe("invalid-link-target autofix: idempotence across document shapes", () => {
   const rules = [ruleInvalidLinkTarget];
   const fixPass = (text: string) => applyAllFixes(text, lintDocument(text, { rules }));
