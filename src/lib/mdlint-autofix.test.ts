@@ -16277,3 +16277,36 @@ describe("invalid-link-target autofix with Unicode link text in block containers
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+describe("invalid-link-target autofix with a valid link on the same line", () => {
+  const valid = "[docs](./guide.md#intro)";
+  const invalid = "[home](#)";
+
+  it.each([
+    [
+      "invalid first",
+      `${invalid} and ${valid}`,
+      "[home](TODO) and [docs](./guide.md#intro)",
+    ],
+    [
+      "valid first",
+      `${valid} and ${invalid}`,
+      "[docs](./guide.md#intro) and [home](TODO)",
+    ],
+  ])("replaces only the invalid destination (%s)", (_name, line, expectedLine) => {
+    for (const nl of ["\n", "\r\n"]) {
+      const doc = `# Title${nl}${nl}See ${line}.${nl}`;
+      const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
+
+      expect(violations).toHaveLength(1);
+      expect(violations[0].ruleId).toBe("invalid-link-target");
+      const { from, to } = violations[0].range!;
+      expect(doc.slice(from.offset, to.offset)).toBe(invalid);
+
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(`# Title${nl}${nl}See ${expectedLine}.${nl}`);
+      expect(fixed).toContain(valid);
+      expect(lintDocument(fixed, { rules: [ruleInvalidLinkTarget] })).toEqual([]);
+    }
+  });
+});
