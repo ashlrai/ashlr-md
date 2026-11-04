@@ -18769,3 +18769,139 @@ describe("invalid-link-target autofix: empty destination keeps the link text", (
     expect(lintDocument(fixed)).toEqual([]);
   });
 });
+
+describe("invalid-link-target autofix: trailing punctuation", () => {
+  const rules = [ruleInvalidLinkTarget];
+
+  it.each([
+    ["a hashtag after a fragment href", "#", "#readme"],
+    ["a question mark after a query href", "?", "?"],
+    ["empty parentheses", "", "()"],
+    ["a sideways smiley", "", ":-)"],
+    ["a winking smiley", "#", ";-)"],
+    ["a lone closing bracket", "#", "]"],
+    ["an image opener", "#", "![x]"],
+    ["bracketed prose", "  ", "[later]"],
+    ["a parenthesized aside", "#", "(aside)"],
+    ["an ellipsis entity", "", "&hellip;"],
+    ["an em-dash entity", "#", "&mdash;"],
+    ["a possessive 's", "#", "'s"],
+    ["a stray asterisk", "", "*"],
+    ["a percent sign", "#", "%"],
+    ["a tilde pair", "?", "~~"],
+    ["an interrobang", "#", "‽"],
+    ["an arrow", "", "→"],
+  ])("keeps %s touching the closing paren untouched while the destination becomes TODO", (_name, destination, trailing) => {
+    const link = `[draft](${destination})`;
+    const doc = `See ${link}${trailing} next line.\n`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+    // The reported range stops at the link's closing paren.
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(link);
+    const expected = `See [draft](TODO)${trailing} next line.\n`;
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
+    "？",
+    "！",
+    "；",
+    "：",
+    "・",
+    "｡",
+    "〜",
+  ])("keeps the fullwidth mark %j on a link that closes a CJK sentence", (punct) => {
+    const doc = `次は[ガイド](#)${punct}続き。\n`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe("[ガイド](#)");
+    const expected = `次は[ガイド](TODO)${punct}続き。\n`;
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
+    ["a heading", "## See [a](#)?\n", "## See [a](TODO)?\n"],
+    ["a blockquote", "> Quoth [a](#)! next.\n", "> Quoth [a](TODO)! next.\n"],
+    ["a table cell", "| t | See [a](#). | b |\n", "| t | See [a](TODO). | b |\n"],
+    ["a task item", "- [ ] Read [a](#)!\n", "- [ ] Read [a](TODO)!\n"],
+    [
+      "a footnote definition",
+      "[^1]: Read [a](#) now.\n",
+      "[^1]: Read [a](TODO) now.\n",
+    ],
+  ])("keeps trailing punctuation on an invalid link inside %s", (_name, doc, expected) => {
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
+    ["[a](#),[b](#);[c](?)!\n", "[a](TODO),[b](TODO);[c](TODO)!\n", 3],
+    ["[a](#).[b](#)\n", "[a](TODO).[b](TODO)\n", 2],
+    ["See [a](#)**[b](#)** ok.\n", "See [a](TODO)**[b](TODO)** ok.\n", 2],
+    ["See [a](#)»[b](#)«fin» ok.\n", "See [a](TODO)»[b](TODO)«fin» ok.\n", 2],
+    ["See [a](#)→ [b](#) ok.\n", "See [a](TODO)→ [b](TODO) ok.\n", 2],
+  ])("keeps the punctuation separating abutting links in %j", (doc, expected, count) => {
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(count);
+    expect(
+      violations.every((v) => v.ruleId === "invalid-link-target" && v.fix !== null),
+    ).toBe(true);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it("repairs identical links abutting different punctuation, each at its own offset", () => {
+    const doc = "[x](#), [x](#); [x](#)!\n";
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual([
+      "invalid-link-target",
+      "invalid-link-target",
+      "invalid-link-target",
+    ]);
+    // A single fix repairs only its own occurrence.
+    expect(applyFix(doc, violations[0])).toBe("[x](TODO), [x](#); [x](#)!\n");
+    expect(applyFix(doc, violations[1])).toBe("[x](#), [x](TODO); [x](#)!\n");
+    expect(applyFix(doc, violations[2])).toBe("[x](#), [x](#); [x](TODO)!\n");
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe("[x](TODO), [x](TODO); [x](TODO)!\n");
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+
+  it("keeps punctuation in the label, the href marker and after the closing paren at once", () => {
+    for (const nl of ["\n", "\r\n"]) {
+      const doc = `Wait, [what?!](#)?${nl}`;
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+      const { from, to } = violations[0].range!;
+      expect(doc.slice(from.offset, to.offset)).toBe("[what?!](#)");
+      const expected = `Wait, [what?!](TODO)?${nl}`;
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      // Only the href changed; undoing the placeholder restores the input.
+      expect(fixed.replaceAll("(TODO)", "(#)")).toBe(doc);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+    }
+  });
+});
