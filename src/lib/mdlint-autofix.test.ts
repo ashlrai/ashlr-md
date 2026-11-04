@@ -251,6 +251,24 @@ describe("autofix: two undescribed images on one line", () => {
 });
 
 describe("autofix: undescribed images on separate lines", () => {
+  it.each([
+    "\n",
+    "\r\n",
+  ])("fixes adjacent image lines with %j line endings under default rules", (nl) => {
+    const doc = `---${nl}title: Gallery${nl}---${nl}${nl}![](first.png)${nl}![ ](images/second.svg?size=2#view)${nl}`;
+    const expected = `---${nl}title: Gallery${nl}---${nl}${nl}![TODO: describe image](first.png)${nl}![TODO: describe image](images/second.svg?size=2#view)${nl}`;
+    const violations = lintDocument(doc);
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+      "missing-alt-text",
+      "missing-alt-text",
+    ]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed)).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed))).toBe(expected);
+  });
+
   it("preserves sources and mixed line breaks when fixes are applied in either order", () => {
     const rules = [ruleMissingAltText];
     const doc =
