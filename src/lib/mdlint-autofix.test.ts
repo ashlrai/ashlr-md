@@ -311,6 +311,15 @@ describe("autofix: undescribed image at the start of a line", () => {
       "missing-alt-text",
       "missing-alt-text",
     ]);
+    expect(
+      violations.map(({ range }) => doc.slice(range!.from.offset, range!.to.offset)),
+    ).toEqual(['![](a.png "First")', "![](images/b.png)"]);
+    expect(applyFix(doc, violations[0])).toBe(
+      `Intro.${nl}${nl}![TODO: describe image](a.png "First") and ![](images/b.png) with *prose*.${nl}Tail.${nl}`,
+    );
+    expect(applyFix(doc, violations[1])).toBe(
+      `Intro.${nl}${nl}![](a.png "First") and ![TODO: describe image](images/b.png) with *prose*.${nl}Tail.${nl}`,
+    );
     const fixed = applyAllFixes(doc, violations);
     expect(fixed).toBe(expected);
     expect(lintDocument(fixed, { rules })).toEqual([]);
