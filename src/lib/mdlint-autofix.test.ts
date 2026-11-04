@@ -15531,3 +15531,65 @@ describe("rule:missing-alt-text autofix", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+describe("undescribed-image autofix idempotence: generated documents", () => {
+  const rules = [ruleMissingAltText];
+  const fixPass = (text: string) => applyAllFixes(text, lintDocument(text, { rules }));
+
+  // Every fragment is placed in every position so each pairing is exercised,
+  // including shapes the rule only half-understands (nested parens, brackets).
+  const fragments = [
+    "![](a.png)",
+    '![ \t](<b c.png> "T")',
+    "![ok](d.png)",
+    "[![](e.png)](https://example.com)",
+    "![](f(1).png)",
+    "![](g$&$1.png)",
+    "`![](code.png)`",
+    "[x]()",
+    "plain café 🚀",
+    "",
+  ];
+  const prefixes = ["", "- ", "> ", "# ", "| "];
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("a second pass equals the first for every ordered pair of fragments and block prefix (line ending %j)", (nl) => {
+    let checked = 0;
+    for (const prefix of prefixes) {
+      for (const a of fragments) {
+        for (const b of fragments) {
+          const doc = `${prefix}${a} ${b}${nl}tail${nl}`;
+          const once = fixPass(doc);
+
+          expect(fixPass(once), JSON.stringify(doc)).toBe(once);
+          // Clean after one pass, or nothing the rule can touch was present.
+          expect(lintDocument(once, { rules }), JSON.stringify(doc)).toEqual([]);
+          checked += 1;
+        }
+      }
+    }
+    expect(checked).toBe(prefixes.length * fragments.length ** 2);
+  });
+
+  it("the default and built-in rule sets reach a fixed point after the first autofix too", () => {
+    const doc = fragments
+      .map((fragment) => `- ${fragment}`)
+      .join("\n")
+      .concat("\n");
+    for (const set of [
+      BUILTIN_RULES.filter(({ id }) => LINTER_DEFAULT_ENABLED_RULES.includes(id)),
+      // frontmatter-required is left out: its stub (`title: `) is trimmed by
+      // no-trailing-spaces on the next pass, which is unrelated to images.
+      BUILTIN_RULES.filter(({ id }) => id !== "frontmatter-required"),
+    ]) {
+      const pass = (text: string) =>
+        applyAllFixes(text, lintDocument(text, { rules: set }));
+      const once = pass(doc);
+
+      expect(once).toContain("![TODO: describe image]");
+      expect(pass(once)).toBe(once);
+    }
+  });
+});
