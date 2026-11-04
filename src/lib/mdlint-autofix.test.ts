@@ -12449,6 +12449,73 @@ describe("autofix: an invalid link inside a list item", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
     expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
   });
+
+  it.each([
+    ["-", "```md", "\n"],
+    ["1.", "~~~", "\r\n"],
+  ])("keeps the %j marker and a fenced decoy inside the item while fixing the real link (fence %j, line ending %j)", (marker, open, nl) => {
+    const close = open.trim().match(/^[`~]+/)![0];
+    const doc = [
+      `${marker} Steps, fenced sample:`,
+      `  ${open}`,
+      "  [draft]()",
+      `  ${close}`,
+      `${marker} Do [draft](#) now, see [ok](./a.md).`,
+      `${marker} Tail item.`,
+      "",
+    ].join(nl);
+    const expected = [
+      `${marker} Steps, fenced sample:`,
+      `  ${open}`,
+      "  [draft]()",
+      `  ${close}`,
+      `${marker} Do [draft](TODO) now, see [ok](./a.md).`,
+      `${marker} Tail item.`,
+      "",
+    ].join(nl);
+
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("invalid-link-target");
+    const { from, to } = violations[0].range!;
+    // "[draft]()" appears inside the item's fenced sample first; only the
+    // later, real link is flagged and repaired.
+    expect(doc.slice(from.offset, to.offset)).toBe("[draft](#)");
+    expect(from.offset).toBe(doc.lastIndexOf("[draft](#)"));
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain(`  [draft]()${nl}  ${close}`);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+
+  it.each([
+    ["-", ""],
+    ["*", "#"],
+    ["2.", "  "],
+  ])("keeps the %j marker and the nested quote marker while fixing the quoted link (invalid href %j)", (marker, href) => {
+    const doc = `Intro.\n${marker} Plain item.\n${marker} > quoted [draft](${href}) inside, see [ok](./a.md).\nTail.\n`;
+    const expected = `Intro.\n${marker} Plain item.\n${marker} > quoted [draft](TODO) inside, see [ok](./a.md).\nTail.\n`;
+
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("invalid-link-target");
+    const { from, to } = violations[0].range!;
+    // The flagged span is the link alone: both markers sit before it.
+    expect(doc.slice(from.offset, to.offset)).toBe(`[draft](${href})`);
+    expect(doc.slice(0, from.offset)).toBe(
+      `Intro.\n${marker} Plain item.\n${marker} > quoted `,
+    );
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain(`${marker} > quoted [draft](TODO)`);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
 });
 
 describe("autofix: a described image with no other findings", () => {
