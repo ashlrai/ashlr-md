@@ -18920,3 +18920,29 @@ describe("invalid-link-target autofix: empty destination keeps the link text", (
     expect(lintDocument(fixed)).toEqual([]);
   });
 });
+
+describe("autofix: described and undescribed images on adjacent lines", () => {
+  const described = '![Team photo](images/team.jpg "Retreat")';
+  const undescribed = "![](images/chart.png?v=2#top)";
+  const repaired = "![TODO: describe image](images/chart.png?v=2#top)";
+
+  it.each([
+    ["\n", "described first", [described, undescribed], [described, repaired]],
+    ["\n", "undescribed first", [undescribed, described], [repaired, described]],
+    ["\r\n", "described first", [described, undescribed], [described, repaired]],
+    ["\r\n", "undescribed first", [undescribed, described], [repaired, described]],
+  ])("gives the placeholder only to the undescribed image with %j line endings (%s)", (nl, _order, before, after) => {
+    const rules = [ruleMissingAltText];
+    const doc = `${before.join(nl)}${nl}`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    expect(violations[0].range?.from.offset).toBe(doc.indexOf(undescribed));
+
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(`${after.join(nl)}${nl}`);
+    expect(fixed.split("TODO: describe image")).toHaveLength(2);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+});
