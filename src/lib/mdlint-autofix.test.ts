@@ -123,6 +123,40 @@ describe("autofix: empty image description", () => {
   });
 });
 
+describe("autofix: undescribed image with a Unicode filename", () => {
+  it.each([
+    ["CJK", "画像/日本語.png"],
+    ["accented Latin with spaces", "images/Café Ünïcödé.png"],
+    ["astral emoji", "img/😀🎉.png"],
+    ["percent-encoded UTF-8", "img/%E6%97%A5%E6%9C%AC.png?v=2#top"],
+    ["decomposed combining marks", "img/café.png"],
+    ["right-to-left", "img/صورة.png"],
+  ])("fills the placeholder and preserves the filename (%s)", (_kind, path) => {
+    const rules = [ruleMissingAltText];
+    const dest = path.includes(" ") ? `<${path}> "T"` : path;
+    const doc = `😀 Before ![](${dest}) after.\n`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(`😀 Before ![TODO: describe image](${dest}) after.\n`);
+    expect(fixed).toContain(path);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it("fixes a whitespace-only description and keeps a Unicode filename under the default rule set", () => {
+    const doc = '---\ntitle: Guide\n---\n\nVoir ![ \t ](日本語/図.png "図") ici.\n';
+    const violations = lintDocument(doc);
+
+    expect(violations.map((v) => v.ruleId)).toEqual(["missing-alt-text"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(
+      '---\ntitle: Guide\n---\n\nVoir ![TODO: describe image](日本語/図.png "図") ici.\n',
+    );
+    expect(lintDocument(fixed)).toEqual([]);
+  });
+});
+
 describe("autofix: undescribed image in a document without a final newline", () => {
   it.each([
     ["the whole document is one image", "![](a.png)"],
