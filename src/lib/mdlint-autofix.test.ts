@@ -15263,3 +15263,21 @@ describe("invalid link at the end of a CRLF line", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+describe("rule:missing-alt-text autofix", () => {
+  it.each([
+    "\n",
+    "\r\n",
+  ])("inserts the description placeholder for an undescribed image and keeps the surrounding text (line endings %j)", (nl) => {
+    const doc = `Intro café.${nl}${nl}Before ![](img/photo.png) after, with *emphasis*.${nl}`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(
+      `Intro café.${nl}${nl}Before ![TODO: describe image](img/photo.png) after, with *emphasis*.${nl}`,
+    );
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
