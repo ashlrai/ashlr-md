@@ -13682,6 +13682,29 @@ describe("autofix of an undescribed image between two paragraphs", () => {
     expect(fixed).toBe(expected);
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
+
+  it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+  ])("is the only violation under the full default rules and keeps both valid paragraphs byte-for-byte (%s)", (_name, nl) => {
+    const before =
+      "Opening paragraph keeps [a valid link](./guide.md), *emphasis* and `code`.";
+    const after =
+      "Closing paragraph keeps ![its sibling](mate.png) and **strong text**.";
+    const doc = `---${nl}title: Gallery${nl}---${nl}${nl}${before}${nl}${nl}![](photos/diagram.svg)${nl}${nl}${after}${nl}`;
+    const expected = `---${nl}title: Gallery${nl}---${nl}${nl}${before}${nl}${nl}![TODO: describe image](photos/diagram.svg)${nl}${nl}${after}${nl}`;
+    const violations = lintDocument(doc);
+
+    expect(violations.map((v) => v.ruleId)).toEqual(["missing-alt-text"]);
+    expect(
+      doc.slice(violations[0].range!.from.offset, violations[0].range!.to.offset),
+    ).toBe("![](photos/diagram.svg)");
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain(before);
+    expect(fixed).toContain(after);
+    expect(lintDocument(fixed)).toEqual([]);
+  });
 });
 
 describe("autofix of an undescribed image at the end of the document", () => {
