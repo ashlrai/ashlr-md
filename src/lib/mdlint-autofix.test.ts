@@ -129,6 +129,37 @@ describe("autofix: undescribed image on a line with leading indentation", () => 
   });
 });
 
+describe("autofix: two undescribed images on one line", () => {
+  it.each([
+    [
+      "adjacent empty descriptions",
+      "![](a.png)![](b.png)\n",
+      "![TODO: describe image](a.png)![TODO: describe image](b.png)\n",
+    ],
+    [
+      "empty and whitespace-only descriptions with prose between",
+      'See ![](images/a%20b.png?v=2#top "Chart") and ![ ](dir/c.png) now.\n',
+      'See ![TODO: describe image](images/a%20b.png?v=2#top "Chart") and ![TODO: describe image](dir/c.png) now.\n',
+    ],
+    [
+      "one described and two undescribed images",
+      "![](a.png) ![ok](b.png) ![](c.png)\n",
+      "![TODO: describe image](a.png) ![ok](b.png) ![TODO: describe image](c.png)\n",
+    ],
+  ])("gives both images the placeholder and keeps their sources (%s)", (_name, doc, expected) => {
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+      "missing-alt-text",
+      "missing-alt-text",
+    ]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
+
 describe("autofix: empty image description", () => {
   it.each([
     ["a bare path", "a.png"],
