@@ -9886,6 +9886,113 @@ fn export_text_keeps_bracketed_prose_at_the_start_and_end_of_a_paragraph() {
     }
 }
 
+/// A `[...]` closing a paragraph keeps both brackets whatever comes next:
+/// a heading, setext underline, thematic break, fence, indented code,
+/// blockquote or footnote definition ends the paragraph, but none makes
+/// the brackets link syntax. The same holds at the document's end, with
+/// or without a final line break.
+#[test]
+fn export_text_keeps_bracketed_prose_at_paragraph_end_before_other_blocks() {
+    for (markdown, expected) in [
+        // The document ends at the bracket, without a final line break.
+        (
+            "The quotation was accurate [sic]",
+            "The quotation was accurate [sic]",
+        ),
+        // An ATX heading ends the paragraph; a setext underline ends it
+        // as a heading of its own.
+        ("Ends [a]\n# Heading\n", "Ends [a]\nHeading"),
+        ("Ends [a]\n===\n", "Ends [a]"),
+        // A thematic break, a fence and indented code, each a blank line
+        // past the bracket.
+        ("Ends [a]\n\n---\n\nNext [b]\n", "Ends [a]\n\nNext [b]"),
+        ("Ends [a]\n\n```\ncode [x]\n```\n", "Ends [a]\n\ncode [x]"),
+        ("Ends [a]\n\n    code [c]\n", "Ends [a]\n\ncode [c]"),
+        // A blockquote, a list item and a footnote definition (which may
+        // interrupt a paragraph) open right after the line.
+        ("Ends [a]\n> quote [b]\n", "Ends [a]\nquote [b]"),
+        ("Ends [a]\n\n- item [b]\n", "Ends [a]\n\nitem [b]"),
+        ("Ends [a]\n[^1]: note\n", "Ends [a]\n[1] note"),
+        // A hard break joins the next line into the same paragraph.
+        ("Ends [a]\\\nnext [b]\n", "Ends [a]\nnext [b]"),
+        // An unclosed `(` after the bracket is prose, not a link tail.
+        ("See [draft](\n", "See [draft]("),
+        // An undefined collapsed reference keeps both bracket pairs.
+        ("Ends [text][]\n", "Ends [text][]"),
+    ] {
+        let result = run_export_text_on(markdown);
+        assert_eq!(result["text"].as_str().unwrap(), expected, "{markdown:?}");
+        assert_eq!(
+            result["char_count"].as_u64().unwrap() as usize,
+            expected.chars().count(),
+            "{markdown:?}"
+        );
+    }
+    // The document served over IPC reads its bracketed prose the same.
+    let markdown = "The quotation was accurate [sic]\n\nEnds [a]\n> quote [b]\n";
+    let expected = "The quotation was accurate [sic]\n\nEnds [a]\nquote [b]";
+    let ipc = MockIpc::new().on_get(
+        "/content",
+        Ok(json!({ "path": "/docs/test.md", "content": markdown })),
+    );
+    let response = tool_export_text(id(2), &json!({}), &ipc);
+    assert!(response.error.is_none());
+    assert_eq!(content_text(&response)["text"].as_str().unwrap(), expected);
+}
+
+/// A line after a paragraph that looks like a `[label]:` reference
+/// definition goes on with the paragraph — a definition cannot interrupt
+/// one, as CommonMark reads it — so it shows as text and registers no
+/// label: the bracketed prose at the paragraph's end keeps both brackets,
+/// and so does every later use of the label. After a blank line the same
+/// line is a real definition and resolves every use.
+#[test]
+fn export_text_keeps_bracketed_prose_at_end_where_no_definition_interrupts() {
+    for (markdown, expected) in [
+        // `[ref]: /url` is a line of the paragraph, not a definition: it
+        // shows verbatim, and `[ref]` keeps its brackets.
+        ("Ends [ref]\n[ref]: /url\n", "Ends [ref]\n[ref]: /url"),
+        // Nothing was registered, so a later `[ref]` keeps its brackets.
+        (
+            "Ends [ref]\n[ref]: /url\n\nLater [ref] again.\n",
+            "Ends [ref]\n[ref]: /url\n\nLater [ref] again.",
+        ),
+        // A label the paragraph's end does not use is not registered
+        // either: `[other]` keeps its brackets wherever it appears.
+        (
+            "Ends [a]\n[other]: /u\n\nSee [other].\n",
+            "Ends [a]\n[other]: /u\n\nSee [other].",
+        ),
+        // A bracket ending a line mid-paragraph is the same: the next
+        // line's would-be definition is text.
+        (
+            "Ends [a] mid-line and [b]\n[next]: /u\n",
+            "Ends [a] mid-line and [b]\n[next]: /u",
+        ),
+        // Past a blank line the line is a real definition: the
+        // paragraph-end bracket resolves, here and wherever it is used.
+        (
+            "Ends [ref]\n\n[ref]: /u\n\nSee [ref].\n",
+            "Ends ref\n\nSee ref.",
+        ),
+        // A collapsed `[text][]` at the end resolves only when defined.
+        ("Ends [text][]\n\n[text]: /u\n", "Ends text"),
+    ] {
+        let result = run_export_text_on(markdown);
+        assert_eq!(result["text"].as_str().unwrap(), expected, "{markdown:?}");
+        assert_eq!(
+            result["char_count"].as_u64().unwrap() as usize,
+            expected.chars().count(),
+            "{markdown:?}"
+        );
+        assert_eq!(
+            result["word_count"].as_u64().unwrap() as usize,
+            count_words(expected),
+            "{markdown:?}"
+        );
+    }
+}
+
 #[test]
 fn export_text_preserves_sic_at_the_start_of_a_paragraph_from_both_sources() {
     let markdown = "An introductory paragraph.\n\n\
