@@ -9923,7 +9923,7 @@ fn bracketed_prose_example_table_matches_outputs() {
         assert_eq!(actual, expected, "{}: {input:?}", cells[0]);
         count += 1;
     }
-    assert_eq!(count, 84, "all table examples must be checked");
+    assert_eq!(count, 85, "all table examples must be checked");
 }
 
 /// A standalone `[1]` closing a paragraph, with no definition anywhere,
@@ -10791,6 +10791,153 @@ fn export_text_keeps_prose_brackets_and_punctuation_on_both_sides() {
             "IPC: {markdown:?}"
         );
     }
+}
+
+/// Inside the pair, punctuation is text like the words around it:
+/// quotation marks and apostrophes (a `"` is a link's title mark only in
+/// a `(...)` tail), ellipses, interrobangs, en and em dashes, `%`, `/`
+/// and `&`, and a pair whose whole content is a mark — `[...]`, `[—]`,
+/// `[!]`, `[?]`, `[*]` (no emphasis pairs a lone `*`) and `[#1]` keep
+/// both brackets and every mark, in prose and in the blocks the page
+/// renders them in, from every source `export_text` reads. An escaped
+/// mark resolves to it (`[a\*b]` reads `[a*b]`), markup inside the pair
+/// still reads (`[*star*]` reads `[star]`, ``[a `x` b]`` reads
+/// `[a x b]`), and only a real link beside the pair owns its brackets.
+#[test]
+fn export_text_keeps_bracketed_phrases_holding_punctuation() {
+    // Apostrophes, quotation marks, ellipses, interrobangs, dashes and the
+    // marks a sentence uses, inside the pair.
+    for (markdown, expected) in [
+        (
+            "Mark [it's] and [can't] done.\n",
+            "Mark [it's] and [can't] done.",
+        ),
+        (
+            "She wrote [\"yes, exactly\"] and ['quoted'].\n",
+            "She wrote [\"yes, exactly\"] and ['quoted'].",
+        ),
+        (
+            "[wait...] then [what?!] and [yes!?]\n",
+            "[wait...] then [what?!] and [yes!?]",
+        ),
+        (
+            "[2020–2024] and [yes—no], plus [hmm…]\n",
+            "[2020–2024] and [yes—no], plus [hmm…]",
+        ),
+        (
+            "[50%] off, [this/that] and [a&b]\n",
+            "[50%] off, [this/that] and [a&b]",
+        ),
+        (
+            "Mark [wait...] then [yes!?] done.\n",
+            "Mark [wait...] then [yes!?] done.",
+        ),
+        (
+            "See [it's] and [the guide](/guide), then [can't].\n",
+            "See [it's] and the guide, then [can't].",
+        ),
+    ] {
+        let result = run_export_text_on(markdown);
+        let text = result["text"].as_str().unwrap();
+        assert_eq!(text, expected, "{markdown:?}");
+        assert_eq!(strip_markdown(markdown), expected, "{markdown:?}");
+        assert_eq!(
+            result["char_count"].as_u64().unwrap() as usize,
+            expected.chars().count(),
+            "{markdown:?}"
+        );
+    }
+
+    // A pair whose whole content is a mark keeps both brackets and the
+    // mark.
+    for (markdown, expected) in [
+        ("[...] to be continued\n", "[...] to be continued"),
+        ("[—] a dash\n", "[—] a dash"),
+        ("[!] alert, [?] query\n", "[!] alert, [?] query"),
+        ("[*] star and [#1] tag\n", "[*] star and [#1] tag"),
+    ] {
+        let result = run_export_text_on(markdown);
+        let text = result["text"].as_str().unwrap();
+        assert_eq!(text, expected, "{markdown:?}");
+        assert_eq!(
+            text.matches('[').count(),
+            text.matches(']').count(),
+            "{text:?}"
+        );
+    }
+
+    // In the blocks the page renders them in: a heading, a blockquote,
+    // list items and a table cell.
+    for (markdown, expected) in [
+        ("## [draft: \"v2.0\"?] notes\n", "[draft: \"v2.0\"?] notes"),
+        ("> say [\"go\"] — twice\n", "say [\"go\"] — twice"),
+        (
+            "- [can't] now\n- [won't] later\n",
+            "[can't] now\n[won't] later",
+        ),
+        (
+            "| a | b |\n|---|---|\n| [50%] | [yes!?] |\n",
+            "a\tb\n[50%]\t[yes!?]",
+        ),
+    ] {
+        let result = run_export_text_on(markdown);
+        assert_eq!(result["text"].as_str().unwrap(), expected, "{markdown:?}");
+    }
+
+    // The open document over IPC renders the same text the file read does.
+    for (markdown, expected) in [
+        (
+            "She wrote [\"yes\"] and [it's] now.\n",
+            "She wrote [\"yes\"] and [it's] now.",
+        ),
+        (
+            "[!] alert and [wait...] pause.\n",
+            "[!] alert and [wait...] pause.",
+        ),
+    ] {
+        let ipc = MockIpc::new().on_get(
+            "/content",
+            Ok(json!({ "path": "/docs/test.md", "content": markdown })),
+        );
+        let response = tool_export_text(id(2), &json!({}), &ipc);
+        assert!(response.error.is_none(), "{markdown:?}");
+        assert_eq!(
+            content_text(&response)["text"].as_str().unwrap(),
+            expected,
+            "{markdown:?}"
+        );
+    }
+
+    // An escaped mark is the mark itself, and markup inside the pair still
+    // reads: a code span's text and emphasis' text.
+    for (markdown, expected) in [
+        ("[a\\*b] and [c\\#d]\n", "[a*b] and [c#d]"),
+        (
+            "Keep [a `x` b] and [*star*] here.\n",
+            "Keep [a x b] and [star] here.",
+        ),
+    ] {
+        let result = run_export_text_on(markdown);
+        assert_eq!(result["text"].as_str().unwrap(), expected, "{markdown:?}");
+        assert_eq!(strip_markdown(markdown), expected, "{markdown:?}");
+    }
+
+    // Line by line, with no document around it, the same marks stay.
+    use mdopener_mcp::strip_inline_markdown;
+    for (line, expected) in [
+        ("[wait...] and [it's]", "[wait...] and [it's]"),
+        ("[\"q\"] then [a—b]", "[\"q\"] then [a—b]"),
+        ("[!] and [?]", "[!] and [?]"),
+    ] {
+        assert_eq!(strip_inline_markdown(line), expected, "{line:?}");
+    }
+
+    // export_metadata keeps the heading's raw markdown, marks and all.
+    let metadata = run_export_metadata_on("## [draft: \"v2.0\"?] notes\n");
+    assert_eq!(
+        metadata["headings"],
+        json!([{ "level": 2, "text": "[draft: \"v2.0\"?] notes" }])
+    );
 }
 
 #[test]
