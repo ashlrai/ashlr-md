@@ -21072,3 +21072,33 @@ describe("autofix: invalid link inside a blockquote", () => {
     expect(applyAllFixes(doc, violations)).toBe(expected);
   });
 });
+
+describe("autofix: invalid link at the end of a paragraph", () => {
+  it.each([
+    ["empty href", "()", "."],
+    ["empty href, no trailing punctuation", "()", ""],
+    ["fragment-only href", "(#)", "."],
+    ["whitespace href", "( )", ""],
+  ])("%s: href becomes TODO and the preceding prose is kept", (_name, dest, tail) => {
+    const prose = "Intro sentence with *emphasis*, then read ";
+    const doc = `${prose}[the guide]${dest}${tail}\n\nNext paragraph.\n`;
+    const expected = `${prose}[the guide](TODO)${tail}\n\nNext paragraph.\n`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    const fixed = applyFix(doc, violations[0]);
+    expect(fixed).toBe(expected);
+    expect(fixed.startsWith(prose)).toBe(true);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it("fixes the link ending a final paragraph with no trailing newline", () => {
+    const doc = "First.\n\nSee [docs]()";
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(applyAllFixes(doc, violations)).toBe("First.\n\nSee [docs](TODO)");
+  });
+});
