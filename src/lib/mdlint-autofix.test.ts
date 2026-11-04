@@ -402,6 +402,20 @@ describe("rule:invalid-link-target", () => {
     );
   });
 
+  it.each(["\n", "\r\n"])("fixes a final link without adding a newline (%j)", (nl) => {
+    const doc = `Introduction.${nl}${nl}Read [the guide](#)`;
+    const expected = `Introduction.${nl}${nl}Read [the guide](TODO)`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.endsWith("\n")).toBe(false);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
   it.each([
     ["plain words", "Some leading words "],
     ["markup and punctuation", "**Bold** `code` (aside), café — "],
