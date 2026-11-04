@@ -10690,6 +10690,55 @@ describe("autofix: undescribed image only inside a fenced code block", () => {
   });
 });
 
+describe("autofix: invalid link only inside a fenced code block", () => {
+  it.each([
+    ["backtick fence", "```", "\n"],
+    ["tilde fence", "~~~", "\r\n"],
+    ["longer fence", "````", "\n"],
+    ["fence with info string", '```md title="x"', "\r\n"],
+    ["indented fence", "   ```", "\n"],
+  ])("leaves the whole document byte-identical (%s)", (_name, open, nl) => {
+    const close = open.trim().match(/^[`~]+/)![0];
+    const doc = [
+      "---",
+      "title: Fenced",
+      "---",
+      "",
+      "# Title",
+      "",
+      "Plain prose.",
+      "",
+      open,
+      "[empty]()",
+      "[hash](#)",
+      "[ok](https://example.com)",
+      close,
+      "",
+      "Tail.",
+      "",
+    ].join(nl);
+
+    for (const rules of [[ruleInvalidLinkTarget], BUILTIN_RULES]) {
+      const violations = lintDocument(doc, { rules });
+      expect(violations.filter((v) => v.ruleId === "invalid-link-target")).toEqual([]);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(doc);
+      expect(fixed).not.toContain("TODO");
+    }
+  });
+
+  it("still fixes an invalid link outside the fence and leaves the block untouched", () => {
+    const block = "```\n[inside]()\n```";
+    const doc = `${block}\n\n[outside]()\n`;
+    const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
+
+    expect(violations).toHaveLength(1);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed.startsWith(`${block}\n\n`)).toBe(true);
+    expect(fixed).not.toBe(doc);
+  });
+});
+
 // ─── 9. Autofix leaves a lone described image untouched ───────────────────────
 
 describe("autofix: lone described image", () => {
