@@ -11982,6 +11982,65 @@ describe("autofix: an invalid link inside a list item", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
     expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
   });
+
+  it.each([
+    ["-", "\n"],
+    ["1.", "\r\n"],
+  ])("keeps the %j marker when the list item opens the document (line ending %j)", (marker, nl) => {
+    const doc = `${marker} Read [draft]() today.${nl}${marker} [ok](./a.md)${nl}`;
+    const expected = `${marker} Read [draft](TODO) today.${nl}${marker} [ok](./a.md)${nl}`;
+
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("invalid-link-target");
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe("[draft]()");
+    // Everything before the link, marker included, is untouched.
+    expect(doc.slice(0, from.offset)).toBe(`${marker} Read `);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+
+  it("keeps the marker when another rule's fix lands on the same list item line", () => {
+    const both = [ruleInvalidLinkTarget, ruleNoTrailingSpaces];
+    const doc = "- See [docs]() for details.   \n- [ok](./a.md)\n";
+    const expected = "- See [docs](TODO) for details.\n- [ok](./a.md)\n";
+
+    const violations = lintDocument(doc, { rules: both });
+
+    // The trailing-spaces fix and the link fix share the line; the link fix
+    // applies first (later offsets last) and neither touches the marker.
+    expect(violations.map((v) => v.ruleId)).toEqual([
+      "invalid-link-target",
+      "no-trailing-spaces",
+    ]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules: both })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules: both }))).toBe(fixed);
+  });
+
+  it("fixes parent and nested items and keeps both markers and the indentation", () => {
+    const doc = "- Parent [p]() link.\n  - Child [c](#) here.\n- [ok](./a.md)\n";
+    const expected =
+      "- Parent [p](TODO) link.\n  - Child [c](TODO) here.\n- [ok](./a.md)\n";
+
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(2);
+    expect(
+      violations.map((v) => doc.slice(v.range!.from.offset, v.range!.to.offset)),
+    ).toEqual(["[p]()", "[c](#)"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(applyAllFixes(doc, [...violations].reverse())).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
 });
 
 describe("autofix: a described image with no other findings", () => {
