@@ -80,3 +80,13 @@ Inputs and outputs are JSON strings: `\n` is a newline, `\t` is a tab, and `\\` 
 | `export_text_keeps_adjacent_bracketed_phrases_in_order` | `export_text` | ` "Keep [first][second] together.\n\n[first]: /guide\n" ` | ` "Keep [first][second] together." ` |
 | `export_text_keeps_adjacent_bracketed_phrases_in_order` | `export_text` | ` "Read [**first**][second *phrase*] together.\n" ` | ` "Read [first][second phrase] together." ` |
 | `export_text_keeps_adjacent_bracketed_phrases_in_order` | `export_text` | ` "Keep [first][second] and follow [the guide][ref].\n\n[ref]: /guide\n" ` | ` "Keep [first][second] and follow the guide." ` |
+| `export_text_keeps_bracketed_unicode_prose_across_pairs_labels_and_scripts` | `export_text` | ` "⟦math⟧ ⟨term⟩ ⟪double⟫\n" ` | ` "⟦math⟧ ⟨term⟩ ⟪double⟫" ` |
+| `export_text_keeps_bracketed_unicode_prose_across_pairs_labels_and_scripts` | `export_text` | ` "⸨double⸩ ⦅white⦆ ｟full｠\n" ` | ` "⸨double⸩ ⦅white⦆ ｟full｠" ` |
+| `export_text_keeps_bracketed_unicode_prose_across_pairs_labels_and_scripts` | `export_text` | ` "[𝐓𝐎𝐃𝐎] then [𝐝𝐨𝐧𝐞]\n" ` | ` "[𝐓𝐎𝐃𝐎] then [𝐝𝐨𝐧𝐞]" ` |
+| `export_text_keeps_bracketed_unicode_prose_across_pairs_labels_and_scripts` | `export_text` | ` "[flag 🇯🇵] and [ok 👍🏽]\n" ` | ` "[flag 🇯🇵] and [ok 👍🏽]" ` |
+| `export_text_keeps_bracketed_unicode_prose_across_pairs_labels_and_scripts` | `export_text` | ` "See [doc][日本語] here.\n\n[日本語]: /u\n" ` | ` "See doc here." ` |
+| `export_text_keeps_bracketed_unicode_prose_across_pairs_labels_and_scripts` | `export_text` | ` "Take [STRASSE] north.\n\n[straße]: /road\n" ` | ` "Take STRASSE north." ` |
+| `export_text_keeps_bracketed_unicode_prose_across_pairs_labels_and_scripts` | `export_text` | ` "Note[^要] here.\n\n[^要]: メモ\n" ` | ` "Note[要] here.\n\n[要] メモ" ` |
+| `export_text_keeps_bracketed_unicode_prose_across_pairs_labels_and_scripts` | `export_text` | ` "See ![写真](a.png) and ![alt](写真.png).\n" ` | ` "See 写真 and alt." ` |
+| `export_text_keeps_bracketed_unicode_prose_across_pairs_labels_and_scripts` | `strip_inline_markdown` | ` "⟦x⟧ ⟨y⟩ ⁅z⁆" ` | ` "⟦x⟧ ⟨y⟩ ⁅z⁆" ` |
+| `export_text_keeps_bracketed_unicode_prose_across_pairs_labels_and_scripts` | `strip_inline_markdown` | ` "⟨[t](u)⟩ then [t](u)" ` | ` "⟨t⟩ then t" ` |

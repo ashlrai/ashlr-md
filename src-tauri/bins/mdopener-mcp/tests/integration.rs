@@ -9805,7 +9805,7 @@ fn bracketed_prose_example_table_matches_outputs() {
         assert_eq!(actual, expected, "{}: {input:?}", cells[0]);
         count += 1;
     }
-    assert_eq!(count, 74, "all table examples must be checked");
+    assert_eq!(count, 84, "all table examples must be checked");
 }
 
 /// A standalone `[1]` closing a paragraph, with no definition anywhere,
@@ -16967,4 +16967,165 @@ fn export_text_keeps_both_brackets_around_numeric_references_in_every_context() 
             "{text:?}"
         );
     }
+}
+
+/// The bracketed-Unicode promise, widened to the pairs CommonMark does not
+/// own: its brackets are the ASCII ones, so the mathematical `⟦⟧`/`⟨⟩`/`⟪⟫`,
+/// flattened `⟮⟯` and shell `⟬⟭`, the ornaments `❬❭` `❮❯` `❰❱` `❲❳` `❴❵`,
+/// the quilled `⁅⁆`, the half `⸢⸣` `⸤⸥`, `⌈⌉` `⌊⌋`, the double `⸨⸩`, the
+/// white `⦅⦆` and `｟｠`, the black `⦗⦘`, the curved `⧼⧽` and the Arabic
+/// ornate `﴾﴿` pairs are all prose — the rendered text keeps each pair and
+/// the Unicode inside it. Out-of-BMP letters, a flag's regional pair, a
+/// skin-tone modifier, enclosed and mixed-script prose inside the ASCII
+/// pair keeps its brackets. A defined Unicode label is still real syntax:
+/// it owns its brackets, its fold is Unicode (`[CAFÉ]` resolves `[café]`,
+/// `[STRASSE]` resolves `[straße]`), and a footnote keeps a Unicode label.
+#[test]
+fn export_text_keeps_bracketed_unicode_prose_across_pairs_labels_and_scripts() {
+    // Unicode bracket pairs CommonMark does not own, pair and Unicode prose
+    // kept — on their own lines and in the blocks the page renders them in.
+    for (markdown, expected) in [
+        ("⟦math⟧ ⟨term⟩ ⟪double⟫\n", "⟦math⟧ ⟨term⟩ ⟪double⟫"),
+        ("⟮flat⟯ and ⟬shell⟭\n", "⟮flat⟯ and ⟬shell⟭"),
+        ("❬med❭ ❮orn❯ ❰heavy❱\n", "❬med❭ ❮orn❯ ❰heavy❱"),
+        ("❲light❳ and ❴curly❵\n", "❲light❳ and ❴curly❵"),
+        ("⁅quill⁆ and ⸢top⸣ ⸤half⸥\n", "⁅quill⁆ and ⸢top⸣ ⸤half⸥"),
+        ("⌈ceil⌉ and ⌊floor⌋\n", "⌈ceil⌉ and ⌊floor⌋"),
+        ("⸨double⸩ ⦅white⦆ ｟full｠\n", "⸨double⸩ ⦅white⦆ ｟full｠"),
+        ("⦗black⦘ ⧼curved⧽ ﴾ornate﴿\n", "⦗black⦘ ⧼curved⧽ ﴾ornate﴿"),
+        ("# ⟦式⟧ ⟨項⟩\n", "⟦式⟧ ⟨項⟩"),
+        ("- ⟦a⟧\n- ⟨b⟩\n", "⟦a⟧\n⟨b⟩"),
+        ("| p | q |\n|---|---|\n| ⟦a⟧ | ⁅b⁆ |\n", "p\tq\n⟦a⟧\t⁅b⁆"),
+    ] {
+        let result = run_export_text_on(markdown);
+        let rendered = result["text"].as_str().unwrap();
+        assert_eq!(rendered, expected, "{markdown:?}");
+        assert_eq!(strip_markdown(markdown), expected, "{markdown:?}");
+        assert_eq!(
+            result["char_count"].as_u64().unwrap() as usize,
+            expected.chars().count(),
+            "{markdown:?}"
+        );
+        assert_eq!(
+            result["word_count"].as_u64().unwrap() as usize,
+            count_words(expected),
+            "{markdown:?}"
+        );
+    }
+
+    // Unicode prose inside the ASCII pair — more scripts, and kinds that
+    // stretch the counts: out-of-BMP letters, a flag's regional pair, a
+    // skin-tone modifier, enclosed characters, a zero-width joiner and
+    // mixed-direction text — keeps its brackets and content alike.
+    for (markdown, expected) in [
+        (
+            "[Ελληνικά] [Кириллица] [հայերեն]\n",
+            "[Ελληνικά] [Кириллица] [հայերեն]",
+        ),
+        (
+            "[ქართული] [देवनागरी] [ภาษาไทย]\n",
+            "[ქართული] [देवनागरी] [ภาษาไทย]",
+        ),
+        ("[ភាសាខ្មែរ] and [ᐃᓄᒃᑎᑐᑦ]\n", "[ភាសាខ្មែរ] and [ᐃᓄᒃᑎᑐᑦ]"),
+        ("[𝐓𝐎𝐃𝐎] then [𝐝𝐨𝐧𝐞]\n", "[𝐓𝐎𝐃𝐎] then [𝐝𝐨𝐧𝐞]"),
+        ("[flag 🇯🇵] and [ok 👍🏽]\n", "[flag 🇯🇵] and [ok 👍🏽]"),
+        ("[Ⓐ option ①] and [x² + ⁿ]\n", "[Ⓐ option ①] and [x² + ⁿ]"),
+        ("[עברית English عربية] mix\n", "[עברית English عربية] mix"),
+        ("[Œuvre №7 été]\n", "[Œuvre №7 été]"),
+        (
+            "[a\u{200d}b zero-width joiner]\n",
+            "[a\u{200d}b zero-width joiner]",
+        ),
+    ] {
+        let result = run_export_text_on(markdown);
+        let rendered = result["text"].as_str().unwrap();
+        assert_eq!(rendered, expected, "{markdown:?}");
+        assert_eq!(strip_markdown(markdown), expected, "{markdown:?}");
+        assert_eq!(
+            result["char_count"].as_u64().unwrap() as usize,
+            expected.chars().count(),
+            "{markdown:?}"
+        );
+    }
+
+    // A defined Unicode label owns its brackets — full, collapsed and
+    // case-folded references read their text — while the same words stay
+    // prose with no definition to name them, and a Unicode-bracket tail is
+    // no `[label]` tail.
+    for (markdown, expected) in [
+        ("See [doc][日本語] here.\n\n[日本語]: /u\n", "See doc here."),
+        ("Read [要確認][] now.\n\n[要確認]: /u\n", "Read 要確認 now."),
+        (
+            "Order [CAFÉ] today.\n\n[café]: /menu\n",
+            "Order CAFÉ today.",
+        ),
+        (
+            "Take [STRASSE] north.\n\n[straße]: /road\n",
+            "Take STRASSE north.",
+        ),
+        ("Order [CAFÉ] today.\n", "Order [CAFÉ] today."),
+        (
+            "See [t]⟦label⟧ here.\n\n[label]: /u\n",
+            "See [t]⟦label⟧ here.",
+        ),
+    ] {
+        let result = run_export_text_on(markdown);
+        assert_eq!(result["text"].as_str().unwrap(), expected, "{markdown:?}");
+        assert_eq!(strip_markdown(markdown), expected, "{markdown:?}");
+    }
+
+    // A footnote keeps a Unicode label, an image reads its Unicode alt
+    // text, and a link reads its Unicode text — its destination is dropped.
+    for (markdown, expected) in [
+        (
+            "Note[^要] here.\n\n[^要]: メモ\n",
+            "Note[要] here.\n\n[要] メモ",
+        ),
+        (
+            "See ![写真](a.png) and ![alt](写真.png).\n",
+            "See 写真 and alt.",
+        ),
+        ("[日本語](https://例え.jp/パス) reads.\n", "日本語 reads."),
+    ] {
+        let result = run_export_text_on(markdown);
+        assert_eq!(result["text"].as_str().unwrap(), expected, "{markdown:?}");
+        assert_eq!(strip_markdown(markdown), expected, "{markdown:?}");
+    }
+
+    // The open document over IPC renders the same text the file read does.
+    for (markdown, expected) in [
+        ("⟦式⟧ next to [TODO]\n", "⟦式⟧ next to [TODO]"),
+        ("⟨[x](u)⟩ and ⁅y⁆\n", "⟨x⟩ and ⁅y⁆"),
+    ] {
+        let ipc = MockIpc::new().on_get(
+            "/content",
+            Ok(json!({ "path": "/docs/test.md", "content": markdown })),
+        );
+        let response = tool_export_text(id(2), &json!({}), &ipc);
+        assert!(response.error.is_none(), "{markdown:?}");
+        assert_eq!(
+            content_text(&response)["text"].as_str().unwrap(),
+            expected,
+            "{markdown:?}"
+        );
+    }
+
+    // Line by line, with no document around it: the pairs are prose, and
+    // the markup inside them is still read.
+    use mdopener_mcp::strip_inline_markdown;
+    for (line, expected) in [
+        ("⟦x⟧ ⟨y⟩ ⁅z⁆", "⟦x⟧ ⟨y⟩ ⁅z⁆"),
+        ("[𝐓𝐎𝐃𝐎] and [café]", "[𝐓𝐎𝐃𝐎] and [café]"),
+        ("⟨[t](u)⟩ then [t](u)", "⟨t⟩ then t"),
+        ("\\[要\\] and [要]", "[要] and [要]"),
+    ] {
+        assert_eq!(strip_inline_markdown(line), expected, "{line:?}");
+    }
+
+    // export_metadata keeps the heading's raw markdown, pairs and all.
+    let metadata = run_export_metadata_on("# ⟦式⟧ ⟨項⟩ ⁅注⁆\n");
+    assert_eq!(
+        metadata["headings"],
+        json!([{ "level": 1, "text": "⟦式⟧ ⟨項⟩ ⁅注⁆" }])
+    );
 }
