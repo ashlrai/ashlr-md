@@ -616,6 +616,27 @@ describe("autofix: undescribed image at the start of a line", () => {
   });
 });
 
+describe("autofix: undescribed image starting a continuation line of a paragraph", () => {
+  it.each([
+    "\n",
+    "\r\n",
+  ])("fills the placeholder and leaves the preceding and following prose unchanged (%j)", (nl) => {
+    const rules = [ruleMissingAltText];
+    const before = `Lead line with a hard break  ${nl}`;
+    const after = ` 🎉 café *prose* \`![](code.png)\` stays.${nl}Last line.${nl}`;
+    const doc = `${before}![](shots/a%20b.png "Chart")${after}`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(
+      `${before}![TODO: describe image](shots/a%20b.png "Chart")${after}`,
+    );
+    expect(applyFix(doc, violations[0])).toBe(fixed);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
+
 describe("autofix: undescribed image idempotence (fix twice == fix once)", () => {
   const rules = [ruleMissingAltText];
   const fixOnce = (doc: string) => applyAllFixes(doc, lintDocument(doc, { rules }));
