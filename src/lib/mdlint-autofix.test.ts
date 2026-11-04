@@ -20159,3 +20159,48 @@ describe("invalid-link autofix on separate lines", () => {
     expect(lintDocument(expected, { rules })).toEqual([]);
   });
 });
+
+describe("invalid-link autofix on the same line", () => {
+  const rules = [ruleInvalidLinkTarget];
+
+  it.each([
+    [
+      "different destinations",
+      "[first]()",
+      "[second](#)",
+      "[first](TODO)",
+      "[second](TODO)",
+    ],
+    ["identical links", "[dup]()", "[dup]()", "[dup](TODO)", "[dup](TODO)"],
+    [
+      "shrinking and growing destinations",
+      "[wide](      )",
+      "[later](?)",
+      "[wide](TODO)",
+      "[later](TODO)",
+    ],
+  ])("repairs both links and preserves intervening prose (%s)", (_name, first, second, fixedFirst, fixedSecond) => {
+    const middle = " — café, `code` & [valid](./guide.md); then ";
+    const doc = `Before ${first}${middle}${second} after.\r\nNext line.\r\n`;
+    const expected = `Before ${fixedFirst}${middle}${fixedSecond} after.\r\nNext line.\r\n`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual([
+      "invalid-link-target",
+      "invalid-link-target",
+    ]);
+    expect(
+      violations.map((v) => doc.slice(v.range!.from.offset, v.range!.to.offset)),
+    ).toEqual([first, second]);
+    expect(applyFix(doc, violations[0])).toBe(
+      `Before ${fixedFirst}${middle}${second} after.\r\nNext line.\r\n`,
+    );
+    expect(applyFix(doc, violations[1])).toBe(
+      `Before ${first}${middle}${fixedSecond} after.\r\nNext line.\r\n`,
+    );
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(applyAllFixes(doc, [...violations].reverse())).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+    expect(applyAllFixes(expected, lintDocument(expected, { rules }))).toBe(expected);
+  });
+});
