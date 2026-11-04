@@ -19189,6 +19189,39 @@ describe("undescribed-image autofix idempotence: generated documents", () => {
   });
 });
 
+describe("undescribed-image autofix idempotence: three images per line", () => {
+  const rules = [ruleMissingAltText];
+  const fixPass = (text: string) => applyAllFixes(text, lintDocument(text, { rules }));
+  // Placeholder text and reference/HTML forms must survive a second pass untouched.
+  const fragments = [
+    "![](a.png)",
+    "![TODO: describe image](b.png)",
+    "![ok][ref]",
+    '<img src="c.png">',
+    "![ ](<d e.png>)",
+  ];
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("a second pass equals the first for every ordered triple of fragments (line ending %j)", (nl) => {
+    let checked = 0;
+    for (const a of fragments) {
+      for (const b of fragments) {
+        for (const c of fragments) {
+          const doc = `${a} ${b}${c}${nl}`;
+          const once = fixPass(doc);
+
+          expect(fixPass(once), JSON.stringify(doc)).toBe(once);
+          expect(lintDocument(once, { rules }), JSON.stringify(doc)).toEqual([]);
+          checked += 1;
+        }
+      }
+    }
+    expect(checked).toBe(fragments.length ** 3);
+  });
+});
+
 describe("autofix: a described image in a document without a final newline", () => {
   const rulesets = [
     [ruleMissingAltText],
