@@ -10793,6 +10793,38 @@ describe("autofix: bracketed prose preservation", () => {
   });
 
   it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+  ])("keeps prose [sic] verbatim while an undescribed image beside it gets its placeholder (%s)", (_label, nl) => {
+    const doc = [
+      "---",
+      "title: Errata",
+      "---",
+      "",
+      'He wrote "we was" [sic]![](fig.png)[sic] — read verbatim.',
+      "The margin reads [sic], quoting the errata.",
+      "",
+    ].join(nl);
+    const expected = doc.replace("![](fig.png)", "![TODO: describe image](fig.png)");
+    for (const rules of [BUILTIN_RULES, defaultRules]) {
+      const violations = lintDocument(doc, { rules });
+
+      // Bare [sic] is prose, not a link or part of the image: only the image is flagged.
+      expect(violations.map((v) => v.ruleId)).toEqual(["missing-alt-text"]);
+      expect(
+        doc.slice(violations[0].range!.from.offset, violations[0].range!.to.offset),
+      ).toBe("![](fig.png)");
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      expect(fixed).toContain("![TODO: describe image](fig.png)");
+      expect(fixed.match(/TODO: describe image/g)).toHaveLength(1);
+      expect(fixed.split("[sic]")).toHaveLength(doc.split("[sic]").length);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+    }
+  });
+
+  it.each([
     [
       "prose on both sides of the link",
       'He wrote "we was" [sic] and [sic] again, then broke [link]().',
