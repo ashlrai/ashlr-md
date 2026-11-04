@@ -104,6 +104,28 @@ describe("autofix: whitespace-only image description", () => {
   });
 });
 
+describe("autofix: undescribed image on a line with leading indentation", () => {
+  it.each([
+    ["two spaces", "  "],
+    ["four spaces", "    "],
+    ["a tab", "\t"],
+    ["a list-item continuation indent", "   "],
+  ])("inserts the placeholder and keeps %s of indentation unchanged", (_kind, indent) => {
+    const rules = [ruleMissingAltText];
+    for (const nl of ["\n", "\r\n"]) {
+      const doc = `Intro.${nl}${indent}![](images/a%20b.png?v=2#top "Chart") text.${nl}Tail.${nl}`;
+      const expected = `Intro.${nl}${indent}![TODO: describe image](images/a%20b.png?v=2#top "Chart") text.${nl}Tail.${nl}`;
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      expect(fixed.split(nl)[1].startsWith(`${indent}![`)).toBe(true);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+    }
+  });
+});
+
 describe("autofix: empty image description", () => {
   it.each([
     ["a bare path", "a.png"],
