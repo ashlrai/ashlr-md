@@ -15329,3 +15329,39 @@ describe("invalid link at the end of a CRLF line", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+describe("autofix: invalid link beside an undescribed image", () => {
+  const rules = [ruleInvalidLinkTarget, ruleMissingAltText];
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("inserts both placeholders and leaves the surrounding prose unchanged (%j)", (nl) => {
+    const doc = `Intro prose.${nl}${nl}Read [the guide]() first, then look at ![](chart.png) closely.${nl}${nl}Closing prose.${nl}`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId).sort()).toEqual([
+      "invalid-link-target",
+      "missing-alt-text",
+    ]);
+
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(
+      `Intro prose.${nl}${nl}Read [the guide](TODO) first, then look at ![TODO: describe image](chart.png) closely.${nl}${nl}Closing prose.${nl}`,
+    );
+    // Both placeholders are present, each exactly once.
+    expect(fixed.match(/\(TODO\)/g)).toHaveLength(1);
+    expect(fixed.match(/!\[TODO: describe image\]/g)).toHaveLength(1);
+    // Prose between and around the two constructs is byte-identical.
+    for (const prose of [
+      "Intro prose.",
+      "Read ",
+      " first, then look at ",
+      " closely.",
+      "Closing prose.",
+    ]) {
+      expect(fixed).toContain(prose);
+    }
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
