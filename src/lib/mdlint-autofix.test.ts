@@ -123,6 +123,24 @@ describe("autofix: undescribed image at the start of a line", () => {
     expect(fixed).toBe(`Intro.\n\n${expectedLine}\nTail.\n`);
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("describes both undescribed images on one line and keeps their destinations (%j)", (nl) => {
+    const doc = `Intro.${nl}${nl}![](a.png "First") and ![](images/b.png) with *prose*.${nl}Tail.${nl}`;
+    const expected = `Intro.${nl}${nl}![TODO: describe image](a.png "First") and ![TODO: describe image](images/b.png) with *prose*.${nl}Tail.${nl}`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+      "missing-alt-text",
+      "missing-alt-text",
+    ]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
 });
 
 // ─── 2. Rule: invalid-link-target ────────────────────────────────────────────
