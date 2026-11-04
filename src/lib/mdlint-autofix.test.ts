@@ -15802,3 +15802,24 @@ describe("autofix: a described image in a document without a final newline", () 
     }
   });
 });
+
+describe("rule:invalid-link-target — two invalid links with rich link text on one line", () => {
+  it("gives both destinations the TODO placeholder and leaves emphasis and prose untouched", () => {
+    const doc =
+      "Use [**bold** label]() or [_it_ and ~~strike~~](#) before *emphasis* ends — ok.\n";
+    const expected =
+      "Use [**bold** label](TODO) or [_it_ and ~~strike~~](TODO) before *emphasis* ends — ok.\n";
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual([
+      "invalid-link-target",
+      "invalid-link-target",
+    ]);
+    expect(
+      violations.map((v) => doc.slice(v.range!.from.offset, v.range!.to.offset)),
+    ).toEqual(["[**bold** label]()", "[_it_ and ~~strike~~](#)"]);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+});
