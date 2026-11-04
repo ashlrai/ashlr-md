@@ -17909,3 +17909,35 @@ fn export_text_keeps_both_bracket_pairs_when_inline_syntax_sits_between_them() {
         );
     }
 }
+
+/// Unicode bracketed prose keeps its text and both ASCII brackets in the
+/// containers prose lives in: a quote, a list item, beside a formatted link,
+/// and next to emphasis.
+#[test]
+fn export_text_keeps_unicode_bracketed_prose_in_containers_and_beside_markup() {
+    for (markdown, expected) in [
+        ("> [日本語の注記] 引用\n", "[日本語の注記] 引用"),
+        ("- [Ünïcode ñote] item\n", "[Ünïcode ñote] item"),
+        ("1. [مرحبا بالعالم] item\n", "[مرحبا بالعالم] item"),
+        (
+            "[Привет, мир] and [see](https://example.com) [Ελληνικά]\n",
+            "[Привет, мир] and see [Ελληνικά]",
+        ),
+        ("**bold** [🎉 party 🎉] *it*\n", "bold [🎉 party 🎉] it"),
+        (
+            "Intro.\n\n[ひらがな]\n[カタカナ]\n\nOutro.\n",
+            "Intro.\n\n[ひらがな]\n[カタカナ]\n\nOutro.",
+        ),
+    ] {
+        let result = run_export_text_on(markdown);
+        let text = result["text"].as_str().unwrap();
+        assert_eq!(text, expected, "{markdown:?}");
+        assert_eq!(strip_markdown(markdown).trim(), expected, "{markdown:?}");
+        assert_eq!(
+            result["char_count"].as_u64().unwrap() as usize,
+            expected.chars().count(),
+            "{markdown:?}"
+        );
+        assert_eq!(text.matches('[').count(), text.matches(']').count());
+    }
+}
