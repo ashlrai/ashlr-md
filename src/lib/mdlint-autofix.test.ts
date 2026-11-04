@@ -567,6 +567,25 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    ".",
+    ",",
+    "?!",
+    "。",
+  ])("preserves terminal punctuation %j after an invalid link without a final newline", (punct) => {
+    const doc = `Read [draft](#)${punct}`;
+    const expected = `Read [draft](TODO)${punct}`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "invalid-link-target",
+    ]);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+
+  it.each([
     ["parentheses", "(", ")"],
     ["straight double quotes", '"', '"'],
     ["straight single quotes", "'", "'"],
