@@ -18007,3 +18007,28 @@ describe("invalid-link-target autofix: valid link beside an invalid one", () => 
     }
   });
 });
+
+describe("autofix: undescribed image with a Unicode destination", () => {
+  it.each([
+    ["Cyrillic path", "картинки/схема.png"],
+    ["right-to-left path", "صور/مخطط.png"],
+    [
+      "internationalized host, path, query and fragment",
+      "https://例え.jp/画像/図.png?名前=値#見出し",
+    ],
+    ["angle-bracketed path with spaces", "<изображения/моя схема (1).png>"],
+  ])("keeps the destination and adds the placeholder next to a described sibling (%s)", (_name, target) => {
+    const sibling = "![Диаграмма](схема.svg)";
+    const doc = `Начало.\n\n![](${target}) и ${sibling} конец.\n`;
+    const expected = `Начало.\n\n![TODO: describe image](${target}) и ${sibling} конец.\n`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("missing-alt-text");
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain(`(${target})`);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
