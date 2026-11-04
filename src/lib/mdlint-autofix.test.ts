@@ -804,6 +804,22 @@ describe("autofix: undescribed image inside a list item", () => {
     expect(fixed).toBe("- See ![TODO: describe image](a.png) and ![ok](b.png)\n");
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
+
+  it("fixes whitespace-only alt text in a checked task without including its marker in the range", () => {
+    const doc =
+      '- [x] Review ![ \t ](chart.png "Chart") today.\r\n- [ ] Next task.\r\n';
+    const expected =
+      '- [x] Review ![TODO: describe image](chart.png "Chart") today.\r\n- [ ] Next task.\r\n';
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe('![ \t ](chart.png "Chart")');
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
 });
 
 // ─── 2. Rule: invalid-link-target ────────────────────────────────────────────
