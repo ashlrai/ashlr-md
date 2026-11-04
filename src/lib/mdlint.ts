@@ -599,7 +599,12 @@ export const ruleInvalidLinkTarget: LintRule = {
           message: `Invalid link target: [${text.slice(0, 30)}](${href || "empty"})`,
           severity: "warning",
           range: range(doc, from, to),
-          fix: (d) => `${d.slice(0, hrefStart)}TODO${d.slice(hrefEnd)}`,
+          // Only splice while the linted link is still there: replaying a stale
+          // violation (fix-all fired twice) must not write TODO at moved offsets.
+          fix: (d) =>
+            d.slice(from, to) === m[0]
+              ? `${d.slice(0, hrefStart)}TODO${d.slice(hrefEnd)}`
+              : d,
         });
       }
     }

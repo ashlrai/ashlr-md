@@ -17439,3 +17439,32 @@ describe("autofix: invalid link after unrelated preceding lines", () => {
     }
   });
 });
+
+describe("invalid-link autofix: replaying stale violations", () => {
+  const rules = [ruleInvalidLinkTarget];
+
+  it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+  ])("applying the same first-pass violations a second time leaves the fixed text unchanged (%s)", (_name, nl) => {
+    const doc = [
+      "Read [a]() and [b](   ) and [c](#) and [d](?) here.",
+      "Keep [ok](./guide.md) and `[code]()`.",
+      "",
+    ].join(nl);
+    const violations = lintDocument(doc, { rules });
+    expect(violations).toHaveLength(4);
+
+    const once = applyAllFixes(doc, violations);
+    expect(once).toBe(
+      [
+        "Read [a](TODO) and [b](TODO) and [c](TODO) and [d](TODO) here.",
+        "Keep [ok](./guide.md) and `[code]()`.",
+        "",
+      ].join(nl),
+    );
+    // The editor may fire fix-all again with the lint result it already holds.
+    expect(applyAllFixes(once, violations)).toBe(once);
+    expect(fixAllViolations(once, violations)).toBe(once);
+  });
+});
