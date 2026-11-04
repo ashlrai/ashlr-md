@@ -12867,3 +12867,21 @@ describe("autofix: [1] prose preservation across block contexts", () => {
     expect(fixAll(fixed)).toBe(fixed);
   });
 });
+
+describe("undescribed image source preservation", () => {
+  it.each([
+    "./img/a.png",
+    "../../assets/deep/b.svg",
+    "img/c%20d.png?v=2#top",
+    "_static/e.webp",
+  ])("inserts the placeholder and keeps the relative source %j byte for byte", (source) => {
+    const doc = `Before ![](${source}) after.\n`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(`Before ![TODO: describe image](${source}) after.\n`);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
