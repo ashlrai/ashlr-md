@@ -16878,3 +16878,39 @@ fn bracketed_prose_survives_edit_document_find_and_replace() {
     assert_eq!(body["find"], find);
     assert_eq!(body["replace"], replace);
 }
+
+/// Two bracketed phrases in a row must keep their brackets in every block
+/// shape the extractor walks: nested brackets, table cells, a setext heading,
+/// task-list items, ordered lists, and an escaped bracket. A bracket pair that
+/// matches a link reference definition is a real link, so it loses its
+/// brackets while an undefined one beside it keeps them.
+#[test]
+fn export_text_keeps_consecutive_bracketed_phrases_in_every_block_shape() {
+    for (markdown, expected) in [
+        (
+            "[outer [inner] tail] [second]\n",
+            "[outer [inner] tail] [second]",
+        ),
+        (
+            "| a | b |\n|---|---|\n| [one] [two] | [three][four] |\n",
+            "a\tb\n[one] [two]\t[three][four]",
+        ),
+        ("[one] [two]\n=====\n", "[one] [two]"),
+        ("- [ ] [one] [two]\n- [x] [three]\n", "[one] [two]\n[three]"),
+        ("1. [one]\n2. [two]\n", "[one]\n[two]"),
+        ("[one]\\[two]\n", "[one][two]"),
+        (
+            "[one] [two] *emph* [three]\n\n[one]: https://x.com\n",
+            "one [two] emph [three]",
+        ),
+    ] {
+        let result = run_export_text_on(markdown);
+        let text = result["text"].as_str().unwrap();
+        assert_eq!(text, expected, "{markdown:?}");
+        assert_eq!(
+            result["char_count"].as_u64().unwrap() as usize,
+            expected.chars().count(),
+            "{markdown:?}"
+        );
+    }
+}
