@@ -601,8 +601,16 @@ export const ruleInvalidLinkTarget: LintRule = {
           range: range(doc, from, to),
           fix: (d) => {
             let idx = d.indexOf(originalMatch, from);
-            if (idx === -1) {
-              idx = d.indexOf(originalMatch);
+            if (idx !== from) {
+              // A fix applied since linting may have shifted this match (a
+              // shorter replacement moves it before its recorded offset):
+              // splice the occurrence closest to `from` rather than the
+              // first match in the document, which could be an identical
+              // link inside a code span.
+              const prev = d.lastIndexOf(originalMatch, from);
+              if (idx === -1 || (prev !== -1 && from - prev <= idx - from)) {
+                idx = prev;
+              }
             }
             if (idx === -1) return d;
             return (

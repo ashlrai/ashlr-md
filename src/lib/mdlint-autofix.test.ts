@@ -20283,3 +20283,135 @@ describe("invalid-link autofix on the same line", () => {
     expect(applyAllFixes(expected, lintDocument(expected, { rules }))).toBe(expected);
   });
 });
+
+// ─── Invalid link with a Unicode label ──────────────────────────────────────
+
+describe("invalid-link-target autofix: Unicode label preserved exactly", () => {
+  const rules = [ruleInvalidLinkTarget];
+
+  it.each([
+    ["empty", ""],
+    ["whitespace-only", " \t "],
+    ["lone hash", "#"],
+    ["lone question mark", "?"],
+  ])("replaces a %s href with TODO and keeps the Unicode label byte-for-byte", (_name, href) => {
+    const label = "日本語ガイド café 資料 👩🏽‍💻";
+    const link = `[${label}](${href})`;
+    // The label also appears as bare prose before the link; the flag and the
+    // fix target the bracketed link only.
+    const doc = `🌍 ${label} — see ${link} and [ok](./ok.md).\n`;
+    const expected = `🌍 ${label} — see [${label}](TODO) and [ok](./ok.md).\n`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(link);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain(`[${label}](TODO)`);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+
+  it.each([
+    ["a dollar-ampersand", "料金 $& 円"],
+    ["a dollar-quote", "説明 $' 後"],
+    ["a dollar-number", "手順 $1 円"],
+  ])("keeps a Unicode label containing %s verbatim when the href becomes TODO", (_name, label) => {
+    // The fix splices rather than substitutes: `$` sequences in the label can
+    // never expand into the matched text.
+    const doc = `See [${label}](#) now.\n`;
+    const expected = `See [${label}](TODO) now.\n`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+
+  it("keeps NFC and NFD labels byte-for-byte distinct while fixing each at its own offset", () => {
+    const nfc = "café"; // U+00E9
+    const nfd = "café"; // e + U+0301
+    expect(nfc).not.toBe(nfd);
+    const doc = `[${nfc}](#) and [${nfd}](#).\n`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(2);
+    expect(
+      violations.map((v) => doc.slice(v.range!.from.offset, v.range!.to.offset)),
+    ).toEqual([`[${nfc}](#)`, `[${nfd}](#)`]);
+    expect(applyFix(doc, violations[0])).toBe(`[${nfc}](TODO) and [${nfd}](#).\n`);
+    expect(applyFix(doc, violations[1])).toBe(`[${nfc}](#) and [${nfd}](TODO).\n`);
+    const expected = `[${nfc}](TODO) and [${nfd}](TODO).\n`;
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(applyAllFixes(doc, [...violations].reverse())).toBe(expected);
+    // Nothing was normalized: the NFD label still differs from the NFC one.
+    expect(fixed.normalize("NFC")).toBe(`[${nfc}](TODO) and [${nfc}](TODO).\n`);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it("fixes the recorded link, not an identical link masked in a code span, when a prior fix shifted the offsets", () => {
+    const label = "利用ガイド";
+    const decoy = `\`[${label}](#)\``;
+    const doc = `${decoy} then [wide](      ) and [${label}](#) end.\n`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual([
+      "invalid-link-target",
+      "invalid-link-target",
+    ]);
+    expect(
+      violations.map((v) => doc.slice(v.range!.from.offset, v.range!.to.offset)),
+    ).toEqual(["[wide](      )", `[${label}](#)`]);
+
+    // Repairing the wide href first shrinks the document, so the recorded
+    // offset of the Unicode-labelled link overshoots it. The fix must still
+    // land on the real link — not on the masked twin earlier in the file.
+    const once = applyFix(doc, violations[0]);
+    expect(once).toBe(`${decoy} then [wide](TODO) and [${label}](#) end.\n`);
+    const twice = applyFix(once, violations[1]);
+    expect(twice).toBe(`${decoy} then [wide](TODO) and [${label}](TODO) end.\n`);
+    // The batched pass reaches the same document.
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(twice);
+    expect(fixed).toContain(decoy);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it("keeps a long Unicode label whole when the message excerpt cuts a surrogate pair", () => {
+    // Code unit 30 sits inside the emoji's surrogate pair: the message shows
+    // an excerpt ending mid-pair, but the fix must splice the label whole.
+    const label = `${"案".repeat(29)}🌸`;
+    expect(label.length).toBeGreaterThan(30);
+    const doc = `Read [${label}](#) next.\n`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].message).toBe(
+      `Invalid link target: [${label.slice(0, 30)}](#)`,
+    );
+    const expected = `Read [${label}](TODO) next.\n`;
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain(`[${label}](TODO)`);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it("fixes the link-shaped part of an image while keeping its Unicode alt text", () => {
+    const doc = "---\ntitle: Guide\n---\n\n![桜の図](#) and [ok](./ok.md).\n";
+    const violations = lintDocument(doc, { rules });
+
+    // The alt text is non-empty, so missing-alt-text stays quiet even under
+    // the default rules; only the invalid destination is reported.
+    expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+    expect(lintDocument(doc).map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+    const expected = "---\ntitle: Guide\n---\n\n![桜の図](TODO) and [ok](./ok.md).\n";
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+});
