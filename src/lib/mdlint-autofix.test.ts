@@ -21190,3 +21190,53 @@ describe("invalid-link autofix on a later line", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+describe("autofix: undescribed image in a blockquote under the default rules", () => {
+  it.each([
+    ["> ", "\n"],
+    ["> ", "\r\n"],
+    ["> > ", "\n"],
+    ["> > ", "\r\n"],
+  ])("inserts the description placeholder and keeps every blockquote marker in the complete fixed text (marker %j, line endings %j)", (marker, nl) => {
+    const image = '![](assets/figure.png?v=2#top "Figure")';
+    const doc = [
+      "---",
+      "title: Quotes",
+      "---",
+      "",
+      "Before the quote.",
+      "",
+      `${marker}Quoted text with ${image} inline.`,
+      `${marker}A second quoted line.`,
+      "",
+      "After the quote.",
+      "",
+    ].join(nl);
+    const expected = [
+      "---",
+      "title: Quotes",
+      "---",
+      "",
+      "Before the quote.",
+      "",
+      `${marker}Quoted text with ![TODO: describe image](assets/figure.png?v=2#top "Figure") inline.`,
+      `${marker}A second quoted line.`,
+      "",
+      "After the quote.",
+      "",
+    ].join(nl);
+    const violations = lintDocument(doc);
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const { from, to } = violations[0].range!;
+    // The marker is outside the violation's range, so replacing the range
+    // cannot drop it: only the image markup is rewritten.
+    expect(doc.slice(from.offset, to.offset)).toBe(image);
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed)).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed))).toBe(fixed);
+  });
+});
