@@ -1086,6 +1086,26 @@ describe("rule:invalid-link-target", () => {
     }
   });
 
+  it.each([
+    ["empty", ""],
+    ["whitespace", " \t "],
+    ["lone hash", "#"],
+    ["lone question mark", "?"],
+  ])("keeps Unicode text byte-for-byte and turns a %s destination into TODO", (_kind, dest) => {
+    // NFD "é" (e + U+0301), RTL Arabic, ZWJ emoji, CJK and an astral character.
+    const texts = ["école", "مرحبا بالعالم", "👩‍💻 dev", "日本語のガイド", "𝒳𝒴"];
+    const rules = [ruleInvalidLinkTarget];
+    const doc = `${texts.map((t) => `[${t}](${dest})`).join(" · ")} · [ok 日本](./ok.md)\n`;
+    const expected = `${texts.map((t) => `[${t}](TODO)`).join(" · ")} · [ok 日本](./ok.md)\n`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(texts.length);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    for (const t of texts) expect(fixed).toContain(`[${t}](TODO)`);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
   it("reports line 1 and fixes an invalid Unicode-labelled link after astral characters", () => {
     const doc = "😀😀 [日本語]() end\n";
     const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
