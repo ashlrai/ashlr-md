@@ -9908,6 +9908,227 @@ fn export_text_preserves_sic_at_the_start_of_a_paragraph_from_both_sources() {
     assert_eq!(content_text(&response)["text"].as_str().unwrap(), expected);
 }
 
+/// A `[...]` that opens a paragraph sits exactly where a link reference
+/// definition's label or a link's `[text]` would: with no `(url)` tail and
+/// no `[label]:` definition making it a link, the page shows its brackets,
+/// so the export keeps them and the prose after them — wherever the
+/// paragraph starts (at the document's start and after a heading, list,
+/// blockquote, fence, rule, front matter, link reference definition,
+/// table, HTML block or indented code) and in every container it lives in
+/// (a blockquote, a list item, an item's next paragraph). Lookalike lines
+/// own no brackets: a `(...)` or `[label]` on the next line is no tail,
+/// and a definition line that cannot interrupt the paragraph is text.
+/// Only real syntax owns the brackets: a defined label resolves, an
+/// inline link reads its text, a footnote reference reads `[n]`, a task
+/// checkbox is dropped and a setext underline makes the line a heading.
+#[test]
+fn export_text_keeps_bracketed_prose_at_the_start_of_a_paragraph() {
+    let cases = [
+        // The document and a later paragraph open on the brackets.
+        ("[note] opens the document.\n", "[note] opens the document."),
+        (
+            "First paragraph.\n\n[note] opens the second.\n",
+            "First paragraph.\n\n[note] opens the second.",
+        ),
+        // The paragraph opens after every kind of block.
+        (
+            "# Title\n\n[note] after the heading.\n",
+            "Title\n\n[note] after the heading.",
+        ),
+        (
+            "- item\n\n[note] after the list.\n",
+            "item\n\n[note] after the list.",
+        ),
+        (
+            "> quoted\n\n[note] after the quote.\n",
+            "quoted\n\n[note] after the quote.",
+        ),
+        (
+            "```\ncode\n```\n\n[note] after the fence.\n",
+            "code\n\n[note] after the fence.",
+        ),
+        (
+            "text\n\n***\n\n[note] after the rule.\n",
+            "text\n\n[note] after the rule.",
+        ),
+        (
+            "---\ntitle: x\n---\n\n[note] after the front matter.\n",
+            "[note] after the front matter.",
+        ),
+        (
+            "[a]: /u\n\n[note] after the definition.\n",
+            "[note] after the definition.",
+        ),
+        (
+            "| a | b |\n| - | - |\n| c | d |\n\n[note] after the table.\n",
+            "a\tb\nc\td\n\n[note] after the table.",
+        ),
+        (
+            "<div>\nblock\n</div>\n\n[note] after the HTML.\n",
+            "block\n\n[note] after the HTML.",
+        ),
+        (
+            "    code line\n\n[note] after the code.\n",
+            "code line\n\n[note] after the code.",
+        ),
+        // The paragraph opens inside a blockquote and a list item, and as
+        // an item's next paragraph.
+        ("> [note] opens the quote.\n", "[note] opens the quote."),
+        ("- [note] opens the item.\n", "[note] opens the item."),
+        ("1. [note] opens the item.\n", "[note] opens the item."),
+        (
+            "- item\n\n  [note] the item's next paragraph.\n",
+            "item\n\n[note] the item's next paragraph.",
+        ),
+        // Up to three spaces of indentation still starts the paragraph.
+        (
+            "   [note] indented three spaces.\n",
+            "[note] indented three spaces.",
+        ),
+        // The paragraph's next lines keep their own brackets, and a `(...)`
+        // or a `[...]` on a line of its own is no link tail or label.
+        (
+            "[note] opens the paragraph\nand the next line reads on.\n",
+            "[note] opens the paragraph\nand the next line reads on.",
+        ),
+        (
+            "[note] wraps onto\n[brackets] the next line.\n",
+            "[note] wraps onto\n[brackets] the next line.",
+        ),
+        (
+            "[note]\n(no destination on the next line)\n",
+            "[note]\n(no destination on the next line)",
+        ),
+        (
+            "[note]\n[no label on the next line]\n",
+            "[note]\n[no label on the next line]",
+        ),
+        ("[note] (not a destination)\n", "[note] (not a destination)"),
+        // A definition line cannot interrupt the paragraph: the `[note]:`
+        // line is text and defines nothing, while one after a blank line
+        // is a definition and the opening `[note]` resolves.
+        (
+            "[note] opens the paragraph\n[note]: /u\n",
+            "[note] opens the paragraph\n[note]: /u",
+        ),
+        (
+            "[note] resolves when defined.\n\n[note]: /u\n",
+            "note resolves when defined.",
+        ),
+        // A `:` right after the brackets is prose unless a destination and
+        // an optional title make it a definition.
+        (
+            "[note]: opens, no destination is prose\n",
+            "[note]: opens, no destination is prose",
+        ),
+        // A setext underline under the bracketed line makes it a heading;
+        // the brackets stay.
+        (
+            "[note] reads as a heading\n===\n",
+            "[note] reads as a heading",
+        ),
+        (
+            "[note] reads as a heading\n---\n",
+            "[note] reads as a heading",
+        ),
+        // Inline markup inside the opening brackets is read; the brackets
+        // and the prose stay.
+        (
+            "[**bold**] leads the paragraph.\n",
+            "[bold] leads the paragraph.",
+        ),
+        (
+            "[`code`] leads the paragraph.\n",
+            "[code] leads the paragraph.",
+        ),
+        (
+            "[draft (v2)] leads the paragraph.\n",
+            "[draft (v2)] leads the paragraph.",
+        ),
+        ("[café mű] leads the paragraph.\n", "[café mű] leads the paragraph."),
+        (
+            "[one][two] lead the paragraph together.\n",
+            "[one][two] lead the paragraph together.",
+        ),
+        ("[] leads the paragraph.\n", "[] leads the paragraph."),
+        (
+            "![alt] leads the paragraph.\n",
+            "![alt] leads the paragraph.",
+        ),
+        // An escaped bracket at the paragraph's start is literal.
+        ("\\[note] leads the paragraph.\n", "[note] leads the paragraph."),
+        // The bracketed opening keeps its brackets while a real link after
+        // it reads its text.
+        (
+            "[note] leads [the guide](/guide) too.\n",
+            "[note] leads the guide too.",
+        ),
+    ];
+    for (markdown, expected) in cases {
+        let result = run_export_text_on(markdown);
+        let rendered = result["text"].as_str().unwrap();
+        assert_eq!(rendered, expected, "{markdown:?}");
+        let ipc = MockIpc::new().on_get(
+            "/content",
+            Ok(json!({ "path": "/docs/test.md", "content": markdown })),
+        );
+        let response = tool_export_text(id(2), &json!({}), &ipc);
+        assert!(response.error.is_none(), "{markdown:?}");
+        assert_eq!(
+            content_text(&response)["text"].as_str().unwrap(),
+            expected,
+            "{markdown:?}"
+        );
+        assert_eq!(strip_markdown(markdown), expected, "{markdown:?}");
+        // The rendered output retains both brackets and the prose: every
+        // `[note]` written opens the paragraph in the output, and the
+        // reported counts describe the rendered text.
+        assert_eq!(
+            result["char_count"].as_u64().unwrap() as usize,
+            expected.chars().count(),
+            "{markdown:?}"
+        );
+        assert_eq!(
+            result["word_count"].as_u64().unwrap() as usize,
+            count_words(expected),
+            "{markdown:?}"
+        );
+    }
+
+    // At the paragraph's start, real syntax owns its brackets while the
+    // prose keeps them.
+    for (markdown, expected) in [
+        // An inline link at the start reads its text.
+        (
+            "[the guide](/guide) opens the note.\n",
+            "the guide opens the note.",
+        ),
+        // A footnote reference reads `[n]`; the definition reads `[n] text`.
+        (
+            "[^1] opens as a footnote.\n\n[^1]: Source note.\n",
+            "[1] opens as a footnote.\n\n[1] Source note.",
+        ),
+        // A task checkbox on an item is dropped; a `[ ]` that is no
+        // checkbox keeps its brackets.
+        ("- [ ] opens the task.\n", "opens the task."),
+        ("[ ] opens the paragraph.\n", "[ ] opens the paragraph."),
+    ] {
+        let result = run_export_text_on(markdown);
+        assert_eq!(result["text"].as_str().unwrap(), expected, "{markdown:?}");
+        assert_eq!(strip_markdown(markdown), expected, "{markdown:?}");
+    }
+
+    // With no document around a line, no reference is defined either.
+    use mdopener_mcp::strip_inline_markdown;
+    for (line, expected) in [
+        ("[note] leads.", "[note] leads."),
+        ("[note] and [note] again", "[note] and [note] again"),
+        ("[note](u) then [note]", "note then [note]"),
+    ] {
+        assert_eq!(strip_inline_markdown(line), expected, "{line:?}");
+    }
+}
+
 #[test]
 fn export_text_keeps_bracketed_sic_in_surrounding_prose() {
     let markdown = "The report says the result was 'definately [sic] confirmed' by [the authors](https://example.com).\n";
