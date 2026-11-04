@@ -21142,3 +21142,32 @@ describe("invalid link at the start of a paragraph", () => {
     expect(lintDocument(expected, { rules })).toEqual([]);
   });
 });
+
+describe("autofix: undescribed image in a nested or continued list item", () => {
+  it.each([
+    [
+      "child of a nested bullet",
+      "- Parent\n  - ![](deep/one.png)\n  - Sibling\n",
+      "- Parent\n  - ![TODO: describe image](deep/one.png)\n  - Sibling\n",
+    ],
+    [
+      "continuation paragraph of an ordered item",
+      '1. First\n\n   ![ ](img/two.png?v=2#top "Two")\n\n2. Second\n',
+      '1. First\n\n   ![TODO: describe image](img/two.png?v=2#top "Two")\n\n2. Second\n',
+    ],
+    [
+      "item inside a blockquote",
+      "> - ![](q/three.png)\n> - Plain\n",
+      "> - ![TODO: describe image](q/three.png)\n> - Plain\n",
+    ],
+  ])("keeps the list marker and image path (%s)", (_name, doc, expected) => {
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
