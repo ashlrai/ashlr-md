@@ -10173,6 +10173,52 @@ describe("invalid-link-target autofix: preserves surrounding content", () => {
 });
 
 describe("invalid-link-target autofix: invalid link in a blockquote", () => {
+  it.each([
+    "\n",
+    "\r\n",
+  ])("inserts TODO on a lazy continuation line and beside a code span, keeping every quote marker and %j line endings", (nl) => {
+    const doc = [
+      "Lead-in before the quote.",
+      "",
+      "> A `[decoy]()` code span is not a link, but [real]() is,",
+      "and this lazy line keeps [late](   ) inside the same quote.",
+      "",
+      "Tail after the quote.",
+      "",
+    ].join(nl);
+    const expected = [
+      "Lead-in before the quote.",
+      "",
+      "> A `[decoy]()` code span is not a link, but [real](TODO) is,",
+      "and this lazy line keeps [late](TODO) inside the same quote.",
+      "",
+      "Tail after the quote.",
+      "",
+    ].join(nl);
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    // The code span is masked and the lazy line's link is found: each range
+    // covers only its link, never the `>` marker or the prose around it.
+    expect(
+      violations.map((v) => doc.slice(v.range!.from.offset, v.range!.to.offset)),
+    ).toEqual(["[real]()", "[late](   )"]);
+    for (const v of violations) {
+      expect(v.ruleId).toBe("invalid-link-target");
+      expect(v.severity).toBe("warning");
+      expect(v.fix).not.toBeNull();
+    }
+
+    // A single fix leaves the rest of the quote byte-identical.
+    expect(applyFix(doc, violations[0])).toBe(doc.replace("[real]()", "[real](TODO)"));
+
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // Re-lint is clean and a second pass is a fixed point.
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+
   it("replaces the invalid href with TODO and keeps the blockquote, nesting and surrounding text", () => {
     const doc = [
       "Intro before the quote.",
