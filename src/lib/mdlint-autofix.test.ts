@@ -5187,6 +5187,27 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 
+  it.each([
+    ["bullet item", "- "],
+    ["ordered item", "1. "],
+    ["blockquote", "> "],
+    ["nested blockquote list", "> - "],
+  ])("fixes an invalid link at the end of a %s line and keeps the marker, text and newline", (_name, marker) => {
+    const rules = [ruleInvalidLinkTarget];
+    for (const newline of ["\n", "\r\n"]) {
+      const doc = `Intro.${newline}${newline}${marker}Read the [draft]()${newline}${marker.replace(/[-\d.]+ $/, "  ")}Tail.${newline}`;
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations).toHaveLength(1);
+      const { from, to } = violations[0].range!;
+      expect(doc.slice(from.offset, to.offset)).toBe("[draft]()");
+      expect(doc.slice(to.offset, to.offset + newline.length)).toBe(newline);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(doc.replace("[draft]()", "[draft](TODO)"));
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+    }
+  });
+
   it("fixes an invalid link at the end of the last line with no trailing newline", () => {
     const leading = "Final note — see";
     const doc = `Intro paragraph.\n\n${leading} [draft](?)`;
