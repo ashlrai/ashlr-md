@@ -17589,6 +17589,93 @@ describe("autofix: described image beside an undescribed image", () => {
     expect(fixAllViolations(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
     expect(getLintHistory()).toEqual(history);
   });
+
+  it.each([
+    ["full reference", "![Diagram][arch]", '[arch]: img/arch.svg "Overview"'],
+    ["collapsed reference", "![Chart][]", "[Chart]: img/chart.png"],
+    ["shortcut reference", "![arch]", "[arch]: img/arch.svg"],
+  ])("changes only the inline undescribed image beside a described %s image, in either order and with either line ending", (_name, described, definition) => {
+    const rules = [ruleMissingAltText];
+    const undescribed = '![](img/raw.png "Shot")';
+    const repaired = '![TODO: describe image](img/raw.png "Shot")';
+    for (const nl of ["\n", "\r\n"]) {
+      for (const describedFirst of [true, false]) {
+        const [a, b] = describedFirst
+          ? [described, undescribed]
+          : [undescribed, described];
+        const [expA, expB] = describedFirst
+          ? [described, repaired]
+          : [repaired, described];
+        const doc = `Intro.${nl}${nl}${a} and ${b}.${nl}${nl}${definition}${nl}`;
+        const expected = `Intro.${nl}${nl}${expA} and ${expB}.${nl}${nl}${definition}${nl}`;
+        const violations = lintDocument(doc, { rules });
+
+        // The reference-style image is not flagged; only the inline
+        // undescribed image is, and its range covers it exactly.
+        expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+        expect(
+          doc.slice(violations[0].range!.from.offset, violations[0].range!.to.offset),
+        ).toBe(undescribed);
+
+        // Both fix entry points agree, and the described image and its
+        // definition come through byte-for-byte.
+        expect(applyFix(doc, violations[0])).toBe(expected);
+        const fixed = applyAllFixes(doc, violations);
+        expect(fixed).toBe(expected);
+        expect(fixed).toContain(described);
+        expect(fixed).toContain(definition);
+        expect(fixed.split("TODO: describe image")).toHaveLength(2);
+        expect(lintDocument(fixed, { rules })).toEqual([]);
+        expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+      }
+    }
+  });
+
+  it.each([
+    [
+      "the described image wrapped in a link",
+      "[![Logo](l.svg)](https://example.com)",
+      "![](x.png)",
+      "![TODO: describe image](x.png)",
+    ],
+    [
+      "the undescribed image wrapped in a link",
+      "![Logo](l.svg)",
+      "[![](x.png)](https://example.com)",
+      "[![TODO: describe image](x.png)](https://example.com)",
+    ],
+  ])("changes only the undescribed image when %s, in either order and with either line ending", (_name, described, undescribed, repaired) => {
+    const rules = [ruleMissingAltText];
+    for (const nl of ["\n", "\r\n"]) {
+      for (const describedFirst of [true, false]) {
+        const [a, b] = describedFirst
+          ? [described, undescribed]
+          : [undescribed, described];
+        const [expA, expB] = describedFirst
+          ? [described, repaired]
+          : [repaired, described];
+        const doc = `See ${a} then ${b}.${nl}`;
+        const expected = `See ${expA} then ${expB}.${nl}`;
+        const violations = lintDocument(doc, { rules });
+
+        expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+        // The flagged range lies inside the undescribed element and never
+        // reaches into the described image.
+        expect(
+          undescribed.includes(
+            doc.slice(violations[0].range!.from.offset, violations[0].range!.to.offset),
+          ),
+        ).toBe(true);
+        expect(applyFix(doc, violations[0])).toBe(expected);
+        const fixed = applyAllFixes(doc, violations);
+        expect(fixed).toBe(expected);
+        expect(fixed).toContain(described);
+        expect(fixed.split("TODO: describe image")).toHaveLength(2);
+        expect(lintDocument(fixed, { rules })).toEqual([]);
+        expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+      }
+    }
+  });
 });
 
 // ─── Bracketed prose spans: [1], [sic], [TODO] ───────────────────────────────
