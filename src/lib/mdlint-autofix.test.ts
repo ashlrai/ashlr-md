@@ -349,6 +349,34 @@ describe("rule:invalid-link-target", () => {
     );
   });
 
+  it.each([
+    ["one space", " "],
+    ["many spaces", "     "],
+    ["a tab", "\t"],
+    ["mixed spaces and tabs", " \t \t "],
+  ])("keeps the link text and sets the destination to TODO for %s", (_kind, destination) => {
+    const doc = `Use [the *setup* guide](${destination}) here, but keep [ok](./ok.md) and [web](https://example.com).\n`;
+    const expected =
+      "Use [the *setup* guide](TODO) here, but keep [ok](./ok.md) and [web](https://example.com).\n";
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+
+  it("fixes several whitespace-only destinations in one pass, each keeping its own text", () => {
+    const doc = "[one]( ) and [two](\t) and [three](  \t  ).\n";
+    const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
+
+    expect(violations).toHaveLength(3);
+    expect(applyAllFixes(doc, violations)).toBe(
+      "[one](TODO) and [two](TODO) and [three](TODO).\n",
+    );
+  });
+
   it("reports no invalid-link-target diagnostic for titled, angle-bracket and reference links", () => {
     const doc = [
       '[titled](./guide.md "Guide")',
