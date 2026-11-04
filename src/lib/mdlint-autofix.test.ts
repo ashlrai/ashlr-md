@@ -20977,3 +20977,35 @@ describe("autofix: undescribed image beside a described image", () => {
     expect(lintDocument(expected, { rules })).toEqual([]);
   });
 });
+
+describe("autofix: invalid link inside a blockquote", () => {
+  it.each([
+    "",
+    "#",
+    "?",
+    " ",
+  ])("replaces destination %j with TODO and keeps the quote marker and text", (destination) => {
+    const doc = `> Quoted intro, see [draft](${destination}) for more.\n> Second quoted line.\n`;
+    const expected =
+      "> Quoted intro, see [draft](TODO) for more.\n> Second quoted line.\n";
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.startsWith("> Quoted intro, see [draft]")).toBe(true);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it("fixes a nested blockquote link and leaves a valid link alone", () => {
+    const doc = "> > Deep [bad]() and [ok](./a.md) end\n";
+    const expected = "> > Deep [bad](TODO) and [ok](./a.md) end\n";
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+  });
+});
