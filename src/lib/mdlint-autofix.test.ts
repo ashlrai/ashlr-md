@@ -1192,6 +1192,35 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(fixed, { rules })).toHaveLength(0);
   });
 
+  it.each([
+    [
+      "identical empty links",
+      "Go [a]() or [a]() now.\n",
+      "Go [a](TODO) or [a](TODO) now.\n",
+    ],
+    [
+      "lone # and lone ?",
+      "Go [a](#) or [b](?) now.\n",
+      "Go [a](TODO) or [b](TODO) now.\n",
+    ],
+    ["adjacent links", "[a]()[b]( )\n", "[a](TODO)[b](TODO)\n"],
+    [
+      "CRLF with unicode text",
+      "日本 [a]() と [b](\t) 後\r\n",
+      "日本 [a](TODO) と [b](TODO) 後\r\n",
+    ],
+  ])("fixes two invalid links on one line: %s", (_name, doc, expected) => {
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+    expect(violations).toHaveLength(2);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    // Each fix applied on its own touches only its own link.
+    const once = applyFix(doc, violations[0]);
+    expect(lintDocument(once, { rules })).toHaveLength(1);
+    expect(applyFix(once, lintDocument(once, { rules })[0])).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+
   it("replaces a whitespace-only link destination and preserves surrounding text", () => {
     const doc = "Before, read [the guide]( \t ) carefully; then continue.\r\n";
     const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
