@@ -15201,3 +15201,36 @@ describe("whitespace-only image description that spans a line break", () => {
     expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
   });
 });
+
+describe("invalid-link-target autofix: blockquote marker styles", () => {
+  const rules = [ruleInvalidLinkTarget];
+
+  it.each([
+    ["no space after the marker", ">See [tight]() here.", ">See [tight](TODO) here."],
+    ["tab after the marker", ">\tSee [tabbed](#) here.", ">\tSee [tabbed](TODO) here."],
+    [
+      "marker indented three spaces",
+      "   > See [indented]( ) here.",
+      "   > See [indented](TODO) here.",
+    ],
+    [
+      "blockquote inside a list item",
+      "- item\n  > See [nested]() here.",
+      "- item\n  > See [nested](TODO) here.",
+    ],
+    [
+      "quote nested without spaces",
+      ">> See [deep](?) here.",
+      ">> See [deep](TODO) here.",
+    ],
+  ])("keeps the blockquote and link text, replacing only the destination (%s)", (_name, body, expected) => {
+    for (const nl of ["\n", "\r\n"]) {
+      const doc = `${body.replace(/\n/g, nl)}${nl}`;
+      const violations = lintDocument(doc, { rules });
+      expect(violations).toHaveLength(1);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(`${expected.replace(/\n/g, nl)}${nl}`);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+    }
+  });
+});
