@@ -179,6 +179,42 @@ describe("autofix: undescribed image next to a described image", () => {
   });
 });
 
+describe("autofix: undescribed image between described images", () => {
+  it.each([
+    [
+      "Unicode and emphasis in the description",
+      "![**グラフ** café 🖼️](g.png)",
+      "![](x.png)",
+      "![_Logo_ 東京](l.svg 'T')",
+    ],
+    [
+      "a punctuation-only description",
+      "![.](dot.png)",
+      "![ ](x.png)",
+      "![-](dash.png)",
+    ],
+    ["a zero-width-space description", "![​](z.png)", "![](x.png)", "![​](y.png)"],
+    [
+      "a description that is already the placeholder",
+      "![TODO: describe image](t.png)",
+      "![](x.png)",
+      "![TODO: describe image](u.png)",
+    ],
+  ])("sandwiched fix leaves both neighbours byte-identical (%s)", (_name, before, blank, after) => {
+    const rules = [ruleMissingAltText];
+    const doc = `${before} ${blank} ${after}\n`;
+    const violations = lintDocument(doc, { rules });
+
+    // The zero-width space is not whitespace to the rule, so it counts as described.
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const src = blank.slice(blank.indexOf("](") + 2, -1);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(`${before} ![TODO: describe image](${src}) ${after}\n`);
+    expect(applyFix(doc, violations[0])).toBe(fixed);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
+
 describe("autofix: undescribed image on a line with leading indentation", () => {
   it.each([
     ["two spaces", "  "],
