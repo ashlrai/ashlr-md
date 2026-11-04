@@ -14301,3 +14301,90 @@ describe("invalid-link-target autofix: placeholder and prefix in a blockquote", 
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+describe("invalid-link-target autofix: invalid link at the start of a line", () => {
+  it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+  ])("inserts the TODO href into a link at column 0 and preserves the remaining line, including a second invalid link (%s)", (_name, nl) => {
+    const head = "Intro line with [ok](./ok.md).";
+    const line = "[lead](#) opens the line, cites [1], and ends with [tail](  ).";
+    const doc = [head, "", line, "Closing line stays.", ""].join(nl);
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual([
+      "invalid-link-target",
+      "invalid-link-target",
+    ]);
+    const { from, to } = violations[0].range!;
+    expect(from).toMatchObject({ line: 3, col: 0 });
+    expect(doc.slice(from.offset, to.offset)).toBe("[lead](#)");
+    expect(
+      doc.slice(violations[1].range!.from.offset, violations[1].range!.to.offset),
+    ).toBe("[tail](  )");
+
+    // A single fix rewrites only its own href: the rest of the line, including
+    // the still-invalid sibling link, stays byte-for-byte identical.
+    expect(applyFix(doc, violations[0])).toBe(
+      [
+        head,
+        "",
+        "[lead](TODO) opens the line, cites [1], and ends with [tail](  ).",
+        "Closing line stays.",
+        "",
+      ].join(nl),
+    );
+    expect(applyFix(doc, violations[1])).toBe(
+      [
+        head,
+        "",
+        "[lead](#) opens the line, cites [1], and ends with [tail](TODO).",
+        "Closing line stays.",
+        "",
+      ].join(nl),
+    );
+
+    const fixed = applyAllFixes(doc, violations);
+    const fixedLine =
+      "[lead](TODO) opens the line, cites [1], and ends with [tail](TODO).";
+    expect(fixed).toBe([head, "", fixedLine, "Closing line stays.", ""].join(nl));
+    // The remainder of the repaired line survives untouched, and both the
+    // line above and the line below are byte-for-byte the original.
+    expect(fixed.split(nl)[2].slice("[lead](TODO)".length)).toBe(
+      fixedLine.slice("[lead](TODO)".length),
+    );
+    expect(fixed.startsWith(`${head}${nl}${nl}`)).toBe(true);
+    expect(fixed.endsWith(`${nl}Closing line stays.${nl}`)).toBe(true);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+
+  it.each([
+    ["empty", ""],
+    ["whitespace-only", " \t "],
+    ["lone hash", "#"],
+    ["lone question mark", "?"],
+  ])("preserves the remaining line byte-for-byte when a link with a %s href opens the line", (_name, href) => {
+    const link = `[docs](${href})`;
+    // The remainder ends in two trailing spaces: only invalid-link-target is
+    // enabled, so the fix must leave every byte after the link untouched.
+    const rest = " — see [guide](./guide.md) and [sic]  ";
+    const doc = `Intro.\n\n${link}${rest}\n`;
+    const expected = `Intro.\n\n[docs](TODO)${rest}\n`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    const { from, to } = violations[0].range!;
+    expect(from).toMatchObject({ line: 3, col: 0 });
+    expect(doc.slice(from.offset, to.offset)).toBe(link);
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // Everything after the repaired link is byte-for-byte the original line.
+    expect(fixed.slice(from.offset + "[docs](TODO)".length)).toBe(doc.slice(to.offset));
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
