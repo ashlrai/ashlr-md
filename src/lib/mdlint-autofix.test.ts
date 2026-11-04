@@ -160,6 +160,31 @@ describe("autofix: two undescribed images on one line", () => {
   });
 });
 
+describe("autofix: undescribed images on separate lines", () => {
+  it("preserves sources and mixed line breaks when fixes are applied in either order", () => {
+    const rules = [ruleMissingAltText];
+    const doc =
+      'First ![](img/a%20b.png?v=2#top "Chart")\r\nBetween.\nSecond ![ ](img/図.svg)\r\n';
+    const firstFixed =
+      'First ![TODO: describe image](img/a%20b.png?v=2#top "Chart")\r\nBetween.\nSecond ![ ](img/図.svg)\r\n';
+    const secondFixed =
+      'First ![](img/a%20b.png?v=2#top "Chart")\r\nBetween.\nSecond ![TODO: describe image](img/図.svg)\r\n';
+    const expected =
+      'First ![TODO: describe image](img/a%20b.png?v=2#top "Chart")\r\nBetween.\nSecond ![TODO: describe image](img/図.svg)\r\n';
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+      "missing-alt-text",
+      "missing-alt-text",
+    ]);
+    expect(applyFix(doc, violations[0])).toBe(firstFixed);
+    expect(applyFix(doc, violations[1])).toBe(secondFixed);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(applyAllFixes(doc, [...violations].reverse())).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+});
+
 describe("autofix: empty image description", () => {
   it.each([
     ["a bare path", "a.png"],
