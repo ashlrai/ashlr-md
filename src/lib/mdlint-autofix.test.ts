@@ -13574,3 +13574,25 @@ describe("autofix preserves [1] prose brackets", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+describe("autofix describes two undescribed images", () => {
+  it.each([
+    "\n",
+    "\r\n",
+  ])("gives both images a description and keeps both sources (line endings %j)", (nl) => {
+    const first = "images/a.png?size=2#top";
+    const second = "https://example.com/b.svg";
+    const doc = `Intro.${nl}${nl}![](${first}) and ![](${second} "B").${nl}`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(2);
+    const fixed = applyAllFixes(doc, violations);
+
+    expect(fixed).toBe(
+      `Intro.${nl}${nl}![TODO: describe image](${first}) and ![TODO: describe image](${second} "B").${nl}`,
+    );
+    expect(fixed.match(/!\[TODO: describe image\]/g)).toHaveLength(2);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
