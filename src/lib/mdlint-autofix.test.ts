@@ -20412,3 +20412,49 @@ describe("autofix: undescribed image at the end of a paragraph", () => {
     expect(lintDocument(expected, { rules: [ruleMissingAltText] })).toEqual([]);
   });
 });
+
+describe("invalid-link-target autofix: invalid link starting a blockquote line", () => {
+  const rules = [ruleInvalidLinkTarget];
+
+  it.each([
+    ["a space after the marker", "> "],
+    ["no space after the marker", ">"],
+    ["a nested quote", ">> "],
+  ])("replaces the href with TODO and keeps the blockquote marker (%s)", (_name, marker) => {
+    const doc = `Intro.\n\n${marker}[the guide]() then text.\n${marker}Next line.\n\nOutro.\n`;
+    const expected = `Intro.\n\n${marker}[the guide](TODO) then text.\n${marker}Next line.\n\nOutro.\n`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("invalid-link-target");
+    expect(violations[0].fix).not.toBeNull();
+    // The range covers only the link, never the quote marker.
+    expect(
+      doc.slice(violations[0].range!.from.offset, violations[0].range!.to.offset),
+    ).toBe("[the guide]()");
+
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain(`${marker}[the guide](TODO)`);
+    expect(fixed.split("\n").filter((l) => l.startsWith(">"))).toHaveLength(2);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it("replaces only the blockquote occurrence when an identical link sits inside an earlier code span", () => {
+    const doc = "Code shows `[guide]()` first.\n\n> Quote: [guide]() ends.\n";
+    const expected = "Code shows `[guide]()` first.\n\n> Quote: [guide](TODO) ends.\n";
+    const violations = lintDocument(doc, { rules });
+
+    // The code span is masked, so only the quoted link is reported; the fix
+    // searches from the violation's offset, so it cannot hit the earlier
+    // identical match inside the code span.
+    expect(violations).toHaveLength(1);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain("`[guide]()`");
+    expect(fixed).toContain("> Quote: [guide](TODO)");
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
