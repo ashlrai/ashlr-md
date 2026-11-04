@@ -182,6 +182,41 @@ describe("autofix: undescribed image at the start of a line", () => {
   });
 });
 
+describe("autofix: undescribed image on a CRLF-delimited line", () => {
+  const PLACEHOLDER = "TODO: describe image";
+  const countOf = (text: string, needle: string) => text.split(needle).length - 1;
+
+  it.each([
+    ["every line is CRLF", "\r\n", "\r\n"],
+    ["CRLF line between LF lines", "\n", "\r\n"],
+    ["LF line between CRLF lines", "\r\n", "\n"],
+  ])("keeps each line ending and image source (%s)", (_name, outer, inner) => {
+    const rules = [ruleMissingAltText];
+    const doc = `Top.${outer}![](a.png "A")${inner}Mid ![ ](dir/b%20c.png?v=1#x) end.${inner}![Ok](ok.png)${outer}![](z.png)${outer}`;
+    const expected = `Top.${outer}![${PLACEHOLDER}](a.png "A")${inner}Mid ![${PLACEHOLDER}](dir/b%20c.png?v=1#x) end.${inner}![Ok](ok.png)${outer}![${PLACEHOLDER}](z.png)${outer}`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+      "missing-alt-text",
+      "missing-alt-text",
+      "missing-alt-text",
+    ]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(countOf(fixed, "\r\n")).toBe(countOf(doc, "\r\n"));
+    expect(countOf(fixed, "\n")).toBe(countOf(doc, "\n"));
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it("fixes one violation at a time without touching the CRLF around it", () => {
+    const rules = [ruleMissingAltText];
+    const doc = `![](a.png)\r\n![](b.png)\r\n`;
+    const [first] = lintDocument(doc, { rules });
+
+    expect(applyFix(doc, first)).toBe(`![${PLACEHOLDER}](a.png)\r\n![](b.png)\r\n`);
+  });
+});
+
 describe("autofix: undescribed image inside a list item", () => {
   it.each([
     ["unordered dash", "- ", "\n"],
