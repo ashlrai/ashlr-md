@@ -20908,3 +20908,27 @@ describe("autofix: invalid-link stale-violation idempotence", () => {
     expect(violations.reduce((text, v) => applyFix(text, v), once)).toBe(once);
   });
 });
+
+describe("autofix: undescribed image beside a described image", () => {
+  it.each([
+    true,
+    false,
+  ])("changes only the undescribed image (described first: %s)", (describedFirst) => {
+    const described = '![Sales chart](images/chart.png?v=2#top "Chart")';
+    const missing = "![](images/photo.png)";
+    const repaired = "![TODO: describe image](images/photo.png)";
+    const pair = (image: string) =>
+      describedFirst ? `${described} ${image}` : `${image} ${described}`;
+    const doc = `Before ${pair(missing)} after.\r\n`;
+    const expected = `Before ${pair(repaired)} after.\r\n`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(missing);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+});
