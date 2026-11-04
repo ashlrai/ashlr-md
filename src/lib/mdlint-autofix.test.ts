@@ -16519,3 +16519,116 @@ describe("autofix: undescribed image with a Unicode source", () => {
     expect(lintDocument(fixed, { rules: defaultRules })).toEqual([]);
   });
 });
+
+describe("autofix: invalid link on the final line after a valid paragraph", () => {
+  const rules = [ruleInvalidLinkTarget];
+
+  it.each([
+    ["LF, trailing newline", "\n", "\n"],
+    ["LF, no trailing newline", "\n", ""],
+    ["CRLF, trailing newline", "\r\n", "\r\n"],
+    ["CRLF, no trailing newline", "\r\n", ""],
+  ])("replaces the destination and preserves the preceding paragraph byte-for-byte (%s)", (_name, nl, end) => {
+    const paragraph = [
+      "A valid paragraph citing [docs](./guide.md) with *emphasis* and café text",
+      "that wraps onto a second line, both of which stay untouched.",
+    ].join(nl);
+    const doc = `${paragraph}${nl}${nl}[broken]()${end}`;
+    const expected = `${paragraph}${nl}${nl}[broken](TODO)${end}`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+    expect(violations[0].fix).not.toBeNull();
+    const { from, to } = violations[0].range!;
+    // The link alone is the final line: it starts at column 0 right after
+    // the blank line and ends at the document's last byte before `end`.
+    const lastLine = doc.split("\n").length - (end === "" ? 0 : 1);
+    expect(from.line).toBe(lastLine);
+    expect(to.line).toBe(lastLine);
+    expect(from.col).toBe(0);
+    expect(from.offset).toBe(paragraph.length + nl.length * 2);
+    expect(doc.slice(from.offset, to.offset)).toBe("[broken]()");
+    expect(to.offset).toBe(doc.length - end.length);
+
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    // Acceptance: the preceding paragraph is preserved byte-for-byte.
+    expect(fixed.slice(0, paragraph.length)).toBe(paragraph);
+    expect(fixed.endsWith(`${nl}[broken](TODO)${end}`)).toBe(true);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(expected);
+  });
+
+  it.each([
+    ["empty", ""],
+    ["whitespace-only", " \t "],
+    ["a bare fragment marker", "#"],
+    ["a bare query marker", "?"],
+  ])("replaces %s destination when the link is the whole final line", (_name, href) => {
+    for (const nl of ["\n", "\r\n"]) {
+      for (const end of [nl, ""]) {
+        const paragraph = "Intro paragraph with [a valid link](./a.md).";
+        const link = `[see more](${href})`;
+        const doc = `${paragraph}${nl}${nl}${link}${end}`;
+        const expected = `${paragraph}${nl}${nl}[see more](TODO)${end}`;
+        const violations = lintDocument(doc, { rules });
+
+        expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+        const { from, to } = violations[0].range!;
+        expect(doc.slice(from.offset, to.offset)).toBe(link);
+        expect(applyFix(doc, violations[0])).toBe(expected);
+        const fixed = applyAllFixes(doc, violations);
+        expect(fixed).toBe(expected);
+        expect(fixed.slice(0, paragraph.length)).toBe(paragraph);
+        expect(lintDocument(fixed, { rules })).toEqual([]);
+      }
+    }
+  });
+
+  it("fixes only the destination under the full default rule set and keeps the paragraph", () => {
+    for (const nl of ["\n", "\r\n"]) {
+      const paragraph = "A valid paragraph citing [docs](./guide.md).";
+      const doc = `---${nl}title: Notes${nl}---${nl}${nl}${paragraph}${nl}${nl}[broken](#)${nl}`;
+      const expected = doc.replace("[broken](#)", "[broken](TODO)");
+      const violations = lintDocument(doc);
+
+      expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      expect(fixed).toContain(`${nl}${nl}${paragraph}${nl}${nl}`);
+      expect(lintDocument(fixed)).toEqual([]);
+      expect(applyAllFixes(fixed, lintDocument(fixed))).toBe(expected);
+    }
+  });
+
+  it("repairs the link when its final line continues the paragraph without a blank line", () => {
+    for (const nl of ["\n", "\r\n"]) {
+      const paragraph = "First line of a valid paragraph with [docs](./guide.md).";
+      const doc = `${paragraph}${nl}[broken]()${nl}`;
+      const expected = `${paragraph}${nl}[broken](TODO)${nl}`;
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      expect(fixed.slice(0, paragraph.length)).toBe(paragraph);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+    }
+  });
+
+  it("repairs the final-line link while a trailing-spaces fix cleans the paragraph above", () => {
+    const doc = "Paragraph with trailing spaces.   \n\n[broken]()";
+    const expected = "Paragraph with trailing spaces.\n\n[broken](TODO)";
+    const both = [ruleNoTrailingSpaces, ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules: both });
+
+    expect(violations.map((v) => v.ruleId)).toEqual([
+      "no-trailing-spaces",
+      "invalid-link-target",
+    ]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules: both })).toEqual([]);
+  });
+});
