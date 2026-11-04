@@ -16187,3 +16187,44 @@ describe("missing-alt-text autofix in a blockquote", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+describe("invalid-link-target autofix with Unicode link text in block containers", () => {
+  const rules = [ruleInvalidLinkTarget];
+
+  it.each([
+    ["list item", "- ", "\n"],
+    ["ordered list item", "1. ", "\r\n"],
+    ["blockquote", "> ", "\n"],
+    ["heading", "## ", "\n"],
+    ["task list item", "- [ ] ", "\n"],
+  ])("keeps the Unicode text and sets the destination to TODO in a %s", (_name, prefix, nl) => {
+    for (const label of ["Руководство 日本語", "café 👩🏽‍💻", "دليل المستخدم"]) {
+      const doc = `Intro.${nl}${nl}${prefix}See [${label}]() today${nl}`;
+      const expected = `Intro.${nl}${nl}${prefix}See [${label}](TODO) today${nl}`;
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations).toHaveLength(1);
+      expect(violations[0].ruleId).toBe("invalid-link-target");
+      const { from, to } = violations[0].range!;
+      expect(doc.slice(from.offset, to.offset)).toBe(`[${label}]()`);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+    }
+  });
+
+  it("keeps Unicode link text in a table cell and fixes only the invalid destination", () => {
+    const doc =
+      "| Имя | Ссылка |\n| --- | --- |\n| A | [Руководство 日本語]() |\n| B | [ok](./b.md) |\n";
+    const expected = doc.replace(
+      "[Руководство 日本語]()",
+      "[Руководство 日本語](TODO)",
+    );
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
