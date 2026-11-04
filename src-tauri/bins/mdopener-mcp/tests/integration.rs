@@ -6565,6 +6565,43 @@ fn export_text_keeps_two_adjacent_bracket_pairs_and_order_in_varied_contexts() {
     }
 }
 
+/// The same bracketed phrase twice must survive twice, each with its own
+/// surrounding text, rather than the second being merged or dropped.
+#[test]
+fn export_text_preserves_repeated_bracketed_phrase_and_surrounding_text() {
+    for (markdown, expected) in [
+        (
+            "Start [see note] middle words [see note] end.\n",
+            "Start [see note] middle words [see note] end.",
+        ),
+        (
+            "Before [TODO] one.\n\nBetween [TODO] two. After.\n",
+            "Before [TODO] one.\n\nBetween [TODO] two. After.",
+        ),
+        (
+            "Alpha [sic] beta [other] gamma [sic] delta [link](/x) omega [sic].\n",
+            "Alpha [sic] beta [other] gamma [sic] delta link omega [sic].",
+        ),
+        (
+            "> quoted [note] text\n\n- list [note] item\n",
+            "quoted [note] text\n\nlist [note] item",
+        ),
+        (
+            "Préface [à revoir] milieu [à revoir] fin\n",
+            "Préface [à revoir] milieu [à revoir] fin",
+        ),
+    ] {
+        let result = run_export_text_on(markdown);
+        let text = result["text"].as_str().unwrap();
+        assert_eq!(text, expected, "{markdown:?}");
+        assert_eq!(
+            result["char_count"].as_u64().unwrap() as usize,
+            expected.chars().count(),
+            "{markdown:?}"
+        );
+    }
+}
+
 /// `char_count` said only "character counts", leaving an agent to guess
 /// bytes or characters. The description says Unicode characters, and the
 /// count of a non-ASCII document is its chars, not its bytes.
