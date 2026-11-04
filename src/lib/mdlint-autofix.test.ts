@@ -1976,6 +1976,22 @@ describe("rule:invalid-link-target", () => {
     expect(applyFix(once, rest[0])).toBe(expected);
   });
 
+  it("fixes two invalid links on one line in either order and keeps both labels", () => {
+    const doc = "See [Alpha *one*](?) or [Beta](\t) now.\n";
+    const expected = "See [Alpha *one*](TODO) or [Beta](TODO) now.\n";
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(2);
+    // Fixing the second link first must not disturb the first link's span.
+    const secondFirst = applyFix(doc, violations[1]);
+    expect(secondFirst).toBe("See [Alpha *one*](?) or [Beta](TODO) now.\n");
+    const rest = lintDocument(secondFirst, { rules });
+    expect(rest).toHaveLength(1);
+    expect(applyFix(secondFirst, rest[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+  });
+
   it("applyFix on the single invalid link in a list and table row leaves the valid links beside it untouched", () => {
     const doc =
       "- [good](./good.md)\n- [bad]()\n\n| a | b |\n| - | - |\n| [ok](https://example.com) | [bad2](?) |\n";
