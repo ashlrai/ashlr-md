@@ -1059,6 +1059,25 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(expected)).toEqual([]);
   });
 
+  it("rewrites two invalid links in separate paragraphs to TODO and keeps all surrounding prose intact", () => {
+    const intro = "Intro with a [valid](./ok.md) link and `code`.";
+    const middle = "Middle paragraph, untouched, with **bold** words.";
+    const outro = "Closing words stay exactly as written.";
+    const doc = `${intro}\n\nFirst: [alpha guide]() here.\n\n${middle}\n\nSecond: [beta guide](  ) there.\n\n${outro}\n`;
+    const expected = `${intro}\n\nFirst: [alpha guide](TODO) here.\n\n${middle}\n\nSecond: [beta guide](TODO) there.\n\n${outro}\n`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(2);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    for (const prose of [intro, middle, outro]) expect(fixed).toContain(prose);
+    // Fixing one at a time (re-linting between) reaches the same result.
+    const stepwise = applyFix(doc, violations[0]);
+    expect(applyFix(stepwise, lintDocument(stepwise, { rules })[0])).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
   it("replaces both invalid hrefs in a blockquote and keeps both labels, with no trailing newline", () => {
     const doc = "> [alpha *one*]()\n> [beta **two**](?)";
     const expected = "> [alpha *one*](TODO)\n> [beta **two**](TODO)";
