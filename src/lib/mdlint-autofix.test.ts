@@ -103,6 +103,19 @@ describe("rule:invalid-link-target", () => {
     );
   });
 
+  it("replaces an empty link destination in a heading with TODO and keeps heading text intact", () => {
+    const doc = "## Welcome to [My App]()\n\nBody text here.\n";
+    const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("invalid-link-target");
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe("## Welcome to [My App](TODO)\n\nBody text here.\n");
+    // Heading text and structure preserved; the link is now valid.
+    expect(fixed).toContain("## Welcome to");
+    expect(lintDocument(fixed, { rules: [ruleInvalidLinkTarget] })).toEqual([]);
+  });
+
   it("reports no invalid-link-target diagnostic for titled, angle-bracket and reference links", () => {
     const doc = [
       '[titled](./guide.md "Guide")',
