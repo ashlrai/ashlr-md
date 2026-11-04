@@ -67,6 +67,18 @@ Inputs and outputs are JSON strings: `\n` is a newline, `\t` is a tab, and `\\` 
 | `export_text_keeps_bracketed_prose_at_the_start_and_end_of_a_paragraph` | `export_text` | ` "[one] wraps a paragraph\nspanning two lines [two]\n\n[three] opens the next.\n" ` | ` "[one] wraps a paragraph\nspanning two lines [two]\n\n[three] opens the next." ` |
 | `export_text_keeps_bracketed_prose_at_the_start_and_end_of_a_paragraph` | `export_text` | ` "[sic] see [the guide](/guide) for details [TODO].\n" ` | ` "[sic] see the guide for details [TODO]." ` |
 | `export_text_keeps_bracketed_prose_at_the_start_and_end_of_a_paragraph` | `export_text` | ` "[sic] recheck [the guide] now.\n\n[the guide]: /guide\n" ` | ` "[sic] recheck the guide now." ` |
+| `export_text_keeps_bracketed_prose_at_paragraph_end_with_closing_marks` | `export_text` | ` "Confirmed [sic],\n" ` | ` "Confirmed [sic]," ` |
+| `export_text_keeps_bracketed_prose_at_paragraph_end_with_closing_marks` | `export_text` | ` "(as noted [1])\n" ` | ` "(as noted [1])" ` |
+| `export_text_keeps_bracketed_prose_at_paragraph_end_with_closing_marks` | `export_text` | ` "She said \"verbatim [sic]\"\n" ` | ` "She said \"verbatim [sic]\"" ` |
+| `export_text_keeps_bracketed_prose_at_paragraph_end_with_closing_marks` | `export_text` | ` "Ends [a]—\n" ` | ` "Ends [a]—" ` |
+| `export_text_keeps_bracketed_prose_at_paragraph_end_with_closing_marks` | `export_text` | ` "確認 [要確認]。\n" ` | ` "確認 [要確認]。" ` |
+| `export_text_keeps_bracketed_prose_at_paragraph_end_with_closing_marks` | `export_text` | ` "[sic].\n" ` | ` "[sic]." ` |
+| `export_text_keeps_bracketed_prose_at_paragraph_end_with_closing_marks` | `export_text` | ` "Ends [needs\nreview].\n" ` | ` "Ends [needs\nreview]." ` |
+| `export_text_keeps_bracketed_prose_at_paragraph_end_with_closing_marks` | `export_text` | ` "> > Nested quote ends [a].\n" ` | ` "Nested quote ends [a]." ` |
+| `export_text_keeps_bracketed_prose_at_paragraph_end_with_closing_marks` | `export_text` | ` "- item one\n\n  second paragraph ends [a].\n" ` | ` "item one\n\nsecond paragraph ends [a]." ` |
+| `export_text_keeps_bracketed_prose_at_paragraph_end_with_closing_marks` | `export_text` | ` "Plan [Draft]\n---\n" ` | ` "Plan [Draft]" ` |
+| `export_text_keeps_bracketed_prose_at_paragraph_end_with_closing_marks` | `export_text` | ` "Ends [a].\n<div>raw html</div>\n" ` | ` "Ends [a].\nraw html" ` |
+| `export_text_keeps_bracketed_prose_at_paragraph_end_with_closing_marks` | `export_text` | ` "[a]: /u\n\nEnds [a].\n" ` | ` "Ends a." ` |
 | `export_text_keeps_bracketed_sic_in_surrounding_prose` | `export_text` | ` "The report says the result was 'definately [sic] confirmed' by [the authors](https://example.com).\n" ` | ` "The report says the result was 'definately [sic] confirmed' by the authors." ` |
 | `export_text_keeps_bracketed_prose_in_list_items` | `export_text` | ` "- The quote says 'definately [sic]' in [the report](/report).\n" ` | ` "The quote says 'definately [sic]' in the report." ` |
 | `export_text_keeps_bracketed_prose_in_list_items` | `export_text` | ` "1. [sic] begins the note.\n2. End with [TODO].\n" ` | ` "[sic] begins the note.\nEnd with [TODO]." ` |
