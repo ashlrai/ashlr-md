@@ -14355,6 +14355,39 @@ describe("autofix: plain paragraph preservation", () => {
   });
 });
 
+describe("autofix: document without links or images", () => {
+  it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+  ])("leaves a structured document unchanged with %s line endings", (_label, newline) => {
+    const doc = [
+      "---",
+      "title: Field notes",
+      "---",
+      "",
+      "# Field notes",
+      "",
+      "A short introduction with Unicode: café and 雪.",
+      "",
+      "## Observations",
+      "",
+      "- First observation",
+      "- Second observation",
+      "",
+      "> Keep the original wording.",
+      "",
+      "```text",
+      "Some example text.",
+      "```",
+      "",
+    ].join(newline);
+    const violations = lintDocument(doc);
+
+    expect(violations).toEqual([]);
+    expect(applyAllFixes(doc, violations)).toBe(doc);
+  });
+});
+
 // ─── valid mailto links beside real violations ───────────────────────────────
 
 describe("autofix: valid mailto link preserved next to a broken link", () => {
