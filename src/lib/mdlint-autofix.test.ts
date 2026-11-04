@@ -775,6 +775,32 @@ describe("autofix: undescribed image idempotence (fix twice == fix once)", () =>
   const fixOnce = (doc: string) => applyAllFixes(doc, lintDocument(doc, { rules }));
 
   it.each([
+    "\n",
+    "\r\n",
+  ])("reaches the exact mixed-rule result in one pass (%j)", (nl) => {
+    const mixedRules = [
+      ruleMissingAltText,
+      ruleInvalidLinkTarget,
+      ruleNoTrailingSpaces,
+    ];
+    const doc = [
+      "Café ![](images/a.png?size=2#preview) and [guide]() ",
+      "![ ](b.svg) beside ![Logo](logo.svg) and `![](code.png)`.",
+    ].join(nl);
+    const expected = [
+      "Café ![TODO: describe image](images/a.png?size=2#preview) and [guide](TODO)",
+      "![TODO: describe image](b.svg) beside ![Logo](logo.svg) and `![](code.png)`.",
+    ].join(nl);
+    const violations = lintDocument(doc, { rules: mixedRules });
+    expect(violations.filter((v) => v.ruleId === "missing-alt-text")).toHaveLength(2);
+    const once = applyAllFixes(doc, violations);
+    expect(once).toBe(expected);
+    const remaining = lintDocument(once, { rules: mixedRules });
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(once, remaining)).toBe(once);
+  });
+
+  it.each([
     ["one image", "![](a.png)\n"],
     ["blank, spaced and tabbed alt text", "![](a.png) ![ ](b.png) ![\t](c.png)\n"],
     ["a described image alongside an undescribed one", "![Logo](l.svg) ![](a.png)\n"],
