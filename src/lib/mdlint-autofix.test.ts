@@ -13721,3 +13721,24 @@ describe("autofix: described image beside an undescribed image", () => {
     expect(getLintHistory()).toEqual(history);
   });
 });
+
+describe("whitespace-only description on an image wrapped in a valid link", () => {
+  it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+  ])("inserts the placeholder and keeps both the image destination and the link target (%s)", (_name, nl) => {
+    const rules = [ruleMissingAltText, ruleInvalidLinkTarget];
+    const doc = `Click [![  \t](images/thumb.png?size=2#full "Thumb")](https://example.com/full.png) now.${nl}`;
+    const expected = `Click [![TODO: describe image](images/thumb.png?size=2#full "Thumb")](https://example.com/full.png) now.${nl}`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "missing-alt-text",
+    ]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain('(images/thumb.png?size=2#full "Thumb")');
+    expect(fixed).toContain("(https://example.com/full.png)");
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
