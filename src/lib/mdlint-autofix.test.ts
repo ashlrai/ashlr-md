@@ -535,6 +535,35 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    ["a replacement-pattern character", "Costs $& total"],
+    ["a backslash", "C:\\docs\\notes"],
+    ["emphasis", "**now** _please_"],
+    ["an empty label", ""],
+  ])("sets an empty href to TODO and keeps a label with %s verbatim", (_kind, label) => {
+    const doc = `Go: [${label}]() end.\n`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    const expected = `Go: [${label}](TODO) end.\n`;
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+
+  it("fixes two identical empty-href links independently, one TODO each", () => {
+    const doc = "[same]() and [same]() again.\n";
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(2);
+    expect(applyAllFixes(doc, violations)).toBe(
+      "[same](TODO) and [same](TODO) again.\n",
+    );
+    expect(applyFix(doc, violations[1])).toBe("[same]() and [same](TODO) again.\n");
+  });
+
+  it.each([
     ["spaces", "   "],
     ["a tab", "\t"],
     ["mixed spaces and tabs", " \t \t "],
