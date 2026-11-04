@@ -10760,6 +10760,27 @@ fn export_text_keeps_bracketed_prose_in_list_items() {
 }
 
 #[test]
+fn export_text_keeps_bracketed_prose_in_numbered_list() {
+    let markdown = "1. Review [the revised plan] before [the guide](/guide).\n\
+        2. [ ] Check [the final draft], then send it.\n\
+        3. Finish with [no further changes].\n";
+    let expected = "Review [the revised plan] before the guide.\n\
+        Check [the final draft], then send it.\n\
+        Finish with [no further changes].";
+
+    let file_result = run_export_text_on(markdown);
+    assert_eq!(file_result["text"].as_str().unwrap(), expected);
+
+    let ipc = MockIpc::new().on_get(
+        "/content",
+        Ok(json!({ "path": "/docs/test.md", "content": markdown })),
+    );
+    let response = tool_export_text(id(2), &json!({}), &ipc);
+    assert!(response.error.is_none());
+    assert_eq!(content_text(&response)["text"].as_str().unwrap(), expected);
+}
+
+#[test]
 fn export_text_keeps_bracketed_phrases_adjacent_to_punctuation() {
     for (markdown, expected) in [
         (
