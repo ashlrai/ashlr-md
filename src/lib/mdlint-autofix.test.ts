@@ -131,6 +131,20 @@ describe("rule:invalid-link-target", () => {
     );
   });
 
+  it("fills an empty destination on a CRLF-delimited line without touching line endings or text", () => {
+    const doc = "# Guide\r\n\r\nBefore, read [the guide]() carefully; then continue.\r\n\r\nAfter.\r\n";
+    const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("invalid-link-target");
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(
+      "# Guide\r\n\r\nBefore, read [the guide](TODO) carefully; then continue.\r\n\r\nAfter.\r\n",
+    );
+    // No bare LF introduced: every \n is still preceded by \r.
+    expect(fixed.match(/(?<!\r)\n/g)).toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(fixed);
+  });
+
   it("reports no invalid-link-target diagnostic for titled, angle-bracket and reference links", () => {
     const doc = [
       '[titled](./guide.md "Guide")',
