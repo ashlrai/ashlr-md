@@ -14614,3 +14614,23 @@ describe("invalid-link-target autofix: invalid link at the start of a line", () 
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+describe("rule:missing-alt-text — undescribed image at end of document", () => {
+  it.each([
+    "\n",
+    "\r\n",
+  ])("inserts the description placeholder and keeps the preceding prose exact with %j line endings", (nl) => {
+    const prose = `# Release café${nl}${nl}Intro with *emphasis*, [guide](./guide.md) and trailing  ${nl}${nl}Final paragraph before the figure:${nl}${nl}`;
+    const doc = `${prose}![](images/final.png?v=2#top)`; // no trailing newline
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("missing-alt-text");
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(`${prose}![TODO: describe image](images/final.png?v=2#top)`);
+    // Everything before the image is byte-for-byte unchanged.
+    expect(fixed.startsWith(prose)).toBe(true);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
