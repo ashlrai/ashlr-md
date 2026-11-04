@@ -14211,6 +14211,61 @@ describe("autofix preserves [1] prose brackets", () => {
       expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
     }
   });
+
+  it.each([
+    [
+      "whitespace-only alt with a titled destination",
+      'Per [1], see ![ ](fig.png "Fig") here.',
+      'Per [1], see ![TODO: describe image](fig.png "Fig") here.',
+      '![ ](fig.png "Fig")',
+    ],
+    [
+      "tab-padded alt touching the [1]",
+      "Cite [1]![ \t ](img/a.svg) done.",
+      "Cite [1]![TODO: describe image](img/a.svg) done.",
+      "![ \t ](img/a.svg)",
+    ],
+    [
+      "query and fragment in the destination",
+      "Chart ![](charts/q3.png?s=2#top) [1] stands.",
+      "Chart ![TODO: describe image](charts/q3.png?s=2#top) [1] stands.",
+      "![](charts/q3.png?s=2#top)",
+    ],
+    [
+      "in a blockquote",
+      "> Noted [1]: ![](fig.png), cf. [2].",
+      "> Noted [1]: ![TODO: describe image](fig.png), cf. [2].",
+      "![](fig.png)",
+    ],
+    [
+      "next to a described image whose alt is literally [1]",
+      "Plot ![1](ref.png) vs ![](data.png) [1].",
+      "Plot ![1](ref.png) vs ![TODO: describe image](data.png) [1].",
+      "![](data.png)",
+    ],
+  ])("describes the image with the placeholder and keeps the [1] prose verbatim (%s)", (_name, line, expectedLine, image) => {
+    for (const nl of ["\n", "\r\n"]) {
+      const doc = `${line}${nl}`;
+      const expected = `${expectedLine}${nl}`;
+      const rules = [ruleInvalidLinkTarget, ruleMissingAltText];
+      const violations = lintDocument(doc, { rules });
+
+      // The undescribed image is the only finding; [1] is prose — and, as a
+      // described image's alt, literal text — never a link or alt violation.
+      expect(violations.map((v) => v.ruleId)).toEqual(["missing-alt-text"]);
+      expect(
+        doc.slice(violations[0].range!.from.offset, violations[0].range!.to.offset),
+      ).toBe(image);
+
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      // Every [1] — prose citation or described alt — survives byte-for-byte.
+      expect(fixed.match(/\[1\]/g)).toHaveLength(doc.match(/\[1\]/g)!.length);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+      expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+    }
+  });
 });
 
 describe("autofix describes two undescribed images", () => {
