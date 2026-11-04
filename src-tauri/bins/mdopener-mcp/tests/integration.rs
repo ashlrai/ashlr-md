@@ -6462,6 +6462,47 @@ fn export_text_preserves_bracketed_prose_across_consecutive_lines() {
     }
 }
 
+/// Two bracketed phrases on separate lines keep both brackets in the
+/// rendered text whatever block they sit in: a heading and its body, a
+/// setext heading, a table, emphasis, a code span beside them, CRLF endings,
+/// and a defined label elsewhere that must not swallow either phrase.
+#[test]
+fn export_text_keeps_two_bracketed_phrases_on_separate_lines_in_each_block() {
+    let cases = [
+        ("# [Draft]\n[Reviewed]\n", "[Draft]\n[Reviewed]"),
+        ("[Draft]\n=====\n[Reviewed]\n", "[Draft]\n[Reviewed]"),
+        (
+            "**[bold note]**\n*[italic note]*\n",
+            "[bold note]\n[italic note]",
+        ),
+        (
+            "`code` [first]\n[second] `code`\n",
+            "code [first]\n[second] code",
+        ),
+        ("[first]\r\n[second]\r\n", "[first]\n[second]"),
+        ("[first]\n\n\n[second]\n", "[first]\n\n[second]"),
+        (
+            "[first]\n[second]\n\n[other]: https://example.com\n",
+            "[first]\n[second]",
+        ),
+        ("1. [first]\n2. [second]\n", "[first]\n[second]"),
+    ];
+    for (markdown, expected) in cases {
+        let result = run_export_text_on(markdown);
+        let text = result["text"].as_str().unwrap();
+        for phrase in ["[first]", "[second]"] {
+            if markdown.contains(phrase) {
+                assert!(
+                    text.contains(phrase),
+                    "{phrase} lost in {text:?} for {markdown:?}"
+                );
+            }
+        }
+        let squeezed = |s: &str| s.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert_eq!(squeezed(text), squeezed(expected), "{markdown:?}");
+    }
+}
+
 #[test]
 fn export_text_keeps_bracketed_phrase_order_across_consecutive_lines() {
     let phrases = ["[one]", "[two words]", "[3]", "[four (4)]", "[five]"];
