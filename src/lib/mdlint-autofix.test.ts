@@ -9801,6 +9801,52 @@ describe("rule:missing-alt-text two undescribed images", () => {
     ]);
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
+
+  it.each([
+    ["\n"],
+    ["\r\n"],
+  ])("describes two linked undescribed images and keeps every image source and link href intact (%j line endings)", (nl) => {
+    const first = "[![](img/one.png)](pages/one)";
+    const second = '[![  ](img/two.svg?w=2#top "Two")](<pages/two page>)';
+    const fixedFirst = "[![TODO: describe image](img/one.png)](pages/one)";
+    const fixedSecond =
+      '[![TODO: describe image](img/two.svg?w=2#top "Two")](<pages/two page>)';
+    const doc = `Links.${nl}${nl}Open ${first} then ${second} today.${nl}`;
+    const expected = `Links.${nl}${nl}Open ${fixedFirst} then ${fixedSecond} today.${nl}`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    // One violation per image; each range covers just the image inside its link.
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+      "missing-alt-text",
+      "missing-alt-text",
+    ]);
+    expect(
+      violations.map(({ range }) => doc.slice(range!.from.offset, range!.to.offset)),
+    ).toEqual(["![](img/one.png)", '![  ](img/two.svg?w=2#top "Two")']);
+    expect(violations.every(({ fix }) => fix !== null)).toBe(true);
+    // Each single fix describes only its own image, leaving the other link
+    // and its image untouched for a later pass.
+    expect(applyFix(doc, violations[0])).toBe(
+      `Links.${nl}${nl}Open ${fixedFirst} then ${second} today.${nl}`,
+    );
+    expect(applyFix(doc, violations[1])).toBe(
+      `Links.${nl}${nl}Open ${first} then ${fixedSecond} today.${nl}`,
+    );
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // Both image sources and both link hrefs are byte-for-byte intact.
+    for (const destination of [
+      "(img/one.png)",
+      '](img/two.svg?w=2#top "Two")',
+      "](pages/one)",
+      "](<pages/two page>)",
+    ]) {
+      expect(fixed).toContain(destination);
+    }
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
 });
 
 describe("autofix: empty document", () => {
