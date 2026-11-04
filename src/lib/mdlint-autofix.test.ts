@@ -16425,3 +16425,59 @@ describe("autofix: undescribed image with a Unicode source", () => {
     expect(lintDocument(fixed, { rules: defaultRules })).toEqual([]);
   });
 });
+
+// ─── Undescribed image on the final line after a valid paragraph ─────────────
+
+describe("autofix: undescribed image on the final line after a valid paragraph", () => {
+  const rules = [ruleMissingAltText];
+
+  it.each([
+    ["LF, trailing newline", "\n", "\n"],
+    ["LF, no trailing newline", "\n", ""],
+    ["CRLF, trailing newline", "\r\n", "\r\n"],
+    ["CRLF, no trailing newline", "\r\n", ""],
+  ])("inserts the description placeholder and preserves the preceding paragraph (%s)", (_name, nl, end) => {
+    const paragraph = `A valid paragraph, wrapped${nl}over two lines with *emphasis* and [a link](./guide.md).`;
+    const doc = `${paragraph}${nl}${nl}![](images/final.png)${end}`;
+    const expected = `${paragraph}${nl}${nl}![TODO: describe image](images/final.png)${end}`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("missing-alt-text");
+    expect(violations[0].fix).not.toBeNull();
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe("![](images/final.png)");
+    // The image is the last thing in the document, before any final newline.
+    expect(to.offset).toBe(doc.length - end.length);
+
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // The paragraph ahead of the image is byte-identical.
+    expect(fixed.startsWith(`${paragraph}${nl}${nl}`)).toBe(true);
+    // Removing the inserted placeholder restores the original document.
+    expect(fixed.replace("TODO: describe image", "")).toBe(doc);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(expected);
+  });
+
+  it.each([
+    ["empty alt", ""],
+    ["space-only alt", " "],
+    ["tab-only alt", "\t"],
+  ])("describes a final-line image with %s and keeps the paragraph under the default-enabled rules", (_name, alt) => {
+    const paragraph = "Closing notes paragraph.";
+    const doc = `${paragraph}\n\n![${alt}](img/end.png)\n`;
+    const expected = `${paragraph}\n\n![TODO: describe image](img/end.png)\n`;
+    const defaultRules = BUILTIN_RULES.filter((rule) =>
+      LINTER_DEFAULT_ENABLED_RULES.includes(rule.id),
+    );
+    const violations = lintDocument(doc, { rules: defaultRules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.startsWith(`${paragraph}\n\n`)).toBe(true);
+    expect(lintDocument(fixed, { rules: defaultRules })).toEqual([]);
+  });
+});
