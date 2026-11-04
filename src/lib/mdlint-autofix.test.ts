@@ -796,6 +796,30 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(fixed, { rules: [ruleInvalidLinkTarget] })).toEqual([]);
   });
 
+  it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+  ])("turns an empty href at offset 0 into TODO and keeps the following prose, hard break and tabs exactly (%s)", (_name, nl) => {
+    const tail = [
+      " opens the file, then *emphasis*  ",
+      "\tindented\ttext with café — “quotes”; <b>html</b> &amp; [ref]: not a def.",
+      "",
+    ].join(nl);
+    const doc = `[start]()${tail}`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    const { from, to } = violations[0].range!;
+    expect(from.offset).toBe(0);
+    expect(doc.slice(from.offset, to.offset)).toBe("[start]()");
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(`[start](TODO)${tail}`);
+    expect(fixed.slice("[start](TODO)".length)).toBe(tail);
+    expect(applyFix(doc, violations[0])).toBe(fixed);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
   it("fixes only the start-of-document link with applyFix and leaves a later invalid link and inline code for the next pass", () => {
     const doc = "[head]() then `[code]()` and [later](#) end.\n";
     const rules = [ruleInvalidLinkTarget];
