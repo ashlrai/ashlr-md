@@ -1261,6 +1261,24 @@ describe("rule:invalid-link-target", () => {
     expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
   });
 
+  it.each([
+    "\n",
+    "\r\n",
+  ])("fixes the destination of an invalid link in the second paragraph and leaves the first paragraph byte-for-byte unchanged (%j)", (nl) => {
+    const first = `First paragraph with a [valid](./ok.md) link,${nl}wrapped over two lines.`;
+    const second = `Second paragraph, see [the guide](`;
+    const doc = `${first}${nl}${nl}${second}  ) now.${nl}`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("invalid-link-target");
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(`${first}${nl}${nl}${second}TODO) now.${nl}`);
+    expect(fixed.startsWith(`${first}${nl}${nl}`)).toBe(true);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
   it("gives two invalid links in one document a TODO href each and keeps both labels", () => {
     const fm = "---\ntitle: Guide\n---\n\n";
     const doc = `${fm}See [first label]() and [second label](  ) for details.\n`;
