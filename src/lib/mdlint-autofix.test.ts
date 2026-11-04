@@ -21502,3 +21502,18 @@ describe("autofix: undescribed image in a blockquote under the default rules", (
     expect(applyAllFixes(fixed, lintDocument(fixed))).toBe(fixed);
   });
 });
+
+describe("autofix: invalid link with an empty destination", () => {
+  it("keeps the link text and sets the destination to TODO", () => {
+    const rules = [ruleInvalidLinkTarget];
+    const doc = "See [the docs]() for details.\n";
+    const expected = "See [the docs](TODO) for details.\n";
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
