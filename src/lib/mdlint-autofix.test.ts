@@ -91,9 +91,11 @@ describe("autofix: whitespace-only image description", () => {
     ["spaces", "   "],
     ["a tab", "\t"],
     ["mixed spaces and tabs", " \t  \t "],
+    ["vertical tab and form feed", "\v\f"],
     ["a non-breaking space", "\u00a0"],
     ["an ideographic space", "\u3000"],
     ["a line break inside the brackets", " \n "],
+    ["a CRLF and mixed whitespace inside the brackets", " \t\r\n\u00a0 "],
   ])("replaces %s with the placeholder and preserves the destination", (_kind, blank) => {
     const rules = [ruleMissingAltText];
     const doc = `Before ![${blank}](images/a%20b.png?v=2#top "Chart") after.\n`;
@@ -101,9 +103,15 @@ describe("autofix: whitespace-only image description", () => {
     const violations = lintDocument(doc, { rules });
 
     expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(
+      `![${blank}](images/a%20b.png?v=2#top "Chart")`,
+    );
+    expect(applyFix(doc, violations[0])).toBe(expected);
     const fixed = applyAllFixes(doc, violations);
     expect(fixed).toBe(expected);
     expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(expected);
   });
 });
 
