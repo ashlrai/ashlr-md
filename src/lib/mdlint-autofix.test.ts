@@ -486,6 +486,35 @@ describe("rule:invalid-link-target", () => {
     );
   });
 
+  it.each([
+    ["CJK", "日本語ガイド"],
+    ["accented Latin", "Ünïcödé façade"],
+    ["Cyrillic and Arabic", "Привет مرحبا"],
+    ["emoji and ZWJ sequence", "🧭 👩‍💻"],
+    ["combining marks", "é ñ"],
+  ])("preserves %s label text and fills an empty destination with TODO", (_kind, label) => {
+    for (const nl of ["\n", "\r\n"]) {
+      const doc = `Intro café.${nl}See [${label}]() now, and [ok](./ok.md).${nl}`;
+      const expected = `Intro café.${nl}See [${label}](TODO) now, and [ok](./ok.md).${nl}`;
+      const rules = [ruleInvalidLinkTarget];
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      expect(applyAllFixes(doc, violations)).toBe(expected);
+      expect(lintDocument(expected, { rules })).toEqual([]);
+    }
+  });
+
+  it("reports line 1 and fixes an invalid Unicode-labelled link after astral characters", () => {
+    const doc = "😀😀 [日本語]() end\n";
+    const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].range?.from.line).toBe(1);
+    expect(applyAllFixes(doc, violations)).toBe("😀😀 [日本語](TODO) end\n");
+  });
+
   it("reports no invalid-link-target diagnostic for titled, angle-bracket and reference links", () => {
     const doc = [
       '[titled](./guide.md "Guide")',
