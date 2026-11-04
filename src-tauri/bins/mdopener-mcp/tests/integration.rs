@@ -17523,3 +17523,32 @@ fn export_text_keeps_unicode_brackets_for_the_open_document_over_ipc() {
         assert_eq!(result["path"].as_str(), Some("/docs/uni.md"));
     }
 }
+
+/// Two bracketed prose spans split by inline syntax keep both pairs and their
+/// contents: inline code, strikethrough, a real link or image between them,
+/// an autolink, a hard break, a nested blockquote and a link whose text holds
+/// brackets. Only the syntax is stripped, never the prose brackets.
+#[test]
+fn export_text_keeps_both_bracket_pairs_when_inline_syntax_sits_between_them() {
+    for (markdown, expected) in [
+        ("[one] `code` [two]\n", "[one] code [two]"),
+        ("[one]`code`[two]\n", "[one]code[two]"),
+        ("[one] ~~gone~~ [two]\n", "[one] gone [two]"),
+        ("[one] [a link](/x) [two]\n", "[one] a link [two]"),
+        ("[one][a link](/x)[two]\n", "[one]a link[two]"),
+        ("[one] <https://x.com> [two]\n", "[one] https://x.com [two]"),
+        ("[one]\\\n[two]\n", "[one]\n[two]"),
+        ("> > [one] [two]\n", "[one] [two]"),
+        ("[one] [see [3]](/x) [two]\n", "[one] see [3] [two]"),
+    ] {
+        let result = run_export_text_on(markdown);
+        let text = result["text"].as_str().unwrap();
+        assert_eq!(text, expected, "{markdown:?}");
+        assert_eq!(strip_markdown(markdown), expected, "{markdown:?}");
+        assert_eq!(
+            result["char_count"].as_u64().unwrap() as usize,
+            expected.chars().count(),
+            "{markdown:?}"
+        );
+    }
+}
