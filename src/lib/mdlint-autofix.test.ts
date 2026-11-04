@@ -13034,6 +13034,24 @@ describe("autofix keeps [TODO] prose at document edges, in tables and in fences"
   });
 });
 
+describe("autofix keeps [1] prose at document edges, in tables and in fences", () => {
+  const rules = [ruleInvalidLinkTarget, ruleMissingAltText, ruleNoTrailingSpaces];
+  const fixPass = (text: string) => applyAllFixes(text, lintDocument(text, { rules }));
+
+  it.each([
+    ["start and end with no final newline", "[1] first and last [1]"],
+    ["a table cell", "| a | b |\n|---|---|\n| [1] | done |\n"],
+    ["a fenced code block", "```md\n[1] [bad]()\n```\n\nAfter [1].\n"],
+  ])("leaves [1] byte-for-byte unchanged in %s", (_label, doc) => {
+    expect(fixPass(doc)).toBe(doc);
+  });
+
+  it("fixes a broken link beside [1] at both document edges", () => {
+    const doc = "[1] mid [bad]() end [1]";
+    expect(fixPass(doc)).toBe("[1] mid [bad](TODO) end [1]");
+  });
+});
+
 describe("invalid-link autofix idempotence in task lists and nested ordered lists", () => {
   const opts = { rules: [ruleInvalidLinkTarget] };
   const fixPass = (text: string) => applyAllFixes(text, lintDocument(text, opts));
