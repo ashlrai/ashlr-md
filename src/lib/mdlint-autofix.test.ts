@@ -12592,6 +12592,46 @@ describe("autofix idempotence for undescribed images: exact output", () => {
   });
 });
 
+describe("autofix idempotence for an undescribed image across autofix entry points", () => {
+  const rules = [ruleMissingAltText];
+  const fixPass = (text: string) => applyAllFixes(text, lintDocument(text, { rules }));
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("applyFix, applyAllFixes and Fix All reach one fixpoint for a single undescribed image with %j line endings", (nl) => {
+    clearLintHistory();
+    const doc = [
+      'See ![](images/chart.png?size=2#preview "Chart") beside ![A map](map.svg).',
+      "",
+    ].join(nl);
+    const expected = doc.replace(
+      "![](images/chart.png",
+      "![TODO: describe image](images/chart.png",
+    );
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "missing-alt-text",
+    ]);
+    expect(violations[0].fix).not.toBeNull();
+    // Every autofix entry point produces the same single-image fixpoint.
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(fixAllViolations(doc, violations)).toBe(expected);
+    expect(getLintHistory().map((entry) => entry.ruleId)).toEqual(["missing-alt-text"]);
+
+    // A second pass lints clean, changes nothing and records no new history.
+    const second = lintDocument(expected, { rules });
+    expect(second).toEqual([]);
+    expect(fixPass(expected)).toBe(expected);
+    expect(fixPass(fixPass(doc))).toBe(expected);
+    const history = [...getLintHistory()];
+    expect(fixAllViolations(expected, second)).toBe(expected);
+    expect(getLintHistory()).toEqual(history);
+  });
+});
+
 // ─── Valid anchor links survive the default autofix pipeline ─────────────────
 
 describe("autofix: valid anchor-link preservation (default rules)", () => {
