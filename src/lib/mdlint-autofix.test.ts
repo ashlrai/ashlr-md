@@ -2513,6 +2513,35 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 
+  it.each([
+    "\n",
+    "\r\n",
+  ])("fixes only the undescribed image beside a described image (%j line endings)", (newline) => {
+    const undescribed = '![](images/chart.png?view=full#top "Chart")';
+    const described = '![Café diagram](<images/kept chart.svg> "Keep")';
+    const repaired = '![TODO: describe image](images/chart.png?view=full#top "Chart")';
+    const rules = [ruleMissingAltText];
+
+    for (const undescribedFirst of [true, false]) {
+      const images = undescribedFirst
+        ? [undescribed, described]
+        : [described, undescribed];
+      const fixedImages = undescribedFirst
+        ? [repaired, described]
+        : [described, repaired];
+      const doc = `Before ${images.join(" and ")} after.${newline}`;
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+      const { from, to } = violations[0].range!;
+      expect(doc.slice(from.offset, to.offset)).toBe(undescribed);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(`Before ${fixedImages.join(" and ")} after.${newline}`);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+      expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+    }
+  });
+
   it("fixes two adjacent undescribed images without changing either source", () => {
     const doc =
       'See ![](images/one.png?size=2#top)![  ](<images/two chart.svg> "Chart") here.\n';
