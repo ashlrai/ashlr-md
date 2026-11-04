@@ -6611,6 +6611,24 @@ fn export_text_keeps_two_adjacent_bracket_pairs_and_order_in_varied_contexts() {
     }
 }
 
+/// Two adjacent bracket pairs beside a defined reference label, a code span,
+/// an escape, a table cell or a setext heading: only the pair that is a real
+/// link loses its brackets, and the other pair stays in place and in order.
+#[test]
+fn export_text_keeps_adjacent_bracket_pairs_beside_defined_labels_and_code() {
+    for (markdown, expected) in [
+        ("[alpha] [beta]\n\n[alpha]: /a\n", "alpha [beta]"),
+        ("[alpha] [beta]\n\n[beta]: /b\n", "[alpha] beta"),
+        ("`[a]` [b][c]\n", "[a] [b][c]"),
+        ("Setext [a][b]\n=====\n", "Setext [a][b]"),
+        ("| h |\n|---|\n| [a][b] |\n", "h\n[a][b]"),
+    ] {
+        let result = run_export_text_on(markdown);
+        let text = result["text"].as_str().unwrap().trim();
+        assert_eq!(text, expected, "{markdown:?}");
+    }
+}
+
 /// The same bracketed phrase twice must survive twice, each with its own
 /// surrounding text, rather than the second being merged or dropped.
 #[test]
