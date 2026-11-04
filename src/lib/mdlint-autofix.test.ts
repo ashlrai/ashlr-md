@@ -13327,6 +13327,63 @@ describe("rule:missing-alt-text undescribed image on the last line without a fin
   });
 });
 
+describe("autofix: undescribed image on the second line", () => {
+  it.each([
+    ["LF, trailing newline", "\n", "\n"],
+    ["LF, no trailing newline", "\n", ""],
+    ["CRLF, trailing newline", "\r\n", "\r\n"],
+    ["CRLF, no trailing newline", "\r\n", ""],
+  ])("keeps the first line and describes the second-line image (%s)", (_name, nl, end) => {
+    const firstLine = "Opening paragraph with *emphasis* and [a link](./docs.md).";
+    const src = "images/chart.png?v=2#top";
+    const doc = `${firstLine}${nl}![](${src})${end}`;
+    const expected = `${firstLine}${nl}![TODO: describe image](${src})${end}`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("missing-alt-text");
+    const { from, to } = violations[0].range!;
+    expect(from.line).toBe(2);
+    expect(doc.slice(from.offset, to.offset)).toBe(`![](${src})`);
+
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // Acceptance: the first line is preserved byte for byte.
+    expect(fixed.split(nl)[0]).toBe(firstLine);
+    expect(fixed.startsWith(`${firstLine}${nl}`)).toBe(true);
+    // Acceptance: the image received the placeholder description.
+    expect(fixed).toContain(`![TODO: describe image](${src})`);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(expected);
+  });
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("describes a second-line image amid prose and keeps both lines (line endings %j)", (nl) => {
+    const firstLine = "# Quarterly report";
+    const doc = `${firstLine}${nl}See ![](images/chart.png) for the chart.${nl}`;
+    const expected = `${firstLine}${nl}See ![TODO: describe image](images/chart.png) for the chart.${nl}`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "missing-alt-text",
+    ]);
+    expect(violations[0].range!.from.line).toBe(2);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    const fixedLines = fixed.split(nl);
+    expect(fixedLines[0]).toBe(firstLine);
+    expect(fixedLines[1]).toBe(
+      "See ![TODO: describe image](images/chart.png) for the chart.",
+    );
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
+
 describe("rule:missing-alt-text trailing newline preservation", () => {
   it.each([
     ["LF", "Text.\n\n![](a.png)\n", "Text.\n\n![TODO: describe image](a.png)\n"],
