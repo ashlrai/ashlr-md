@@ -22750,3 +22750,189 @@ describe("autofix: two invalid links on one line", () => {
     expect(lintDocument(afterSecond, { rules })).toEqual([]);
   });
 });
+
+describe("invalid-link autofix: whitespace-only destination coverage", () => {
+  const rules = [ruleInvalidLinkTarget];
+
+  it.each([
+    "\v",
+    "\f",
+    " \v\f ",
+    "\u00a0",
+    "\u1680",
+    "\u2007",
+    "\u2009",
+    "\u200a",
+    "\u2028",
+    "\u2029",
+    "\u202f",
+    "\u205f",
+    "\ufeff",
+    "\u00a0 \u1680\u2007\u202f\ufeff",
+  ])("replaces a destination of rare whitespace %j with TODO and keeps the label", (href) => {
+    const doc = `See [the guide](${href}) for details.\n`;
+    const expected = "See [the guide](TODO) for details.\n";
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(`[the guide](${href})`);
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+
+  it.each([
+    // A zero-width space is not \s to the rule.
+    "\u200b",
+    " \u200b ",
+    "\u00a0\u200b",
+    // Whitespace padding around a marker is not the marker itself.
+    " # ",
+    " ? ",
+    // Angle-bracketed, quoted or escaped whitespace is a nonempty destination.
+    "<  >",
+    '" "',
+    " \\",
+    " TODO ",
+    "\t.\t",
+  ])("leaves destination %j alone: it is not whitespace-only to the rule", (href) => {
+    const doc = `See [the guide](${href}) for details.\n`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toEqual([]);
+    expect(applyAllFixes(doc, violations)).toBe(doc);
+  });
+
+  it("keeps a whitespace-only label verbatim while the whitespace-only destination becomes TODO", () => {
+    const doc = "Before [ ](  ) after.\n";
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    // The label is a single space: truthy, so the message shows it as written.
+    expect(violations[0].message).toBe("Invalid link target: [ ](  )");
+    const expected = "Before [ ](TODO) after.\n";
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+
+  it.each([
+    ["a parenthesised aside", "(see aside)"],
+    ["empty parentheses", "()"],
+    ["a valid link", "[next](./next.md)"],
+    ["a described image", "![alt](a.png)"],
+  ])("ends the whitespace destination at the first ')' before %s", (_name, tail) => {
+    const doc = `See [guide](   ) then ${tail} end.\n`;
+    const expected = `See [guide](TODO) then ${tail} end.\n`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe("[guide](   )");
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+
+  it("does not flag whitespace-only destinations inside frontmatter, math, comments or HTML blocks", () => {
+    const doc = [
+      "---",
+      'related: "[fm](  )"',
+      "---",
+      "",
+      "Math $[m](  )$ stays.",
+      "",
+      "<!-- [c](  ) -->",
+      "",
+      "<div>",
+      "[h](  )",
+      "</div>",
+      "",
+      "But [real](  ) is prose.",
+      "",
+    ].join("\n");
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe("[real](  )");
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(doc.replace("[real](  )", "[real](TODO)"));
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("fixes a whitespace-only destination inside a setext heading and keeps its underline (%j)", (nl) => {
+    const doc = `Notes on [the guide](  )${nl}===${nl}`;
+    const expected = `Notes on [the guide](TODO)${nl}===${nl}`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe("[the guide](  )");
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("reports a range across two lines and joins them when the whitespace destination spans %j", (nl) => {
+    const doc = `Lead.${nl}See [guide]( \t${nl} )${nl}Tail.${nl}`;
+    const expected = `Lead.${nl}See [guide](TODO)${nl}Tail.${nl}`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(`[guide]( \t${nl} )`);
+    expect(to.line).toBe(from.line + 1);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+
+  it("fixes the second of two identical whitespace links without touching the first", () => {
+    const doc = "Pair [dup](  ) and [dup](  ) end.\n";
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(2);
+    expect(applyFix(doc, violations[0])).toBe("Pair [dup](TODO) and [dup](  ) end.\n");
+    expect(applyFix(doc, violations[1])).toBe("Pair [dup](  ) and [dup](TODO) end.\n");
+    const expected = "Pair [dup](TODO) and [dup](TODO) end.\n";
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(applyAllFixes(doc, [...violations].reverse())).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+
+  it("replaces a whitespace-only destination at the very end of a document, adding nothing after it", () => {
+    const doc = "Wrap up with [the checklist]( \t )";
+    const expected = "Wrap up with [the checklist](TODO)";
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+
+  it("fixAllViolations fixes whitespace-only destinations and records them in the history", () => {
+    clearLintHistory();
+    const doc = "Fix [one]( ) and [two](\u3000) now.\n";
+    const violations = lintDocument(doc, { rules });
+
+    const fixed = fixAllViolations(doc, violations);
+    expect(fixed).toBe("Fix [one](TODO) and [two](TODO) now.\n");
+    expect(getLintHistory().map((e) => e.ruleId)).toEqual([
+      "invalid-link-target",
+      "invalid-link-target",
+    ]);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
