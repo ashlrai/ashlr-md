@@ -52,6 +52,16 @@ describe("computeDocStats", () => {
     expect(computeDocStats("run `npm install foo bar` now").words).toBe(2);
   });
 
+  it.each([
+    ["two spans on one line", "run `npm install` then `npm test` now", 3],
+    ["a span at each end", "`setup step` only prose `cleanup step`", 2],
+    ["back-to-back spans", "do `a b` `c d` it", 2],
+    ["a span splitting a word", "one`x`two", 2],
+    ["spans on separate lines", "start `a b`\nmiddle words here\n`c d` end", 5],
+  ])("excludes multiple inline code spans: %s", (_label, md, words) => {
+    expect(computeDocStats(md).words).toBe(words);
+  });
+
   it("returns zero words and zero minutes for empty content", () => {
     expect(computeDocStats("")).toEqual({ words: 0, minutes: 0 });
     expect(computeDocStats("   \n\n")).toEqual({ words: 0, minutes: 0 });
