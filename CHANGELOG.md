@@ -102,73 +102,6 @@ Released 2026-06-06. [Release notes and downloads](https://github.com/ashlrai/as
   when the file changed since the review, so an approval of an earlier version
   is never reported as current. Corrupt or oversized files are ignored.
 
-### Security
-- **Offline mode fails closed on the shared client builders.** With
-  `localInference.offline` set, a non-loopback host is refused before a
-  socket exists for chat, every embedding client, search and the
-  `mdopener-mcp` sidecar. `anthropic_client_builder` returns that refusal
-  and builds no client, including for a loopback gateway. The test-only
-  re-exports of the two client builders are behind the `test-support`
-  feature. A non-boolean `offline` value counts as on.
-- **Model, embedding and Anthropic requests never follow redirects, and
-  `localhost` is pinned to loopback.** Every reqwest client in the app comes
-  from one builder (`local_inference::client_builder`): a local server
-  answering 307/308 can no longer re-send a prompt or document text to
-  another host, and `localhost` is 127.0.0.1/::1 without DNS. The MCP
-  sidecar pins `localhost` the same way, and its `OLLAMA_HOST` now also needs
-  `localInference.allowRemote: true` for a non-loopback (https) host.
-
-### Changed
-- **CI: a fast pull request lane and a merge queue.** `Check (Linux)` is the
-  one required aggregate check. Pull requests and merge queue candidates run
-  typecheck, Biome, the crypto policy check, the CI gate tests and pinned
-  diff secret scans. The full Linux and macOS suites (frontend, `cargo test
-  --workspace`, release assembly validator tests) run on every push to `main`
-  and daily at 04:23 ET, and their aggregate fails on any required failure.
-  Codecov uploads are daily or manual only. A scheduled run that fails opens a
-  FIX-MAIN issue (`fix-main.yml`); nothing is reverted.
-  `scripts/ci-local.sh` runs the gates for your change before you push, scoped
-  by `scripts/ci/select.mjs`.
-- **CI hardening.** Every third-party GitHub Action is pinned to a commit SHA,
-  workflow default permissions are read-only, and CODEOWNERS covers the
-  workflows and the files that make keyed or network requests (growth-only).
-  CodeQL, OpenSSF Scorecard, Renovate, CodeRabbit and Socket
-  are configured and stay off the pull request path.
-- **`OLLAMA_HOST` is loopback-gated in the app.** A non-loopback Ollama now
-  needs `localInference.allowRemote: true` in `~/.ashlr/config.json` and an
-  https URL; otherwise no request is made.
-  **Migration for remote Ollama users:** add
-  `"localInference": { "provider": "ollama", "baseUrl": "https://<host>/v1", "allowRemote": true }`
-  to `~/.ashlr/config.json` and set `OLLAMA_HOST` to the same `https://` host.
-  Plain http to a remote host is never allowed. Without this the AI sidebar
-  and embeddings show:
-  `OLLAMA_HOST refused (remote-not-allowed): a non-loopback Ollama needs localInference.allowRemote true in ~/.ashlr/config.json and https. No request was sent.`
-  (`remote-requires-https` instead when `allowRemote` is set but the URL is http).
-- **AI and embedding errors no longer carry secrets.** An Anthropic error quoted
-  the endpoint's whole response body, so a gateway that names the rejected
-  `x-api-key` put the key into the AI sidebar's error. Ollama and embedding errors
-  carried the base URL's path (where a proxy token can sit) through the HTTP
-  client's message, and an Ollama error body could quote the `Authorization: Basic`
-  value built from an `OLLAMA_HOST` user name and password. Error bodies are now
-  redacted (the key, and the credentials, path segments and query values of the
-  base URL) and cut to 300 characters, and client errors omit the URL. A new test
-  drives each of these calls against a 401 that echoes the request, a redirect, a
-  closed port and a malformed 200, and fails on any 8-character run of a secret.
-- **Docs: running under `phantom exec`.** `docs/PHANTOM.md` lists the settings Ashlr MD
-  reads (`ANTHROPIC_BASE_URL`, `OLLAMA_HOST` for the app and the sidecar) and their
-  rules. It notes that the Anthropic key comes from Settings, not `ANTHROPIC_API_KEY`,
-  and that `phm:` references are never resolved. It also covers LiteLLM: 1.83.0 or
-  newer, preferring a current release.
-- **MCP sidecar: https Ollama.** The sidecar now speaks `https://` to Ollama
-  (system TLS through `native-tls`, already in the workspace). `OLLAMA_HOST`
-  follows the `ANTHROPIC_BASE_URL` rules: `https://` to any host, or plain
-  `http://` only to `127.0.0.1` or `[::1]`; `:port`, `0.0.0.0` and `[::]` map
-  to loopback. Plain http to any other host, `localhost` by name, a user name or
-  password, a query or fragment and other schemes are refused before any
-  connection, and the refusal does not echo the value. Redirects are refused,
-  not followed. The default (`http://127.0.0.1:11434`) is unchanged.
-
-### Added
 - **Anthropic key from the environment (opt-in).** With
   `ASHLR_MD_ANTHROPIC_KEY_FROM_ENV=1` the AI sidebar uses `ANTHROPIC_API_KEY` instead
   of the Settings key, so a `phm_` placeholder from `phantom exec` works. A placeholder
@@ -215,6 +148,21 @@ Released 2026-06-06. [Release notes and downloads](https://github.com/ashlrai/as
   `prefers-reduced-motion`.
 
 ### Security
+- **Offline mode fails closed on the shared client builders.** With
+  `localInference.offline` set, a non-loopback host is refused before a
+  socket exists for chat, every embedding client, search and the
+  `mdopener-mcp` sidecar. `anthropic_client_builder` returns that refusal
+  and builds no client, including for a loopback gateway. The test-only
+  re-exports of the two client builders are behind the `test-support`
+  feature. A non-boolean `offline` value counts as on.
+- **Model, embedding and Anthropic requests never follow redirects, and
+  `localhost` is pinned to loopback.** Every reqwest client in the app comes
+  from one builder (`local_inference::client_builder`): a local server
+  answering 307/308 can no longer re-send a prompt or document text to
+  another host, and `localhost` is 127.0.0.1/::1 without DNS. The MCP
+  sidecar pins `localhost` the same way, and its `OLLAMA_HOST` now also needs
+  `localInference.allowRemote: true` for a non-loopback (https) host.
+
 - **An exported page runs no script.** A template's CSS went into the
   exported HTML's `<style>` as written, so a `</style>` in it ended the element
   and the rest parsed as markup, an event handler included. The editor now
@@ -265,7 +213,95 @@ Released 2026-06-06. [Release notes and downloads](https://github.com/ashlrai/as
   outside the app. Provider errors, the selection popover and the editors'
   inline AI already showed their text as text.
 
+### Changed
+- **Auto-tag self-heals a missed tag.** `auto-tag.yml` now gates on tag
+  existence instead of a version diff between commits: when the manifest
+  version on `main` has no `v<version>` tag and every required check for that
+  commit is green, the tag is created. A tag missed on an earlier run is made
+  by the next green main CI run (`workflow_run`) or by `workflow_dispatch`,
+  so a release tag no longer depends on the bump commit's own CI window.
+- **New pre-merge gates in `Check (Linux)`.** `bun run check:version`
+  (`scripts/cargo-version-sync.test.mjs` and `tauri-version-sync.test.mjs`)
+  fails when `package.json`, `src-tauri/tauri.conf.json` and
+  `src-tauri/Cargo.toml` disagree, `bun run check:workflow-bash`
+  (`scripts/ci/workflow-bash.mjs`) runs `bash -n` over every bash/sh run block
+  in `.github/workflows` so a syntax error fails before merge instead of on a
+  runner, and `scripts/package-scripts.test.mjs` /
+  `package-script-paths.test.mjs` check that npm scripts name real files.
+- **Windows native QA deepened** (still `workflow_dispatch` only, read
+  permissions only). `native-qa-windows.yml` adds a real PowerShell
+  dialog-selection regression check (`scripts/native-qa-open-dialog.ps1` with
+  `test-native-qa-open-dialog.ps1`), and `scripts/native-qa-windows.py` gained
+  `--check-driver`, `--check-process-query` and `--check-uia` preflights,
+  bounded driver-trust verification, optional process-argv diagnostics and
+  cleanup of the driver staging directory.
+- **CI: a fast pull request lane and a merge queue.** `Check (Linux)` is the
+  one required aggregate check. Pull requests and merge queue candidates run
+  typecheck, Biome, the crypto policy check, the CI gate tests and pinned
+  diff secret scans. The full Linux and macOS suites (frontend, `cargo test
+  --workspace`, release assembly validator tests) run on every push to `main`
+  and daily at 04:23 ET, and their aggregate fails on any required failure.
+  Codecov uploads are daily or manual only. A scheduled run that fails opens a
+  FIX-MAIN issue (`fix-main.yml`); nothing is reverted.
+  `scripts/ci-local.sh` runs the gates for your change before you push, scoped
+  by `scripts/ci/select.mjs`.
+- **CI hardening.** Every third-party GitHub Action is pinned to a commit SHA,
+  workflow default permissions are read-only, and CODEOWNERS covers the
+  workflows and the files that make keyed or network requests (growth-only).
+  CodeQL, OpenSSF Scorecard, Renovate, CodeRabbit and Socket
+  are configured and stay off the pull request path.
+- **`OLLAMA_HOST` is loopback-gated in the app.** A non-loopback Ollama now
+  needs `localInference.allowRemote: true` in `~/.ashlr/config.json` and an
+  https URL; otherwise no request is made.
+  **Migration for remote Ollama users:** add
+  `"localInference": { "provider": "ollama", "baseUrl": "https://<host>/v1", "allowRemote": true }`
+  to `~/.ashlr/config.json` and set `OLLAMA_HOST` to the same `https://` host.
+  Plain http to a remote host is never allowed. Without this the AI sidebar
+  and embeddings show:
+  `OLLAMA_HOST refused (remote-not-allowed): a non-loopback Ollama needs localInference.allowRemote true in ~/.ashlr/config.json and https. No request was sent.`
+  (`remote-requires-https` instead when `allowRemote` is set but the URL is http).
+- **AI and embedding errors no longer carry secrets.** An Anthropic error quoted
+  the endpoint's whole response body, so a gateway that names the rejected
+  `x-api-key` put the key into the AI sidebar's error. Ollama and embedding errors
+  carried the base URL's path (where a proxy token can sit) through the HTTP
+  client's message, and an Ollama error body could quote the `Authorization: Basic`
+  value built from an `OLLAMA_HOST` user name and password. Error bodies are now
+  redacted (the key, and the credentials, path segments and query values of the
+  base URL) and cut to 300 characters, and client errors omit the URL. A new test
+  drives each of these calls against a 401 that echoes the request, a redirect, a
+  closed port and a malformed 200, and fails on any 8-character run of a secret.
+- **Docs: running under `phantom exec`.** `docs/PHANTOM.md` lists the settings Ashlr MD
+  reads (`ANTHROPIC_BASE_URL`, `OLLAMA_HOST` for the app and the sidecar) and their
+  rules. It notes that the Anthropic key comes from Settings, not `ANTHROPIC_API_KEY`,
+  and that `phm:` references are never resolved. It also covers LiteLLM: 1.83.0 or
+  newer, preferring a current release.
+- **MCP sidecar: https Ollama.** The sidecar now speaks `https://` to Ollama
+  (system TLS through `native-tls`, already in the workspace). `OLLAMA_HOST`
+  follows the `ANTHROPIC_BASE_URL` rules: `https://` to any host, or plain
+  `http://` only to `127.0.0.1` or `[::1]`; `:port`, `0.0.0.0` and `[::]` map
+  to loopback. Plain http to any other host, `localhost` by name, a user name or
+  password, a query or fragment and other schemes are refused before any
+  connection, and the refusal does not echo the value. Redirects are refused,
+  not followed. The default (`http://127.0.0.1:11434`) is unchanged.
+
 ### Fixed
+- **PDF export opens the print dialog once.** The hidden print frame's load
+  handler fired for the frame's own creation and again for `document.close()`,
+  so a PDF export could print twice.
+- **Export attribute parsing no longer stops at a broken attribute.** The
+  attribute scan used a sticky (`y`) regular expression under `matchAll`, which
+  shadowed the iterator's skip-ahead and ended the scan at the first malformed
+  attribute, so a `class` or `style` after it was missed and the email-HTML
+  export profile could merge its rules in twice or not at all.
+- **The `invalid-link-target` autofix keeps the link's label.** The fix
+  rewrote only the URL portion by computed offsets, which could land outside
+  the link; it now rewrites the matched link as `[label](TODO)`, keeping the
+  original label.
+- **A resolved Milkdown timer no longer turns itself rejected.** A vendored
+  patch (`patches/@milkdown%2Fctx@7.21.2.patch`, wired through
+  `patchedDependencies`) clears a timer's pending timeout when the awaited
+  editor event arrives, so the timeout can no longer fire later and mark an
+  already-resolved timer rejected.
 - **The command palette highlight goes back to the first row when the recent
   files change while it is open.** It stayed on the old index, on another row.
 - **A folder moved into the watched folder lists its notes in Activity at
@@ -3454,6 +3490,10 @@ Released 2026-06-06. [Release notes and downloads](https://github.com/ashlrai/as
   `export` request reports back when no document is open instead of no-op'ing.
 
 ### Internal
+- Test coverage grew by more than 26,000 lines: `mdlint-autofix.test.ts`
+  across image, link, placeholder and prose cases, the `mdopener-mcp`
+  `integration.rs` payload suites, and `mdopen` / `mdopener-mcp` CLI help,
+  version, no-argument and unknown-flag coverage.
 - Removed two unused dependencies and dead plugin exports; broken wikilinks now
   re-resolve shortly after the missing note is created instead of staying broken
   for the session.

@@ -76,20 +76,20 @@ leaks data off-device without explicit consent. Quality over scope, every time.
 - [x] Let agents register doc "kinds" + declarative layouts mapped to built-in renderers (`src/lib/renderers/kind-registry.ts`)
 
 **Integrations**
-- [ ] VS Code extension: open the active `.md` in Ashlr MD from the editor toolbar
+- [x] VS Code extension: open the active `.md` in Ashlr MD from the editor toolbar ([integration](integrations/vscode/README.md))
 - [x] Raycast workflow for `mdopener://` quick-open ([integration](integrations/raycast/README.md)); Alfred remains a future option
 
 **Obsidian**
 - [x] JSON Canvas editing (move/edit text nodes, write back; preserve unknown fields)
 
 **AI**
-- [ ] Premium hosted tier (the sustainability model), strictly opt-in, zero-retention
+- [x] Premium hosted tier (the sustainability model), strictly opt-in, zero-retention: **Preferences → Hosted AI (Tier 3)** stores an Ashlr MD Cloud token in the OS keychain, used only when added
 
 **Polish**
 - [x] Image paste → saved relative to the file: shipped in `src/lib/pasteImage.ts`, used by `SourceEditor.tsx` and `MarkdownEditor.tsx`
-- [ ] Image drag-drop ordering
+- [x] Image drag-drop ordering: shipped in `src/lib/milkdownImageDragDrop.ts`, wired into `MarkdownEditor.tsx`
 - [x] "Copy as rich text" for email/Slack: shipped in `src/lib/copyRichText.ts` (`⌘⇧C`)
-- [ ] More export themes
+- [x] More export themes: offline themes in `src/lib/exportThemes.ts`, chosen through **Preferences → Export templates** (`src/lib/exportTemplates.ts`)
 - [x] Accessibility pass (full keyboard nav, screen-reader labels)
 
 ## How to shape it
