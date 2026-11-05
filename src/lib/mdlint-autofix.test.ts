@@ -21885,6 +21885,95 @@ describe("autofix: invalid links on separate lines", () => {
   });
 });
 
+describe("autofix: two invalid links on separate lines in separate paragraphs", () => {
+  const rules = [ruleInvalidLinkTarget];
+
+  it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+  ])("fixes both destinations and keeps every line break, blank line included (%s)", (_name, nl) => {
+    const doc = [
+      "Opening line stays.",
+      "See [setup guide]() before you start.",
+      "",
+      "Later, read [details](#) too.",
+      "Closing line stays.",
+      "",
+    ].join(nl);
+    const expected = [
+      "Opening line stays.",
+      "See [setup guide](TODO) before you start.",
+      "",
+      "Later, read [details](TODO) too.",
+      "Closing line stays.",
+      "",
+    ].join(nl);
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual([
+      "invalid-link-target",
+      "invalid-link-target",
+    ]);
+    expect(violations.map((v) => v.range!.from.line)).toEqual([2, 4]);
+    expect(violations.every((v) => v.fix !== null)).toBe(true);
+    expect(
+      violations.map((v) => doc.slice(v.range!.from.offset, v.range!.to.offset)),
+    ).toEqual(["[setup guide]()", "[details](#)"]);
+
+    // Each fix repairs only the destination on its own line.
+    expect(applyFix(doc, violations[0])).toBe(
+      doc.replace("[setup guide]()", "[setup guide](TODO)"),
+    );
+    expect(applyFix(doc, violations[1])).toBe(
+      doc.replace("[details](#)", "[details](TODO)"),
+    );
+
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(applyAllFixes(doc, [...violations].reverse())).toBe(expected);
+
+    // Every line break survived: the line count is unchanged, the blank line
+    // is still blank and the untouched lines are byte-identical.
+    const fixedLines = fixed.split(nl);
+    expect(fixedLines).toHaveLength(doc.split(nl).length);
+    expect(fixedLines[2]).toBe("");
+    doc.split(nl).forEach((line, i) => {
+      if (i === 1 || i === 3) return;
+      expect(fixedLines[i]).toBe(line);
+    });
+    expect(fixed.match(/\]\(TODO\)/g)).toHaveLength(2);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+
+  it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+  ])("fixes link-only first and last lines without adding a line break at the end (%s)", (_name, nl) => {
+    const doc = ["[first](   )", "Middle line stays.", "[last](?)"].join(nl);
+    const expected = ["[first](TODO)", "Middle line stays.", "[last](TODO)"].join(nl);
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual([
+      "invalid-link-target",
+      "invalid-link-target",
+    ]);
+    expect(violations.map((v) => v.range!.from.line)).toEqual([1, 3]);
+    expect(
+      violations.map((v) => doc.slice(v.range!.from.offset, v.range!.to.offset)),
+    ).toEqual(["[first](   )", "[last](?)"]);
+
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(applyAllFixes(doc, [...violations].reverse())).toBe(expected);
+    // The two separators stayed and no trailing line break was introduced.
+    expect(fixed.split(nl)).toHaveLength(3);
+    expect(fixed.endsWith(nl)).toBe(false);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+});
+
 describe("autofix: invalid link idempotence with repeated identical links", () => {
   it.each([
     "\n",
