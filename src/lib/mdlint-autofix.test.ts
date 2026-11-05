@@ -329,6 +329,36 @@ describe("autofix: two undescribed images on one line", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 
+  it.each([
+    [
+      "angle-bracket destinations with spaces",
+      '![](<images/team photo.png> "A") ![](<images/b c.png>)\n',
+      '![TODO: describe image](<images/team photo.png> "A") ![TODO: describe image](<images/b c.png>)\n',
+    ],
+    [
+      "a list item, tab-only and empty descriptions",
+      "- ![\t](one.png) | ![](two.png?x=1#y)\n",
+      "- ![TODO: describe image](one.png) | ![TODO: describe image](two.png?x=1#y)\n",
+    ],
+    [
+      "a blockquote with Unicode paths",
+      "> ![](画像/一.png) ![ ](café/二.png)\n",
+      "> ![TODO: describe image](画像/一.png) ![TODO: describe image](café/二.png)\n",
+    ],
+  ])("keeps both paths in other one-line shapes (%s)", (_name, doc, expected) => {
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+      "missing-alt-text",
+      "missing-alt-text",
+    ]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(expected);
+  });
+
   it("applyFix one violation at a time keeps both sources, fixing the second after the first", () => {
     const rules = [ruleMissingAltText];
     const doc = 'A ![](a%20b.png?v=2#top "T") and ![](c.png) end.\n';
