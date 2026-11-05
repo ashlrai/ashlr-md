@@ -710,6 +710,91 @@ describe("autofix: undescribed image at the start of a line", () => {
   });
 });
 
+describe("autofix: undescribed image at the start of a paragraph", () => {
+  it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+  ])(
+    "inserts the description placeholder and preserves the preceding paragraph and following prose (%s)",
+    (_name, nl) => {
+      const src = "images/chart.png";
+      const image = `![](${src})`;
+      const placeholder = `![TODO: describe image](${src})`;
+
+      // Paragraph before the blank-line separator (a separate paragraph).
+      const preceding = "Previous paragraph with [a link](./guide.md).";
+      // Image at the very start of a new paragraph, with prose on the same line.
+      const proseAfter = " This sentence follows the image with *emphasis* and `code`.";
+      // Continuation of the same paragraph (soft line break).
+      const continuation = ` Final sentence stays.${nl}`;
+
+      const doc = `${preceding}${nl}${nl}${image}${proseAfter}${nl}${continuation}`;
+      const expected =
+        `${preceding}${nl}${nl}${placeholder}${proseAfter}${nl}${continuation}`;
+
+      const rules = [ruleMissingAltText];
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations).toHaveLength(1);
+      expect(violations[0].ruleId).toBe("missing-alt-text");
+      const { from, to } = violations[0].range!;
+      expect(doc.slice(from.offset, to.offset)).toBe(image);
+
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+
+      // Acceptance: the preceding paragraph is untouched.
+      expect(fixed.startsWith(`${preceding}${nl}${nl}`)).toBe(true);
+      // Acceptance: the prose after the image on the same line is preserved.
+      expect(fixed.split(nl)[2].slice(placeholder.length)).toBe(proseAfter);
+      // Acceptance: the continuation line of the paragraph is preserved.
+      expect(fixed.split(nl)[3]).toBe(continuation.slice(0, -nl.length));
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+    },
+  );
+
+  it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+  ])(
+    "inserts the placeholder for an image alone on the paragraph-start line with prose on the next line (%s)",
+    (_name, nl) => {
+      const src = "photo.jpg";
+      const image = `![](${src})`;
+      const placeholder = `![TODO: describe image](${src})`;
+
+      // A preceding paragraph separated by a blank line.
+      const preceding = "Intro text with [refs](./a.md).";
+      // Image alone on its line (start of new paragraph), prose on the next line
+      // which is a soft break continuing the same paragraph.
+      const proseLine = "Body prose with **bold** and [links](./b.md) here.";
+      const last = "Closing paragraph.";
+
+      const doc = [preceding, "", image, proseLine, "", last, ""].join(nl);
+      const expected = [preceding, "", placeholder, proseLine, "", last, ""].join(nl);
+
+      const rules = [ruleMissingAltText];
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations).toHaveLength(1);
+      expect(violations[0].ruleId).toBe("missing-alt-text");
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+
+      // Acceptance: the preceding paragraph is byte-for-byte preserved.
+      expect(fixed.startsWith(`${preceding}${nl}${nl}`)).toBe(true);
+      // Acceptance: the prose line after the image is preserved.
+      expect(fixed.split(nl)[3]).toBe(proseLine);
+      // Acceptance: the closing paragraph is preserved.
+      expect(fixed.endsWith(`${nl}${last}${nl}`)).toBe(true);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+      expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+    },
+  );
+});
+
 describe("autofix: undescribed image starting a continuation line of a paragraph", () => {
   it.each([
     "\n",
