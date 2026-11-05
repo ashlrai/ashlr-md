@@ -80,12 +80,6 @@ For the desktop app, without a terminal.
 
 <img src="./docs/readme/hero.png" width="820" alt="Ashlr MD showing a rendered plan, an on-device agent panel, and an Approve button" />
 
-## 30-second start
-
-1. Download the [latest release](https://github.com/ashlrai/ashlr-md/releases/latest) for your OS: `.dmg` (Apple Silicon), `.msi`/`-setup.exe` (Windows), `.deb`/`.rpm`/`.AppImage` (Linux).
-2. Double-click any `.md` file, or run `mdopen notes.md` after **Preferences → Command-line tool → Install mdopen** (the app's installers leave `mdopen` off your `PATH`; see [docs/AGENTS.md](./docs/AGENTS.md#install)).
-3. Ask the AI sidebar about it. On a Mac with Apple Silicon and macOS 26 or later, the built-in on-device model needs no account and no API key: turn on Apple Intelligence in System Settings, then restart Ashlr MD. On Windows and Linux, install [Ollama](https://ollama.com) for free local AI, or add an Anthropic API key in Preferences.
-
 ## How it works
 
 <img src="./docs/readme/how-it-works.png" width="820" alt="Install, connect an MCP client, open the file, return a JSON review verdict" />
@@ -111,7 +105,7 @@ The server talks to the app on `127.0.0.1` with a token in `~/.mdopener/`. Full 
 
 ## Keyboard shortcuts
 
-Shown with ⌘ on macOS; use **Ctrl** on Windows & Linux.
+Shown with ⌘ on macOS; use **Ctrl** on Windows and Linux.
 
 | Action | Shortcut |
 |---|---|
@@ -212,6 +206,8 @@ bun run typecheck
 bun run lint
 bun run test
 bun run check:doc-links
+bun run check:version
+bun run check:workflow-bash
 python3 scripts/check-docs.py
 python3 scripts/test-mcp-setup.py
 python3 scripts/test-connect-cursor.py
@@ -232,34 +228,6 @@ cd src-tauri/bins/mdopener-afm && ./build.sh
 | `landing/` | The marketing site |
 
 Product goal: [docs/VISION.md](./docs/VISION.md). Releases: [docs/RELEASING.md](./docs/RELEASING.md).
-
-## Keyboard shortcuts
-
-Shown with ⌘ on macOS; use **Ctrl** on Windows and Linux.
-
-| Action | Shortcut |
-|---|---|
-| Command palette | `⌘K` |
-| AI assistant | `⌘L` |
-| Inline AI rewrite (in editor) | `⌘I` |
-| Cycle theme | `⌘⇧L` |
-| Open file | `⌘O` |
-| Save | `⌘S` |
-| Export | `⌘E` |
-| Copy as rich text | `⌘⇧C` |
-| Insert table | `⌘⇧T` |
-| Read / Edit / Source view | `⌘1` / `⌘2` / `⌘3` |
-| Find in document | `⌘F` |
-| Find & replace (source) | `⌘⌥F` |
-| Search across files | `⌘⇧F` |
-| Split preview | `⌘\` |
-| Zen mode | `⌘⇧Z` |
-| Next / Previous tab | `⌘⇧]` / `⌘⇧[` |
-| Close tab | `⌘W` |
-| Agent activity drawer | `⌘B` |
-| Outline | `⌘⇧O` |
-| Settings | `⌘,` |
-| Keyboard shortcuts (cheat sheet) | `⌘/` |
 
 ## Part of Ashlr
 
