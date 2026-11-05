@@ -22963,3 +22963,25 @@ describe("invalid-link autofix: whitespace-only destination coverage", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+describe("autofix: undescribed image with surrounding punctuation", () => {
+  it.each([
+    ["parentheses", "(", ")"],
+    ["square brackets", "[", "]"],
+    ["quotes and comma", '"', '",'],
+    ["em dashes", "—", "—"],
+    ["ellipsis and bang", "…", "!"],
+    ["CJK punctuation", "「", "」。"],
+  ])("adds the placeholder and keeps %s around the image", (_name, before, after) => {
+    const rules = [ruleMissingAltText];
+    const doc = `See ${before}![](images/chart.png)${after} next.\n`;
+    const expected = `See ${before}![TODO: describe image](images/chart.png)${after} next.\n`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
