@@ -22657,3 +22657,96 @@ describe("autofix: two undescribed images sharing a path prefix", () => {
     expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
   });
 });
+
+describe("autofix: two invalid links on one line", () => {
+  const rules = [ruleInvalidLinkTarget];
+
+  it.each([
+    [
+      "empty destinations with prose between them",
+      "See [first]() and [second]() done.",
+      ["[first]()", "[second]()"],
+      "See [first](TODO) and [second](TODO) done.",
+    ],
+    [
+      "a lone # touching a lone ?",
+      "Pair [a](#)[b](?) end.",
+      ["[a](#)", "[b](?)"],
+      "Pair [a](TODO)[b](TODO) end.",
+    ],
+    [
+      "a whitespace-only href beside an empty one in a list item",
+      "- [x]( \t ) | [y]()",
+      ["[x]( \t )", "[y]()"],
+      "- [x](TODO) | [y](TODO)",
+    ],
+    [
+      "a valid link and Unicode prose between them",
+      "café 🎉 [a]() mid [keep](./guide.md) mid [b](#) z.",
+      ["[a]()", "[b](#)"],
+      "café 🎉 [a](TODO) mid [keep](./guide.md) mid [b](TODO) z.",
+    ],
+    [
+      "a link-shaped code span decoy between them",
+      "See [a]() then `[decoy]()` then [b](  ) end.",
+      ["[a]()", "[b](  )"],
+      "See [a](TODO) then `[decoy]()` then [b](TODO) end.",
+    ],
+  ])("turns both destinations into TODO and keeps the rest of the line byte-identical (%s)", (_name, line, raws, expectedLine) => {
+    const doc = `Head.\n\n${line}\n\nTail.\n`;
+    const expected = `Head.\n\n${expectedLine}\n\nTail.\n`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+      "invalid-link-target",
+      "invalid-link-target",
+    ]);
+    // Each range covers exactly its own link; the prose, the list marker,
+    // the valid link and the masked decoy are never part of one.
+    expect(
+      violations.map(({ range }) => doc.slice(range!.from.offset, range!.to.offset)),
+    ).toEqual(raws);
+    expect(violations.every(({ fix }) => fix !== null)).toBe(true);
+
+    // Applied alone, each fix repairs only its own destination and leaves
+    // the rest of the line byte-identical.
+    for (const v of violations) {
+      const raw = doc.slice(v.range!.from.offset, v.range!.to.offset);
+      const spliced =
+        doc.slice(0, v.range!.from.offset) +
+        raw.replace(/\([^)]*\)$/, "(TODO)") +
+        doc.slice(v.range!.to.offset);
+      expect(applyFix(doc, v)).toBe(spliced);
+    }
+
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(applyAllFixes(doc, [...violations].reverse())).toBe(expected);
+    // Exactly the two invalid destinations became TODO; a valid link's
+    // destination and the decoy's are untouched.
+    expect(fixed.match(/\]\(TODO\)/g)).toHaveLength(2);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("repairs one link at a time, re-linting between fixes (%j line endings)", (nl) => {
+    const doc = `Before [a](#) then [b]() after.${nl}Next.${nl}`;
+    const first = lintDocument(doc, { rules });
+
+    expect(first.map(({ ruleId }) => ruleId)).toEqual([
+      "invalid-link-target",
+      "invalid-link-target",
+    ]);
+    const afterFirst = applyFix(doc, first[0]);
+    expect(afterFirst).toBe(`Before [a](TODO) then [b]() after.${nl}Next.${nl}`);
+
+    const second = lintDocument(afterFirst, { rules });
+    expect(second.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    const afterSecond = applyFix(afterFirst, second[0]);
+    expect(afterSecond).toBe(`Before [a](TODO) then [b](TODO) after.${nl}Next.${nl}`);
+    expect(lintDocument(afterSecond, { rules })).toEqual([]);
+  });
+});
