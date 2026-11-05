@@ -20458,6 +20458,22 @@ describe("autofix: undescribed image directly touching a described image", () =>
 describe("invalid-link-target autofix: empty destination keeps the link text", () => {
   const rules = [ruleInvalidLinkTarget];
 
+  it("preserves distinct Unicode normalization forms when fixing adjacent labels", () => {
+    const composed = "caf\u00e9";
+    const decomposed = "cafe\u0301";
+    const doc = `Read [${composed}](#) and [${decomposed}](?), then [${decomposed}](./guide.md).\n`;
+    const expected = `Read [${composed}](TODO) and [${decomposed}](TODO), then [${decomposed}](./guide.md).\n`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+      "invalid-link-target",
+      "invalid-link-target",
+    ]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
   it.each([
     "",
     "   ",
