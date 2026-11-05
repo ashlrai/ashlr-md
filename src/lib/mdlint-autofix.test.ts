@@ -86,6 +86,28 @@ describe("rule:orphaned-heading", () => {
   });
 });
 
+describe("autofix: undescribed image idempotence", () => {
+  it.each([
+    "\n",
+    "\r\n",
+  ])("produces the same text on a second pass with %j line endings", (nl) => {
+    const rules = [ruleMissingAltText];
+    const doc = `Before ![](images/chart.png?v=2#top "Chart") after.${nl}`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const once = applyAllFixes(doc, violations);
+    expect(once).toBe(
+      `Before ![TODO: describe image](images/chart.png?v=2#top "Chart") after.${nl}`,
+    );
+
+    const secondPassViolations = lintDocument(once, { rules });
+    expect(secondPassViolations).toEqual([]);
+    const twice = applyAllFixes(once, secondPassViolations);
+    expect(twice).toBe(once);
+  });
+});
+
 describe("autofix: undescribed image with a Unicode source", () => {
   it("inserts the placeholder while preserving the source exactly", () => {
     const rules = [ruleMissingAltText];
