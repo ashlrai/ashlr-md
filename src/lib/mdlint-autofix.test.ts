@@ -464,6 +464,42 @@ describe("autofix: two undescribed images on one line", () => {
     expect(fixed.match(/TODO: describe image/g)).toHaveLength(2);
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
+
+  it.each([
+    [
+      "an inline-code decoy between them",
+      'See ![](shots/one%20a.png?v=1#top "One") and `![](decoy.png)` then ![ ](<shots/two b.svg>).',
+      'See ![TODO: describe image](shots/one%20a.png?v=1#top "One") and `![](decoy.png)` then ![TODO: describe image](<shots/two b.svg>).',
+      ['![](shots/one%20a.png?v=1#top "One")', "![ ](<shots/two b.svg>)"],
+    ],
+    [
+      "both inside a single heading",
+      "## Compare ![](fig/a.png) with ![](fig/b.svg) ##",
+      "## Compare ![TODO: describe image](fig/a.png) with ![TODO: describe image](fig/b.svg) ##",
+      ["![](fig/a.png)", "![](fig/b.svg)"],
+    ],
+  ])("fixes both real images on one line (%s)", (_name, line, expectedLine, imageTexts) => {
+    const rules = [ruleMissingAltText];
+    const doc = `Intro.\n\n${line}\n`;
+    const expected = `Intro.\n\n${expectedLine}\n`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+      "missing-alt-text",
+      "missing-alt-text",
+    ]);
+    // Each range covers exactly its own image; the masked decoy and every
+    // other character on the line are untouched.
+    expect(
+      violations.map(({ range }) => doc.slice(range!.from.offset, range!.to.offset)),
+    ).toEqual(imageTexts);
+    expect(violations.every(({ fix }) => fix !== null)).toBe(true);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.match(/TODO: describe image/g)).toHaveLength(2);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
 });
 
 describe("autofix: undescribed images on separate lines", () => {
