@@ -22060,3 +22060,74 @@ describe("autofix: undescribed image followed by punctuation", () => {
     expect(fixed).toBe("Look: ![TODO: describe image](a.png).");
   });
 });
+
+describe("autofix: two undescribed images on separate lines", () => {
+  it.each([
+    "\n",
+    "\r\n",
+  ])("describes both images and keeps every surrounding line break intact (%j)", (nl) => {
+    const rules = [ruleMissingAltText];
+    const first = '![](images/first%20pic.png?v=1#top "First")';
+    const second = "![ \t](../assets/図.svg?view=full)";
+    const lines = [
+      "Intro paragraph.",
+      "",
+      first,
+      "",
+      "Middle text with `code` and **bold**.",
+      "",
+      `Tail ${second} inline.`,
+      "",
+      "Outro.",
+    ];
+    const doc = `${lines.join(nl)}${nl}`;
+    const fixedLines = [...lines];
+    fixedLines[2] = '![TODO: describe image](images/first%20pic.png?v=1#top "First")';
+    fixedLines[6] = "Tail ![TODO: describe image](../assets/図.svg?view=full) inline.";
+    const expected = `${fixedLines.join(nl)}${nl}`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+      "missing-alt-text",
+      "missing-alt-text",
+    ]);
+    expect(violations.map(({ range }) => range!.from.line)).toEqual([3, 7]);
+    expect(violations.every(({ fix }) => fix !== null)).toBe(true);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // Same line count; every non-image line — blank ones included — is
+    // byte-identical, so no line break was lost or gained.
+    const inputLines = doc.split(nl);
+    const outputLines = fixed.split(nl);
+    expect(outputLines).toHaveLength(inputLines.length);
+    for (const [i, line] of outputLines.entries()) {
+      if (i === 2 || i === 6) continue;
+      expect(line).toBe(inputLines[i]);
+    }
+    expect(fixed.match(/TODO: describe image/g)).toHaveLength(2);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+
+  it("fixes each image on its own line without touching the other line", () => {
+    const rules = [ruleMissingAltText];
+    const doc = "Top ![](a.png)\n\nBottom ![ ](b.png)\n";
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+      "missing-alt-text",
+      "missing-alt-text",
+    ]);
+    expect(applyFix(doc, violations[0])).toBe(
+      "Top ![TODO: describe image](a.png)\n\nBottom ![ ](b.png)\n",
+    );
+    expect(applyFix(doc, violations[1])).toBe(
+      "Top ![](a.png)\n\nBottom ![TODO: describe image](b.png)\n",
+    );
+    const expected =
+      "Top ![TODO: describe image](a.png)\n\nBottom ![TODO: describe image](b.png)\n";
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(applyAllFixes(doc, [...violations].reverse())).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+});
