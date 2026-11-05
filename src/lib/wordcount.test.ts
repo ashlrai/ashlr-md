@@ -33,6 +33,14 @@ describe("computeDocStats", () => {
     expect(computeDocStats(md).words).toBe(3);
   });
 
+  it.each([
+    "---",
+    "...",
+  ])("excludes CRLF frontmatter closed by %s from the count", (closer) => {
+    const md = `---\r\ntitle: My Post\r\nauthor: Jane Doe\r\n${closer}\r\n\r\nHello world here\r\n`;
+    expect(computeDocStats(md)).toEqual({ words: 3, minutes: 1 });
+  });
+
   it("excludes fenced code blocks", () => {
     const md = "intro words here\n\n```js\nconst a = 1 + 2 + 3 + 4;\n```\n\noutro";
     expect(computeDocStats(md).words).toBe(4); // "intro words here" + "outro"
