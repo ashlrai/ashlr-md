@@ -14921,6 +14921,39 @@ describe("rule:invalid-link-target — invalid link beside a valid link", () => 
     expect(lintDocument(fixed, { rules })).toEqual([]);
     expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(expected);
   });
+
+  it.each([
+    [
+      "invalid first",
+      "[guide]()[guide](./guide.md)",
+      "[guide](TODO)[guide](./guide.md)",
+    ],
+    ["valid first", "[guide](./guide.md)[guide]()", "[guide](./guide.md)[guide](TODO)"],
+  ])("repairs only the invalid href when a valid link with the same label touches it (%s)", (_name, links, expectedLinks) => {
+    // Same label on both links: the rule's match must stop at the first `](`,
+    // and the fix must rewrite only the empty destination, leaving the valid
+    // link byte-for-byte.
+    const invalid = "[guide]()";
+    const repaired = "[guide](TODO)";
+    const doc = `See ${links} now.\n`;
+    const expected = `See ${expectedLinks} now.\n`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(invalid);
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // Every byte outside the invalid link's span, the valid link included.
+    expect(
+      fixed.slice(0, from.offset) + fixed.slice(from.offset + repaired.length),
+    ).toBe(doc.slice(0, from.offset) + doc.slice(to.offset));
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(expected);
+  });
 });
 
 describe("invalid-link autofix: whitespace-only href beside a code span", () => {
