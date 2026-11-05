@@ -76,6 +76,16 @@ describe("computeDocStats", () => {
     expect(computeDocStats(words).minutes).toBe(3);
   });
 
+  it.each([
+    // A whole minute of words is a one-minute read; one word past it rounds
+    // up to two.
+    [220, 1],
+    [221, 2],
+  ])("reports %i plain words as a %i-minute read", (count, minutes) => {
+    const doc = Array.from({ length: count }, () => "word").join(" ");
+    expect(computeDocStats(doc)).toEqual({ words: count, minutes });
+  });
+
   it("reads code blocks and containers by the page's line rule", () => {
     // A fence was any line starting with three backticks or tildes after any
     // indentation, closed by any later one of the same character, so a
