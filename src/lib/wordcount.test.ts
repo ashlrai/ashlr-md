@@ -55,6 +55,16 @@ describe("computeDocStats", () => {
     expect(computeDocStats(fence).words).toBe(0);
   });
 
+  it("excludes tilde-fenced code blocks and counts surrounding prose", () => {
+    const fence = "~~~js\nconst message = 'hello world';\nconsole.log(message);\n~~~";
+    expect(computeDocStats(`words before\n\n${fence}\n\nwords after here`).words).toBe(
+      5,
+    );
+    expect(computeDocStats(fence).words).toBe(0);
+    // A backtick fence inside a tilde fence is code; only a tilde fence closes it.
+    expect(computeDocStats("~~~\n```\nx y\n```\n~~~\nz").words).toBe(1);
+  });
+
   it("excludes inline code", () => {
     // "run" + "now"; the inline-code span is removed entirely.
     expect(computeDocStats("run `npm install foo bar` now").words).toBe(2);
