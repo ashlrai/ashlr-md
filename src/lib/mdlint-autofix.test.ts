@@ -191,6 +191,33 @@ describe("autofix: whitespace-only image description", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
     expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(expected);
   });
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("fixes each whitespace-only description independently when destinations match (%j line endings)", (nl) => {
+    const rules = [ruleMissingAltText];
+    const destination = 'images/a%20b.png?v=2#top "Chart"';
+    const first = `![ \t](${destination})`;
+    const second = `![\u00a0 ](${destination})`;
+    const repaired = `![TODO: describe image](${destination})`;
+    const doc = `Before ${first} and ${second} after.${nl}`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+      "missing-alt-text",
+      "missing-alt-text",
+    ]);
+    expect(applyFix(doc, violations[0])).toBe(
+      `Before ${repaired} and ${second} after.${nl}`,
+    );
+    expect(applyFix(doc, violations[1])).toBe(
+      `Before ${first} and ${repaired} after.${nl}`,
+    );
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(`Before ${repaired} and ${repaired} after.${nl}`);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
 });
 
 describe("autofix: undescribed image next to a described image", () => {
