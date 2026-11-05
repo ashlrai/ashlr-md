@@ -22750,3 +22750,104 @@ describe("autofix: two invalid links on one line", () => {
     expect(lintDocument(afterSecond, { rules })).toEqual([]);
   });
 });
+
+describe("autofix: undescribed image inside a blockquote", () => {
+  const rules = [ruleMissingAltText];
+
+  it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+  ])("inserts the placeholder and keeps every blockquote marker, including a quoted fence's decoy image (%s)", (_name, nl) => {
+    // A fence may open inside a blockquote; the `![](decoy.png)` line inside
+    // it is code and is not flagged, and each `>` prefix stays in place.
+    const doc = [
+      "> Example:",
+      "> ```md",
+      "> ![](decoy.png)",
+      "> ```",
+      '> Real ![](shots/real%20one.png?v=2#top "Real") here.',
+      "",
+    ].join(nl);
+    const expected = [
+      "> Example:",
+      "> ```md",
+      "> ![](decoy.png)",
+      "> ```",
+      '> Real ![TODO: describe image](shots/real%20one.png?v=2#top "Real") here.',
+      "",
+    ].join(nl);
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(
+      '![](shots/real%20one.png?v=2#top "Real")',
+    );
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // The placeholder went in once and every line's `>` marker survived.
+    expect(fixed.match(/TODO: describe image/g)).toHaveLength(1);
+    expect(fixed.split(nl).filter((line) => line.startsWith(">"))).toHaveLength(5);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+
+  it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+  ])("fixes only the quoted occurrence when an identical image sits in an earlier fenced block (%s)", (_name, nl) => {
+    const doc = [
+      "```md",
+      "![](same.png)",
+      "```",
+      "",
+      "> Quote ![](same.png) end.",
+      "",
+    ].join(nl);
+    const expected = [
+      "```md",
+      "![](same.png)",
+      "```",
+      "",
+      "> Quote ![TODO: describe image](same.png) end.",
+      "",
+    ].join(nl);
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe("![](same.png)");
+    // The violation's line opens with `> `, so the fix splices inside the
+    // quote and cannot rewrite the fenced copy or drop the marker.
+    const lineStart = doc.lastIndexOf(nl, from.offset) + nl.length;
+    expect(doc.slice(lineStart, from.offset)).toBe("> Quote ");
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.split(nl)[1]).toBe("![](same.png)");
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+
+  it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+  ])("inserts the placeholder on a quote line ending in a hard break and keeps the break spaces (%s)", (_name, nl) => {
+    const doc = `> Text ![](a.png)  ${nl}> Next.${nl}`;
+    const expected = `> Text ![TODO: describe image](a.png)  ${nl}> Next.${nl}`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe("![](a.png)");
+    // The image's range ends before the two-space break, which the fix keeps.
+    expect(doc.slice(to.offset, to.offset + 2)).toBe("  ");
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.startsWith("> ")).toBe(true);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+});
