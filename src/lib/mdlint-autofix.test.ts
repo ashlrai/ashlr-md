@@ -239,6 +239,32 @@ describe("autofix: undescribed image next to a described image", () => {
       "![Logo](logo.png)\n\n![TODO: describe image](shot.png)\n",
     );
   });
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("targets only the undescribed image beside a described one with %j line endings", (nl) => {
+    const rules = [ruleMissingAltText];
+    const described = '![Quarterly results](img/q3%20chart.png?v=2#top "Chart")';
+    const undescribed = "![](img/図.svg)";
+    const doc = `See ${described} then ${undescribed} done.${nl}`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(undescribed);
+
+    const expected = `See ${described} then ![TODO: describe image](img/図.svg) done.${nl}`;
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // The described image and prose are byte-for-byte intact; exactly one
+    // placeholder was inserted.
+    expect(fixed).toContain(described);
+    expect(fixed.match(/TODO: describe image/g)).toHaveLength(1);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
 });
 
 describe("autofix: undescribed image between described images", () => {
