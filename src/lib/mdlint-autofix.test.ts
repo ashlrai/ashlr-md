@@ -22750,3 +22750,35 @@ describe("autofix: two invalid links on one line", () => {
     expect(lintDocument(afterSecond, { rules })).toEqual([]);
   });
 });
+
+describe("autofix: invalid link with punctuation around it", () => {
+  const rules = [ruleInvalidLinkTarget];
+
+  it.each([
+    ["parentheses", "(see [docs]())", "(see [docs](TODO))"],
+    ["quotes", '"[docs](#)"', '"[docs](TODO)"'],
+    ["trailing sentence punctuation", "Read [docs](?).", "Read [docs](TODO)."],
+    ["comma and semicolon", "[a](); [b](?),", "[a](TODO); [b](TODO),"],
+    ["brackets", "[[docs]()]", "[[docs](TODO)]"],
+    ["emphasis markers", "**[docs]( )**!", "**[docs](TODO)**!"],
+    ["ellipsis and dashes", "wait…[docs]()—ok...", "wait…[docs](TODO)—ok..."],
+    ["leading colon", "Note: [docs](#):", "Note: [docs](TODO):"],
+  ])("sets the destination to TODO and keeps %s", (_name, body, expected) => {
+    for (const nl of ["\n", "\r\n"]) {
+      const doc = `${body}${nl}Next.${nl}`;
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.length).toBeGreaterThan(0);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(`${expected}${nl}Next.${nl}`);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+      expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+    }
+  });
+
+  it("applyFix on a single violation preserves the punctuation around it", () => {
+    const doc = "Hello, ([docs]()), world!\n";
+    const [violation] = lintDocument(doc, { rules });
+    expect(applyFix(doc, violation)).toBe("Hello, ([docs](TODO)), world!\n");
+  });
+});
