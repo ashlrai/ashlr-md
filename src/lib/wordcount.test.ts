@@ -18,6 +18,45 @@ describe("computeDocStats", () => {
     expect(computeDocStats(`${prefix}${prose}${suffix}`).words).toBe(5);
   });
 
+  it.each([
+    ["two blank lines between paragraphs", "one two\n\n\nthree four five"],
+    ["many blank lines between paragraphs", "one two\n\n\n\n\n\nthree four five"],
+    ["blank lines holding spaces and tabs", "one two\n  \n\t\n \t \nthree four five"],
+    ["CRLF blank lines", "one two\r\n\r\n\r\nthree four five"],
+    [
+      "blank lines around the whole document",
+      "\n\n\none two three\n\n\nfour five\n\n\n",
+    ],
+  ])("does not change the word count with %s", (_description, content) => {
+    expect(computeDocStats(content).words).toBe(5);
+  });
+
+  it("returns the same stats however many blank lines separate prose", () => {
+    const stats = computeDocStats("one two\n\n\n\nthree four five");
+    expect(stats).toEqual(computeDocStats("one two\nthree four five"));
+    expect(stats).toEqual(computeDocStats("one two three four five"));
+  });
+
+  it("does not change the reading time with consecutive blank lines", () => {
+    const words = Array.from({ length: 440 }, () => "word").join(" ");
+    const first = Array.from({ length: 220 }, () => "word").join(" ");
+    const split = `${first}\n\n\n\n\n${first}`;
+    expect(computeDocStats(split)).toEqual({ words: 440, minutes: 2 });
+    expect(computeDocStats(split)).toEqual(computeDocStats(words));
+  });
+
+  it("counts no words for blank lines inside indented code", () => {
+    // CommonMark reads blank lines between indented lines as part of the
+    // code block, not as gaps ending it; they add no words either way.
+    expect(computeDocStats("para\n\n    code one\n\n\n    code two\n\nend").words).toBe(
+      2,
+    );
+  });
+
+  it("counts a blockquote's prose once across its blank lines", () => {
+    expect(computeDocStats("> quoted one\n>\n>\n> quoted two").words).toBe(4);
+  });
+
   it("counts accented words separated by Unicode whitespace", () => {
     expect(
       computeDocStats("café\u00a0mañana\u2003naïve\nre\u0301sume\u0301").words,
