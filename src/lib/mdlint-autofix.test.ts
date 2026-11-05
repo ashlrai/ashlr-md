@@ -22266,3 +22266,93 @@ describe("autofix: two undescribed images on separate lines", () => {
     expect(lintDocument(expected, { rules })).toEqual([]);
   });
 });
+
+describe("autofix: an image with a description beside one without", () => {
+  it.each([
+    [true, "\n"],
+    [false, "\n"],
+    [true, "\r\n"],
+    [false, "\r\n"],
+  ])("changes only the undescribed image across a hard break and keeps the two-space break and the described image byte-for-byte (described first: %s, %j line endings)", (describedFirst, nl) => {
+    const rules = [ruleMissingAltText];
+    const described = '![Quarterly chart](img/q3%20chart.png?v=2#top "Chart")';
+    const missing = "![](img/raw.png)";
+    const repaired = "![TODO: describe image](img/raw.png)";
+    // The two trailing spaces are a hard line break: the pair sits on
+    // separate rendered lines of one paragraph and the break must survive.
+    const pair = (a: string, b: string) =>
+      describedFirst ? `${a}  ${nl}${b}` : `${b}  ${nl}${a}`;
+    const doc = `Intro.${nl}${nl}${pair(described, missing)} done.${nl}`;
+    const expected = `Intro.${nl}${nl}${pair(described, repaired)} done.${nl}`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(missing);
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain(described);
+    expect(fixed).toContain(`  ${nl}`);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+
+  it.each([
+    true,
+    false,
+  ])("changes only the undescribed image when its destination starts with the described image's destination (described first: %s)", (describedFirst) => {
+    const rules = [ruleMissingAltText];
+    // The undescribed destination begins with the described one, so a fix
+    // that matched on source text rather than offsets could splice into
+    // the wrong image.
+    const described = "![Sales chart](img/chart.png)";
+    const missing = '![](img/chart.png?v=2#top "Raw")';
+    const repaired = '![TODO: describe image](img/chart.png?v=2#top "Raw")';
+    const pair = (a: string, b: string) => (describedFirst ? `${a} ${b}` : `${b} ${a}`);
+    const doc = `See ${pair(described, missing)} end.\n`;
+    const expected = `See ${pair(described, repaired)} end.\n`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(missing);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain(described);
+    expect(fixed.match(/TODO: describe image/g)).toHaveLength(1);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("changes only the undescribed image of a pair inside a footnote definition and keeps the markers (%j line endings)", (nl) => {
+    const rules = [ruleMissingAltText];
+    const described = "![Chart](img/chart.png)";
+    const missing = "![](img/raw.png)";
+    const repaired = "![TODO: describe image](img/raw.png)";
+    const doc =
+      `Text with a note[^1] inline.${nl}${nl}` +
+      `[^1]: Compare ${described} with ${missing} side by side.${nl}`;
+    const expected =
+      `Text with a note[^1] inline.${nl}${nl}` +
+      `[^1]: Compare ${described} with ${repaired} side by side.${nl}`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(missing);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // Both `[^1]` markers — the inline reference and the definition — and
+    // the described image are byte-identical.
+    expect(fixed.match(/\[\^1\]/g)).toHaveLength(2);
+    expect(fixed).toContain(described);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+});
