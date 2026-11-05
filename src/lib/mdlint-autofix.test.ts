@@ -22397,3 +22397,134 @@ describe("autofix: an image with a description beside one without", () => {
     expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
   });
 });
+
+describe("autofix: a described image beside an image missing a description", () => {
+  const rules = [ruleMissingAltText];
+  const missing = '![](img/raw.png?v=1#top "Raw")';
+  const repaired = '![TODO: describe image](img/raw.png?v=1#top "Raw")';
+
+  it.each([
+    [
+      "an HTML img element with an alt attribute",
+      '<img src="img/logo.svg" alt="Logo">',
+    ],
+    ["an escaped bracket inside the description", "![a \\] bracket](img/logo.svg)"],
+  ])("changes only the image missing a description beside %s", (_name, described) => {
+    for (const nl of ["\n", "\r\n"]) {
+      for (const describedFirst of [true, false]) {
+        const pair = describedFirst
+          ? `${described} then ${missing}`
+          : `${missing} then ${described}`;
+        const fixedPair = describedFirst
+          ? `${described} then ${repaired}`
+          : `${repaired} then ${described}`;
+        const doc = `See ${pair} end.${nl}`;
+        const expected = `See ${fixedPair} end.${nl}`;
+        const violations = lintDocument(doc, { rules });
+
+        expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+        const { from, to } = violations[0].range!;
+        expect(doc.slice(from.offset, to.offset)).toBe(missing);
+        expect(applyFix(doc, violations[0])).toBe(expected);
+        const fixed = applyAllFixes(doc, violations);
+        expect(fixed).toBe(expected);
+        expect(fixed).toContain(described);
+        expect(fixed.match(/TODO: describe image/g)).toHaveLength(1);
+        expect(lintDocument(fixed, { rules })).toEqual([]);
+        expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+      }
+    }
+  });
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("changes only the inline image missing a description beside a reference-style image and keeps its definition (%j line endings)", (nl) => {
+    const described = "![Logo][logo]";
+    const definition = "[logo]: img/logo.svg";
+    for (const describedFirst of [true, false]) {
+      const pair = describedFirst
+        ? `${described} then ${missing}`
+        : `${missing} then ${described}`;
+      const fixedPair = describedFirst
+        ? `${described} then ${repaired}`
+        : `${repaired} then ${described}`;
+      const doc = `See ${pair} end.${nl}${nl}${definition}${nl}`;
+      const expected = `See ${fixedPair} end.${nl}${nl}${definition}${nl}`;
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+      const { from, to } = violations[0].range!;
+      expect(doc.slice(from.offset, to.offset)).toBe(missing);
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      expect(fixed).toContain(described);
+      expect(fixed).toContain(definition);
+      expect(fixed.match(/TODO: describe image/g)).toHaveLength(1);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+      expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+    }
+  });
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("changes only the image missing a description beside one whose description spans a line break (%j line endings)", (nl) => {
+    // A soft line break inside a paragraph is legal inside a description.
+    const described = `![first half${nl}second half](img/a.png)`;
+    for (const describedFirst of [true, false]) {
+      const pair = describedFirst
+        ? `${described} then ${missing}`
+        : `${missing} then ${described}`;
+      const fixedPair = describedFirst
+        ? `${described} then ${repaired}`
+        : `${repaired} then ${described}`;
+      const doc = `See ${pair} end.${nl}`;
+      const expected = `See ${fixedPair} end.${nl}`;
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+      const { from, to } = violations[0].range!;
+      expect(doc.slice(from.offset, to.offset)).toBe(missing);
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      // The description's own break is part of the neighbour's text, so the
+      // document keeps the same number of line breaks.
+      expect(fixed).toContain(`first half${nl}second half`);
+      expect(fixed.split(nl)).toHaveLength(doc.split(nl).length);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+      expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+    }
+  });
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("changes only the image missing a description inside a heading that also holds a described one (%j line endings)", (nl) => {
+    const described = "![Logo](img/logo.svg)";
+    for (const describedFirst of [true, false]) {
+      const pair = describedFirst
+        ? `${described} Gallery ${missing}`
+        : `${missing} Gallery ${described}`;
+      const fixedPair = describedFirst
+        ? `${described} Gallery ${repaired}`
+        : `${repaired} Gallery ${described}`;
+      const doc = `## ${pair}${nl}${nl}Body text.${nl}`;
+      const expected = `## ${fixedPair}${nl}${nl}Body text.${nl}`;
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+      const { from, to } = violations[0].range!;
+      expect(doc.slice(from.offset, to.offset)).toBe(missing);
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      expect(fixed.startsWith("## ")).toBe(true);
+      expect(fixed).toContain(described);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+      expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+    }
+  });
+});
