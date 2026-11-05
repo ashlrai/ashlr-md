@@ -22528,3 +22528,72 @@ describe("autofix: a described image beside an image missing a description", () 
     }
   });
 });
+
+describe("autofix: two undescribed images sharing a path prefix", () => {
+  it.each([
+    "\n",
+    "\r\n",
+  ])("keeps each image's own source when one destination is a prefix of the other (%j line endings)", (nl) => {
+    const rules = [ruleMissingAltText];
+    // `img/a.png` is a strict prefix of `img/a.png?v=2#view "B"`; a fix keyed
+    // on the source text instead of the violation range could splice the
+    // placeholder into the wrong image or truncate the longer destination.
+    for (const [first, second] of [
+      ["![](img/a.png)", '![ ](img/a.png?v=2#view "B")'],
+      ['![](img/a.png?v=2#view "B")', "![\t](img/a.png)"],
+    ]) {
+      const doc = `Lead ${first} mid ${second} tail.${nl}`;
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+        "missing-alt-text",
+        "missing-alt-text",
+      ]);
+      expect(
+        violations.map(({ range }) => doc.slice(range!.from.offset, range!.to.offset)),
+      ).toEqual([first, second]);
+      expect(violations.every(({ fix }) => fix !== null)).toBe(true);
+
+      const firstSrc = first.slice(first.indexOf("(") + 1, -1);
+      const secondSrc = second.slice(second.indexOf("(") + 1, -1);
+      const expected = `Lead ![TODO: describe image](${firstSrc}) mid ![TODO: describe image](${secondSrc}) tail.${nl}`;
+
+      // Each fix applied alone touches only its own image.
+      expect(applyFix(doc, violations[0])).toBe(
+        `Lead ![TODO: describe image](${firstSrc}) mid ${second} tail.${nl}`,
+      );
+      expect(applyFix(doc, violations[1])).toBe(
+        `Lead ${first} mid ![TODO: describe image](${secondSrc}) tail.${nl}`,
+      );
+
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      expect(fixed).toContain(`](${firstSrc})`);
+      expect(fixed).toContain(`](${secondSrc})`);
+      expect(fixed.match(/TODO: describe image/g)).toHaveLength(2);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+      expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+    }
+  });
+
+  it("describes both real images around a fenced-code decoy with the same source", () => {
+    const rules = [ruleMissingAltText];
+    const doc = "![](a.png)\n\n```md\n![](a.png)\n```\n\n![ ](a.png)\n";
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+      "missing-alt-text",
+      "missing-alt-text",
+    ]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(
+      "![TODO: describe image](a.png)\n\n```md\n![](a.png)\n```\n\n![TODO: describe image](a.png)\n",
+    );
+    // The masked copy inside the fence is not one of the two: it stays
+    // byte-identical and no placeholder lands inside the code block.
+    expect(fixed).toContain("```md\n![](a.png)\n```");
+    expect(fixed.match(/TODO: describe image/g)).toHaveLength(2);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+});
