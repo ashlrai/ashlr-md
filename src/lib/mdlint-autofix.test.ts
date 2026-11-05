@@ -21662,3 +21662,25 @@ describe("autofix: invalid links on separate lines", () => {
     expect(lintDocument(expected, { rules })).toEqual([]);
   });
 });
+
+describe("autofix: invalid link idempotence with repeated identical links", () => {
+  it.each([
+    "\n",
+    "\r\n",
+  ])("fixing twice equals fixing once, even with stale violations (%j)", (nl) => {
+    const rules = [ruleInvalidLinkTarget];
+    const doc = `A [x]() and [x]() then [x](#).${nl}Again [x]() here.${nl}`;
+    const expected = `A [x](TODO) and [x](TODO) then [x](TODO).${nl}Again [x](TODO) here.${nl}`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(4);
+    const once = applyAllFixes(doc, violations);
+    expect(once).toBe(expected);
+    // Re-applying the same (now stale) violations must not change anything.
+    expect(applyAllFixes(once, violations)).toBe(once);
+    // A fresh lint finds nothing left to fix.
+    const remaining = lintDocument(once, { rules });
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(once, remaining)).toBe(once);
+  });
+});
