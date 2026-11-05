@@ -1440,6 +1440,16 @@ describe("rule:invalid-link-target", () => {
       "日本 [a]() と [b](\t) 後\r\n",
       "日本 [a](TODO) と [b](TODO) 後\r\n",
     ],
+    [
+      "both cells of one table row",
+      "| Step | Link |\n| --- | --- |\n| [setup]() then [guide](#) | ok |\n",
+      "| Step | Link |\n| --- | --- |\n| [setup](TODO) then [guide](TODO) | ok |\n",
+    ],
+    [
+      "one heading line",
+      "## See [setup]() then [guide](#) now\n",
+      "## See [setup](TODO) then [guide](TODO) now\n",
+    ],
   ])("fixes two invalid links on one line: %s", (_name, doc, expected) => {
     const rules = [ruleInvalidLinkTarget];
     const violations = lintDocument(doc, { rules });
