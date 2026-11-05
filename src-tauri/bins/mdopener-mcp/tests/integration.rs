@@ -18498,3 +18498,170 @@ fn export_text_keeps_unicode_bracketed_prose_in_containers_and_beside_markup() {
         assert_eq!(text.matches('[').count(), text.matches(']').count());
     }
 }
+
+/// Bracketed prose at the beginning of a paragraph keeps both brackets and
+/// the prose after them in the shapes the start-of-a-paragraph test leaves
+/// out: the paragraph's continuation line indented four columns (indented
+/// code cannot interrupt one), a footnote definition's own text opening on
+/// brackets, a paragraph that begins one inside two containers at once, a
+/// heading, fence, quote or rule that interrupts it, a `#` with no space
+/// that cannot, a hard break after the opener, a tab-indented line that
+/// reads as code instead, brackets raw inside an HTML block, an inner pair
+/// that resolves while the unmatched outer pair stays literal, a quote
+/// restarting on brackets after its blank line, an image and a footnote
+/// reference beside the opener, punctuation hard against it, a pipe and an
+/// escaped `]` inside it, strikethrough inside it, an empty `()` that is
+/// no link tail, and a multi-line definition that is read first. A defined
+/// label still resolves per paragraph: `[x]` keeps its brackets while
+/// `[y]` becomes a link.
+#[test]
+fn export_text_keeps_bracketed_prose_at_the_beginning_of_a_paragraph() {
+    let cases = [
+        // A line indented four columns goes on with the paragraph (indented
+        // code cannot interrupt one), so its text is read, not its indent.
+        (
+            "[note] first\n    indented continuation\n",
+            "[note] first\nindented continuation",
+        ),
+        // A footnote definition's text is a paragraph of its own; brackets
+        // opening it keep both brackets and the prose after them.
+        (
+            "[^1]: [note] begins the footnote text.\n",
+            "[1] [note] begins the footnote text.",
+        ),
+        // The paragraph opens inside two containers at once.
+        (
+            "> - [note] nested in quote-list.\n",
+            "[note] nested in quote-list.",
+        ),
+        (
+            "- > [note] nested in item-quote.\n",
+            "[note] nested in item-quote.",
+        ),
+        // An ATX heading, a fence, a blockquote and a rule each interrupt
+        // the paragraph the opener began; a `#` with no space cannot and
+        // reads as the paragraph's next line.
+        ("[note] first\n# Heading\n", "[note] first\nHeading"),
+        (
+            "[note] first\n```\ncode line\n```\n",
+            "[note] first\ncode line",
+        ),
+        ("[note] first\n> quote after\n", "[note] first\nquote after"),
+        ("[note] first\n***\n", "[note] first"),
+        (
+            "[note] first\n#not-a-heading\n",
+            "[note] first\n#not-a-heading",
+        ),
+        // A hard break after the opener: the backslash is read, the two
+        // trailing spaces stay as written.
+        (
+            "[note] first  \nsecond line.\n",
+            "[note] first  \nsecond line.",
+        ),
+        (
+            "[note] first\\\nsecond line.\n",
+            "[note] first\nsecond line.",
+        ),
+        // A tab-indented line is indented code; the brackets are code text.
+        (
+            "\t[note] inside indented code.\n",
+            "[note] inside indented code.",
+        ),
+        // Inside an HTML block the brackets are raw text on the page.
+        ("<div>\n[note] raw text.\n</div>\n", "[note] raw text."),
+        // The inner pair resolves against the defined label while the
+        // unmatched outer pair stays literal.
+        ("[a [b] c] prose.\n\n[b]: /u\n", "[a b c] prose."),
+        // A blockquote's next paragraph, past its blank quoted line, opens
+        // on the brackets again.
+        (
+            "> a\n>\n> [note] restarts the quote.\n",
+            "a\n\n[note] restarts the quote.",
+        ),
+        // An image and a footnote reference beside the opener read their
+        // own syntax; the opening brackets stay.
+        ("[note] then ![alt](/i.png) end.\n", "[note] then alt end."),
+        (
+            "[note] and [^2] too.\n\n[^2]: Note two.\n",
+            "[note] and [2] too.\n\n[2] Note two.",
+        ),
+        // Punctuation hard against the opener: no space needed either side.
+        ("[note], opens a clause.\n", "[note], opens a clause."),
+        ("[note]; then more.\n", "[note]; then more."),
+        // A pipe inside the opener is plain text in a paragraph (no table),
+        // and an escaped `]` inside it does not close it.
+        ("[a | b] keeps its pipe.\n", "[a | b] keeps its pipe."),
+        ("[a\\]b] prose after.\n", "[a]b] prose after."),
+        // Strikethrough inside the opener is read; the brackets stay.
+        (
+            "[~~struck~~ note] stays prose.\n",
+            "[struck note] stays prose.",
+        ),
+        // An empty `()` after the opener is no link tail.
+        ("[note] () text.\n", "[note] () text."),
+        // A definition spanning two lines is read first; the paragraph
+        // after it still opens on brackets, which stay.
+        (
+            "[a]: /u\n  \"title\"\n\n[note] after multi-line def.\n",
+            "[note] after multi-line def.",
+        ),
+        // Labels resolve per paragraph: `[y]` is defined and reads as a
+        // link while the undefined `[x]` keeps its brackets.
+        ("[x] one.\n\n[y] two.\n\n[y]: /u\n", "[x] one.\n\ny two."),
+    ];
+    for (markdown, expected) in cases {
+        let result = run_export_text_on(markdown);
+        let rendered = result["text"].as_str().unwrap();
+        assert_eq!(rendered, expected, "{markdown:?}");
+        let ipc = MockIpc::new().on_get(
+            "/content",
+            Ok(json!({ "path": "/docs/test.md", "content": markdown })),
+        );
+        let response = tool_export_text(id(2), &json!({}), &ipc);
+        assert!(response.error.is_none(), "{markdown:?}");
+        assert_eq!(
+            content_text(&response)["text"].as_str().unwrap(),
+            expected,
+            "{markdown:?}"
+        );
+        assert_eq!(strip_markdown(markdown), expected, "{markdown:?}");
+        assert_eq!(
+            result["char_count"].as_u64().unwrap() as usize,
+            expected.chars().count(),
+            "{markdown:?}"
+        );
+        assert_eq!(
+            result["word_count"].as_u64().unwrap() as usize,
+            count_words(expected),
+            "{markdown:?}"
+        );
+    }
+
+    // At the paragraph's start, real syntax still owns its brackets: a
+    // wikilink reads its target, a defined label resolves whatever its
+    // case, a full reference reads its text, and every paragraph opening
+    // on a defined label resolves on its own.
+    for (markdown, expected) in [
+        ("[[note]] prose at start.\n", "note prose at start."),
+        (
+            "[Note] prose at start.\n\n[note]: /u\n",
+            "Note prose at start.",
+        ),
+        ("[note][ref] prose.\n\n[ref]: /u\n", "note prose."),
+        (
+            "[same] one.\n\n[same] two.\n\n[same]: /u\n",
+            "same one.\n\nsame two.",
+        ),
+    ] {
+        let result = run_export_text_on(markdown);
+        assert_eq!(result["text"].as_str().unwrap(), expected, "{markdown:?}");
+        assert_eq!(strip_markdown(markdown), expected, "{markdown:?}");
+    }
+
+    // The acceptance point, verbatim: the returned text retains both
+    // brackets and the following prose.
+    let result = run_export_text_on("[draft] please review this paragraph.\n");
+    let text = result["text"].as_str().unwrap();
+    assert!(text.starts_with("[draft] "), "{text:?}");
+    assert!(text.contains("please review this paragraph."), "{text:?}");
+}
