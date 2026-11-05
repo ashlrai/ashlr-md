@@ -21706,3 +21706,95 @@ describe("autofix: invalid link idempotence with repeated identical links", () =
     expect(applyAllFixes(once, remaining)).toBe(once);
   });
 });
+
+describe("autofix: valid-link preservation across schemes and edge hrefs", () => {
+  const rules = [ruleInvalidLinkTarget];
+
+  // A href is valid to the rule when it is not empty, not whitespace-only and
+  // not a lone "#" or "?". Every other destination — a URI scheme, a relative
+  // path, a bare query or a fragment — must come through autofix
+  // byte-for-byte, along with the text around it.
+  it.each([
+    ["a telephone number", "tel:+1-555-0100"],
+    ["an FTP URL", "ftp://ftp.example.com/pub/guide.pdf"],
+    ["a custom app scheme", "obsidian://open?vault=docs&file=guide"],
+    ["an editor scheme", "vscode://file/src/lib/mdlint.ts:42"],
+    ["a file URI", "file:///Users/docs/guide.md"],
+    ["a bare query", "?page=2&sort=asc"],
+    ["a query with a fragment", "?q=lint#hits"],
+    ["a fragment ending in a question mark", "#what-is-it?"],
+  ])("leaves a link to %s and its surrounding text unchanged", (_kind, href) => {
+    const link = `[the guide](${href})`;
+    for (const nl of ["\n", "\r\n"]) {
+      const doc = `---${nl}title: Guide${nl}---${nl}${nl}Open ${link} before setup, then keep reading.${nl}`;
+
+      expect(lintDocument(doc, { rules })).toEqual([]);
+      expect(applyAllFixes(doc, lintDocument(doc, { rules }))).toBe(doc);
+      // The full default rule set must not rewrite the link or its text either.
+      expect(lintDocument(doc)).toEqual([]);
+      expect(applyAllFixes(doc, lintDocument(doc))).toBe(doc);
+    }
+  });
+
+  it("leaves a reference-style link, its definition and their text unchanged", () => {
+    for (const nl of ["\n", "\r\n"]) {
+      const doc = [
+        "---",
+        "title: Guide",
+        "---",
+        "",
+        "See [the guide][guide-ref] and the [shortcut] today.",
+        "",
+        '[guide-ref]: ./docs/guide.md "Guide"',
+        "[shortcut]: ./short.md",
+        "",
+      ].join(nl);
+
+      expect(lintDocument(doc, { rules })).toEqual([]);
+      expect(lintDocument(doc)).toEqual([]);
+      expect(applyAllFixes(doc, lintDocument(doc))).toBe(doc);
+    }
+  });
+
+  it("keeps a valid scheme link at its offset while fixing an invalid link beside it", () => {
+    const link = "[the hotline](tel:+1-555-0100)";
+    for (const nl of ["\n", "\r\n"]) {
+      const before = `Intro: read ${link} first, then `;
+      const after = ` for details.${nl}Done.${nl}`;
+      const doc = `${before}[the guide]()${after}`;
+      const expected = `${before}[the guide](TODO)${after}`;
+      const violations = lintDocument(doc, { rules });
+
+      // Only the empty destination is reported; the valid link never is.
+      expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      // The link and every byte around it survive: same offset, same suffix.
+      expect(fixed.indexOf(link)).toBe(doc.indexOf(link));
+      expect(fixed.endsWith(after)).toBe(true);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+    }
+  });
+
+  it("leaves a valid scheme link unchanged while default autofix repairs every other violation on the line", () => {
+    const link = "[app](obsidian://open?vault=docs&file=guide)";
+    for (const nl of ["\n", "\r\n"]) {
+      const doc = `---${nl}title: Guide${nl}---${nl}${nl}Open ${link} then [docs]() and ![](img/a.png?v=2#top "A").   ${nl}`;
+      const expected = `---${nl}title: Guide${nl}---${nl}${nl}Open ${link} then [docs](TODO) and ![TODO: describe image](img/a.png?v=2#top "A").${nl}`;
+      const violations = lintDocument(doc);
+
+      expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+        "invalid-link-target",
+        "missing-alt-text",
+        "no-trailing-spaces",
+      ]);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      // The valid link occupies the same span after the fixes, byte for byte.
+      expect(fixed.indexOf(link)).toBe(doc.indexOf(link));
+      expect(lintDocument(fixed)).toEqual([]);
+      expect(applyAllFixes(fixed, lintDocument(fixed))).toBe(fixed);
+    }
+  });
+});
