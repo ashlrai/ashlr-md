@@ -545,6 +545,35 @@ describe("autofix: undescribed image with a Unicode filename", () => {
   });
 });
 
+describe("autofix: undescribed image with a Unicode path in block containers", () => {
+  // NFC "é" (U+00E9) and NFD "e" + U+0301 must stay distinct, byte for byte.
+  const nfc = "img/café/日本語 図.png";
+  const nfd = "img/café/日本語 図.png";
+
+  it.each([
+    ["list item", "- ", `<${nfc}> "図"`],
+    ["blockquote", "> ", `<${nfd}> "図"`],
+    ["nested quote list", "> - ", "img/東京/ملف.png?言語=日本語#詳細"],
+  ])("fills the placeholder and keeps the exact path (%s)", (_name, prefix, dest) => {
+    const rules = [ruleMissingAltText];
+    const doc = `前文\n\n${prefix}見て ![](${dest}) 後\n`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(`前文\n\n${prefix}見て ![TODO: describe image](${dest}) 後\n`);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it("keeps NFC and NFD paths distinct when both images need a placeholder", () => {
+    const rules = [ruleMissingAltText];
+    const doc = `![](<${nfc}>) ![ ](<${nfd}>)\n`;
+    const fixed = applyAllFixes(doc, lintDocument(doc, { rules }));
+
+    expect(fixed).toBe(`![TODO: describe image](<${nfc}>) ![TODO: describe image](<${nfd}>)\n`);
+  });
+});
+
 describe("autofix: undescribed image in a document without a final newline", () => {
   it.each([
     ["the whole document is one image", "![](a.png)"],
