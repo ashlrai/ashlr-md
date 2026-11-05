@@ -6670,6 +6670,74 @@ fn export_text_keeps_adjacent_bracket_pairs_beside_defined_labels_and_code() {
     }
 }
 
+/// Bracketed prose beside inline code keeps both: code spans are read before
+/// brackets, so a `[` or `]` inside one cannot open or close a phrase, one
+/// inside a phrase is code content, and only a real link loses its brackets.
+/// An unclosed backtick run is literal text, as CommonMark reads it.
+#[test]
+fn export_text_keeps_bracketed_prose_beside_inline_code() {
+    for (markdown, expected) in [
+        // Beside it, in either order, with or without a space.
+        ("[note] `x = 1` after.\n", "[note] x = 1 after."),
+        ("`x = 1` [note] after.\n", "x = 1 [note] after."),
+        ("[note]`x`[done]\n", "[note]x[done]"),
+        ("[a] `x` [b]\n", "[a] x [b]"),
+        // A code span inside the brackets reads its content between them.
+        ("[a `x` b]\n", "[a x b]"),
+        ("[`x` b]\n", "[x b]"),
+        ("[a `x`]\n", "[a x]"),
+        ("[x `a` y `b` z]\n", "[x a y b z]"),
+        ("[needs\n`x` review]\n", "[needs\nx review]"),
+        // A bracket inside a code span cannot close or open a phrase.
+        ("[a `]` b]\n", "[a ] b]"),
+        ("`a [` [b]\n", "a [ [b]"),
+        ("`a ]` [b]\n", "a ] [b]"),
+        // Link- and wikilink-looking code content stays as written.
+        ("`[k](v)` [note]\n", "[k](v) [note]"),
+        ("`[[wiki]]` [note]\n", "[[wiki]] [note]"),
+        ("[note] `f(x)` and `g[y]`\n", "[note] f(x) and g[y]"),
+        ("`unclosed [note]`\n", "unclosed [note]"),
+        // Only a real link loses its brackets, code in its text included.
+        ("[a `]` b](/u)\n", "a ] b"),
+        ("[a `[x](y)` b](u) [prose]\n", "a [x](y) b [prose]"),
+        ("[`t`](u) [prose]\n", "t [prose]"),
+        // A code span between `]` and `(` keeps the phrase prose.
+        ("[t] `x`(u)\n", "[t] x(u)"),
+        ("[t]`x`(u)\n", "[t]x(u)"),
+        // A defined label resolves; the other phrase keeps its brackets.
+        ("[alpha] `c` [beta]\n\n[beta]: /b\n", "[alpha] c beta"),
+        // A run never closed is literal text, in or beside a phrase.
+        ("[note] `unclosed\n", "[note] `unclosed"),
+        ("[a `x b]\n", "[a `x b]"),
+        // Runs of two or more, and adjacent runs that close separately.
+        ("[n] ``a`b`` [m]\n", "[n] a`b [m]"),
+        ("`` `x` `` [n]\n", "`x` [n]"),
+        ("a `b`c`d` [e]\n", "a bcd [e]"),
+        // In a heading, a quote, a list item and a table cell.
+        ("# [h] `c`\n", "[h] c"),
+        ("> [q] `c`\n", "[q] c"),
+        ("- [i] `c`\n", "[i] c"),
+        ("| a |\n|---|\n| [t] `c` |\n", "a\n[t] c"),
+        // Escaped brackets are text, and math masks like code does.
+        ("\\[a\\] `x`\n", "[a] x"),
+        ("[note] $x^2$ end\n", "[note] x^2 end"),
+    ] {
+        let result = run_export_text_on(markdown);
+        let text = result["text"].as_str().unwrap();
+        assert_eq!(text, expected, "{markdown:?}");
+        assert_eq!(
+            result["char_count"].as_u64().unwrap() as usize,
+            expected.chars().count(),
+            "{markdown:?}"
+        );
+        assert_eq!(
+            result["word_count"].as_u64().unwrap() as usize,
+            count_words(expected),
+            "{markdown:?}"
+        );
+    }
+}
+
 /// The same bracketed phrase twice must survive twice, each with its own
 /// surrounding text, rather than the second being merged or dropped.
 #[test]
