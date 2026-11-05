@@ -435,6 +435,35 @@ describe("autofix: two undescribed images on one line", () => {
     expect(lintDocument(fixed)).toEqual([]);
     expect(applyAllFixes(fixed, lintDocument(fixed))).toBe(fixed);
   });
+
+  it("places a placeholder on each image and keeps both destinations intact", () => {
+    const rules = [ruleMissingAltText];
+    const first = '![](images/first%20draft.png?v=1#top "First draft")';
+    const second = '![](../assets/fig-2.svg?raw=1#view "Figure 2")';
+    const doc = `Before ${first} and ${second} after.\n`;
+    const expected =
+      'Before ![TODO: describe image](images/first%20draft.png?v=1#top "First draft") and ![TODO: describe image](../assets/fig-2.svg?raw=1#view "Figure 2") after.\n';
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+      "missing-alt-text",
+      "missing-alt-text",
+    ]);
+    expect(
+      violations.map(({ range }) => doc.slice(range!.from.offset, range!.to.offset)),
+    ).toEqual([first, second]);
+    expect(violations.every(({ fix }) => fix !== null)).toBe(true);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    for (const src of [
+      'images/first%20draft.png?v=1#top "First draft"',
+      '../assets/fig-2.svg?raw=1#view "Figure 2"',
+    ]) {
+      expect(fixed).toContain(`![TODO: describe image](${src})`);
+    }
+    expect(fixed.match(/TODO: describe image/g)).toHaveLength(2);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
 });
 
 describe("autofix: undescribed images on separate lines", () => {
