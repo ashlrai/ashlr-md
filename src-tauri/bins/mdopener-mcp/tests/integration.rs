@@ -6934,6 +6934,110 @@ fn export_text_keeps_repeated_bracketed_prose_across_lines() {
     );
 }
 
+/// A `[x]` pair that is no link — no `(url)` after it and no `[x]: /url`
+/// in the document — is prose, so its brackets stay. Repeated, each failed
+/// reference read must hand off cleanly: `[a][b]` tries `b` as the label,
+/// falls short, and the next `[` starts a new pair rather than being eaten
+/// as the first's label or dropped with it. Every pair of a repeat keeps
+/// its brackets, in order: adjacent `[x][x]` and `[a][b]` runs, collapsed
+/// `[a][]`, an empty-text `[][b]`, a three-pair chain, repeats across lines
+/// and paragraphs, beside pairs that do match, and when the text's own
+/// label is defined (`[a]: /a` does not make `[a][b]` a link — `b` is the
+/// label, and it is undefined).
+#[test]
+fn export_text_keeps_repeated_unmatched_bracket_pairs_in_order() {
+    for (markdown, expected) in [
+        // The same unmatched pair, adjacent and spaced.
+        ("[x][x][x]\n", "[x][x][x]"),
+        ("[x] [x] [x] [x]\n", "[x] [x] [x] [x]"),
+        // A `[a][b]` full-reference look-alike: `b` is never defined.
+        ("[a][b] [a][b] [a][b]\n", "[a][b] [a][b] [a][b]"),
+        ("[a][b][a][b]\n", "[a][b][a][b]"),
+        // Collapsed `[a][]` and empty-text `[][b]` repeats.
+        ("[a][] [a][] [a][]\n", "[a][] [a][] [a][]"),
+        ("[][b] [][b]\n", "[][b] [][b]"),
+        // Three-pair chains: each failed read hands on the next pair.
+        ("[a][b][c] [a][b][c]\n", "[a][b][c] [a][b][c]"),
+        // Repeats on consecutive lines, across paragraph breaks, and over
+        // CRLF endings.
+        ("[a][b]\n[a][b]\n[a][b]\n", "[a][b]\n[a][b]\n[a][b]"),
+        ("[x][]\n\n[x][]\n\n[x][]\n", "[x][]\n\n[x][]\n\n[x][]"),
+        ("[a][b]\r\n[a][b]\r\n", "[a][b]\n[a][b]"),
+        // Unmatched repeats around an inline link and a defined reference:
+        // only the pairs that match lose their brackets.
+        (
+            "[a][b] [inline](/u) [a][b] [ref][r] [a][b]\n\n[r]: /r\n",
+            "[a][b] inline [a][b] ref [a][b]",
+        ),
+        // `[a]: /a` is a shortcut label only — inside `[a][b]`, `b` is the
+        // label, so the pair stays unmatched and literal both times.
+        ("[a][b] [a][b]\n\n[a]: /a\n", "[a][b] [a][b]"),
+        // A label defined elsewhere is no label for these pairs.
+        ("[z][z] [z][z]\n\n[other]: /o\n", "[z][z] [z][z]"),
+        // In a heading, a list item and a quote; non-ASCII pairs too.
+        (
+            "# [a][b] [a][b]\n\n- [a][] [a][]\n\n> [][b] [][b]\n",
+            "[a][b] [a][b]\n\n[a][] [a][]\n\n[][b] [][b]",
+        ),
+        (
+            "[café][naïve] [café][naïve] [要確認][要確認]\n",
+            "[café][naïve] [café][naïve] [要確認][要確認]",
+        ),
+    ] {
+        let result = run_export_text_on(markdown);
+        let text = result["text"].as_str().unwrap();
+        assert_eq!(text, expected, "{markdown:?}");
+        // Every bracket pair of the expected text shows, in the same order.
+        let pairs = |s: &str| -> Vec<String> {
+            let mut pairs = vec![];
+            let mut depth = 0usize;
+            let mut start = 0;
+            for (i, c) in s.char_indices() {
+                match c {
+                    '[' => {
+                        if depth == 0 {
+                            start = i;
+                        }
+                        depth += 1;
+                    }
+                    ']' if depth > 0 => {
+                        depth -= 1;
+                        if depth == 0 {
+                            pairs.push(s[start..=i].to_string());
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            pairs
+        };
+        assert_eq!(
+            pairs(text),
+            pairs(expected),
+            "bracket pairs dropped or reordered in {text:?} for {markdown:?}"
+        );
+        assert_eq!(
+            text.matches('[').count(),
+            text.matches(']').count(),
+            "unbalanced brackets in {text:?} for {markdown:?}"
+        );
+        assert_eq!(
+            result["char_count"].as_u64().unwrap() as usize,
+            expected.chars().count(),
+            "{markdown:?}"
+        );
+        assert_eq!(
+            result["word_count"].as_u64().unwrap() as usize,
+            count_words(expected),
+            "{markdown:?}"
+        );
+    }
+    assert_eq!(
+        strip_markdown("[a][b] [a][b]\n\n[a]: /a\n"),
+        "[a][b] [a][b]"
+    );
+}
+
 /// `char_count` said only "character counts", leaving an agent to guess
 /// bytes or characters. The description says Unicode characters, and the
 /// count of a non-ASCII document is its chars, not its bytes.
