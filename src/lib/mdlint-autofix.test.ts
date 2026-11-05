@@ -527,6 +527,60 @@ describe("autofix: two undescribed images on one line", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
     expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
   });
+
+  it.each([
+    [
+      "a described link between them",
+      "See ![](shots/one.png) [the guide](docs/guide.md) and ![](shots/two.svg) now.",
+      "See ![TODO: describe image](shots/one.png) [the guide](docs/guide.md) and ![TODO: describe image](shots/two.svg) now.",
+      ["![](shots/one.png)", "![](shots/two.svg)"],
+      ["[the guide](docs/guide.md)"],
+    ],
+    [
+      "the first image opens the line and the second closes it",
+      "![](first.png) versus ![](last.png)",
+      "![TODO: describe image](first.png) versus ![TODO: describe image](last.png)",
+      ["![](first.png)", "![](last.png)"],
+      [],
+    ],
+    [
+      "inside emphasis with a wikilink between them",
+      "*![](a.png)* [[Note]] _![](b.svg)_",
+      "*![TODO: describe image](a.png)* [[Note]] _![TODO: describe image](b.svg)_",
+      ["![](a.png)", "![](b.svg)"],
+      ["[[Note]]"],
+    ],
+  ])("keeps the paths and other inline markup on the line byte-identical (%s)", (_name, line, expectedLine, imageTexts, kept) => {
+    const rules = [ruleMissingAltText];
+    const doc = `Intro.\n\n${line}\n`;
+    const expected = `Intro.\n\n${expectedLine}\n`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+      "missing-alt-text",
+      "missing-alt-text",
+    ]);
+    // Each range covers exactly its own image; the described link, the
+    // wikilink and the emphasis markers are not violations.
+    expect(
+      violations.map(({ range }) => doc.slice(range!.from.offset, range!.to.offset)),
+    ).toEqual(imageTexts);
+    expect(violations.every(({ fix }) => fix !== null)).toBe(true);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // Each image's path is unchanged: the placeholder sits on that image's
+    // own source.
+    for (const text of imageTexts) {
+      const src = text.slice(text.indexOf("](") + 2, -1);
+      expect(fixed).toContain(`![TODO: describe image](${src})`);
+    }
+    for (const span of kept) {
+      expect(fixed).toContain(span);
+    }
+    expect(fixed.match(/TODO: describe image/g)).toHaveLength(2);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
 });
 
 describe("autofix: undescribed images on separate lines", () => {
