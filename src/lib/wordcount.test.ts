@@ -70,6 +70,15 @@ describe("computeDocStats", () => {
     expect(computeDocStats("run `npm install foo bar` now").words).toBe(2);
   });
 
+  it.each([
+    ["backtick fence", "```js\nconst a = 1 + 2 + 3;\nconsole.log(a);\n```"],
+    ["tilde fence", "~~~py\nprint('hello world')\n~~~"],
+    ["unclosed fence", "```\nsome code words here\nmore code"],
+    ["fence with trailing newline", "```sh\nnpm install foo bar\n```\n"],
+  ])("reports zero words and zero minutes for a code-only document (%s)", (_d, md) => {
+    expect(computeDocStats(md)).toEqual({ words: 0, minutes: 0 });
+  });
+
   it("returns zero words and zero minutes for empty content", () => {
     expect(computeDocStats("")).toEqual({ words: 0, minutes: 0 });
     expect(computeDocStats("   \n\n")).toEqual({ words: 0, minutes: 0 });
