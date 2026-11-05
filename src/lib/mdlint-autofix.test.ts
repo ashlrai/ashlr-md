@@ -23061,3 +23061,152 @@ describe("autofix: undescribed image with surrounding punctuation", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+// ─── Invalid-link autofix idempotence: generated documents ───────────────────
+
+describe("invalid-link autofix idempotence: generated documents", () => {
+  const rules = [ruleInvalidLinkTarget];
+  const fixPass = (text: string) => applyAllFixes(text, lintDocument(text, { rules }));
+
+  // Every fragment is placed in every position so each pairing is exercised,
+  // including shapes the rule only half-understands (angle hrefs, nested
+  // brackets) and texts a second pass could mistake for a finding — `[a](TODO)`
+  // is the fix's own output, `[c]()` inside a code span is a masked decoy.
+  const fragments = [
+    "[x]()",
+    "[y]( \t )",
+    "[z](#)",
+    "[w](?)",
+    "[keep](./keep.md)",
+    "[a](TODO)",
+    "[n](?x=1)",
+    "[m](#frag)",
+    "`[c]()`",
+    "![]()",
+    "![](p.png)",
+    "[q](<>)",
+    'r [s](# "t")',
+    "café 🚀",
+    "",
+  ];
+  const prefixes = ["", "- ", "> ", "# ", "| ", "*"];
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("a second pass equals the first for every ordered pair of fragments and block prefix (line ending %j)", (nl) => {
+    let checked = 0;
+    for (const prefix of prefixes) {
+      for (const a of fragments) {
+        for (const b of fragments) {
+          const doc = `${prefix}${a} ${b}${nl}tail${nl}`;
+          const once = fixPass(doc);
+
+          expect(fixPass(once), JSON.stringify(doc)).toBe(once);
+          // Clean after one pass, or nothing the rule can touch was present.
+          expect(lintDocument(once, { rules }), JSON.stringify(doc)).toEqual([]);
+          checked += 1;
+        }
+      }
+    }
+    expect(checked).toBe(prefixes.length * fragments.length ** 2);
+  });
+});
+
+describe("invalid-link autofix idempotence: hrefs that span a line break", () => {
+  const rules = [ruleInvalidLinkTarget];
+  const fixPass = (text: string) => applyAllFixes(text, lintDocument(text, { rules }));
+
+  it.each([
+    ["an LF inside the parens", "See [a](\n) here\n", "See [a](TODO) here\n"],
+    ["a CRLF inside the parens", "See [a](\r\n) here\r\n", "See [a](TODO) here\r\n"],
+    ["padding around the break", "[x]( \n )\n", "[x](TODO)\n"],
+  ])("joins the two physical lines once, then is a no-op (%s)", (_name, doc, expected) => {
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+    const once = applyAllFixes(doc, violations);
+    // The whitespace-only href holds a line break, so the repair joins the
+    // two physical lines into one — the whole match, break included, is
+    // replaced by `(TODO)`.
+    expect(once).toBe(expected);
+    expect(lintDocument(once, { rules })).toEqual([]);
+    expect(fixPass(once)).toBe(once);
+  });
+});
+
+describe("invalid-link autofix idempotence: stale-fix convergence", () => {
+  it.each([
+    "\n",
+    "\r\n",
+  ])("re-applying one stale fix repairs the remaining identical links, then is a no-op (%j)", (nl) => {
+    const rules = [ruleInvalidLinkTarget];
+    const doc = `[k]() one [k]() two and \`[k]()\` in code.${nl}`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(2);
+    // Apply only the second link's fix: the first stays broken.
+    const once = applyFix(doc, violations[1]);
+    expect(once).toBe(`[k]() one [k](TODO) two and \`[k]()\` in code.${nl}`);
+
+    // Re-applying the same stale fix finds no "[k]()" at its stale offset, so
+    // its indexOf fallback repairs the remaining prose copy; the code-span
+    // decoy is masked in the fix's search text and never a candidate.
+    const twice = applyFix(once, violations[1]);
+    expect(twice).toBe(`[k](TODO) one [k](TODO) two and \`[k]()\` in code.${nl}`);
+    expect(twice).toBe(applyAllFixes(doc, violations));
+
+    // With no identical invalid link left, the stale fix is a fixed point.
+    expect(applyFix(twice, violations[1])).toBe(twice);
+    expect(lintDocument(twice, { rules })).toEqual([]);
+  });
+});
+
+describe("invalid-link autofix idempotence: built-in rule set fixpoint", () => {
+  it("reaches a fixed point in a single pass under every built-in rule except frontmatter-required", () => {
+    const rules = BUILTIN_RULES.filter((r) => r.id !== "frontmatter-required");
+    const fixPass = (text: string) =>
+      applyAllFixes(text, lintDocument(text, { rules }));
+    const doc = "See [guide]() and [refs](#) here.\n";
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual([
+      "invalid-link-target",
+      "invalid-link-target",
+    ]);
+    const once = fixPass(doc);
+    expect(once).toBe("See [guide](TODO) and [refs](TODO) here.\n");
+    expect(lintDocument(once, { rules })).toEqual([]);
+    expect(fixPass(once)).toBe(once);
+  });
+
+  it("converges under the complete built-in set: the only second-pass change is the deferred trim of the frontmatter stub", () => {
+    const fixAll = (text: string) => applyAllFixes(text, lintDocument(text));
+    const doc = "See [guide]() and [refs](#) here.\n";
+    const violations = lintDocument(doc);
+
+    expect(violations.map((v) => v.ruleId)).toEqual([
+      "invalid-link-target",
+      "invalid-link-target",
+      "frontmatter-required",
+    ]);
+    const once = fixAll(doc);
+    expect(once).toBe(
+      "---\ntitle: \ntags: []\n---\n\nSee [guide](TODO) and [refs](TODO) here.\n",
+    );
+
+    // The inserted stub ends `title: ` with a trailing space that
+    // no-trailing-spaces only sees on the next pass — the same deferral the
+    // generated-documents test excludes frontmatter-required for.
+    const second = lintDocument(once);
+    expect(second.map((v) => v.ruleId)).toEqual(["no-trailing-spaces"]);
+    const twice = fixAll(once);
+    expect(twice).toBe(
+      "---\ntitle:\ntags: []\n---\n\nSee [guide](TODO) and [refs](TODO) here.\n",
+    );
+
+    // From the second pass on, the document is a fixed point.
+    expect(lintDocument(twice)).toEqual([]);
+    expect(fixAll(twice)).toBe(twice);
+  });
+});
