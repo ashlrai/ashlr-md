@@ -22316,6 +22316,25 @@ describe("autofix: valid-link preservation across schemes and edge hrefs", () =>
     }
   });
 
+  it.each([
+    "\n",
+    "\r\n",
+  ])("preserves a valid link after repairing its invalid namesake (%j)", (nl) => {
+    const valid = '[guide](./guide.md?lang=fr#intro "Café")';
+    const doc = `Read [guide](  ) then ${valid}.${nl}`;
+    const expected = `Read [guide](TODO) then ${valid}.${nl}`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.slice(fixed.indexOf(valid), fixed.indexOf(valid) + valid.length)).toBe(
+      valid,
+    );
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
   it("leaves a valid scheme link unchanged while default autofix repairs every other violation on the line", () => {
     const link = "[app](obsidian://open?vault=docs&file=guide)";
     for (const nl of ["\n", "\r\n"]) {
