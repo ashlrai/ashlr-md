@@ -6805,6 +6805,67 @@ fn export_text_keeps_bracketed_prose_in_a_blockquote() {
     }
 }
 
+/// The same bracketed phrase on line after line is not one link whose
+/// label is the next line's phrase: with no label defined, every line
+/// keeps its own pair of brackets and the line break between repeats,
+/// however many times the phrase repeats.
+#[test]
+fn export_text_keeps_repeated_bracketed_prose_across_lines() {
+    for (markdown, expected) in [
+        // A phrase verbatim on two and three consecutive lines.
+        ("[repeat]\n[repeat]\n", "[repeat]\n[repeat]"),
+        (
+            "[fix me]\n[fix me]\n[fix me]\n",
+            "[fix me]\n[fix me]\n[fix me]",
+        ),
+        // A line of two pairs, itself repeated line after line.
+        (
+            "[a] [a]\n[a] [a]\n[a] [a]\n[a] [a]\n",
+            "[a] [a]\n[a] [a]\n[a] [a]\n[a] [a]",
+        ),
+        // The same phrase and the same prose around it, line after line.
+        (
+            "note [TODO] done\nnote [TODO] done\nnote [TODO] done\n",
+            "note [TODO] done\nnote [TODO] done\nnote [TODO] done",
+        ),
+        // Two phrases alternating repeat their pairs in order.
+        (
+            "[alpha]\n[beta]\n[alpha]\n[beta]\n",
+            "[alpha]\n[beta]\n[alpha]\n[beta]",
+        ),
+        // A repeat across paragraph breaks keeps the blank lines too.
+        ("[same]\n\n[same]\n\n[same]\n", "[same]\n\n[same]\n\n[same]"),
+        // CRLF boundaries read as `\n`; every pair still holds.
+        ("[keep]\r\n[keep]\r\n[keep]\r\n", "[keep]\n[keep]\n[keep]"),
+        // A label defined elsewhere in the document is no label for these.
+        ("[same]\n[same]\n\n[other]: /x\n", "[same]\n[same]"),
+    ] {
+        let result = run_export_text_on(markdown);
+        let text = result["text"].as_str().unwrap();
+        assert_eq!(text, expected, "{markdown:?}");
+        // Every bracket pairs off, and each repeat stays on its own line.
+        assert_eq!(
+            text.matches('[').count(),
+            text.matches(']').count(),
+            "unbalanced brackets in {text:?} for {markdown:?}"
+        );
+        assert_eq!(
+            text.lines().count(),
+            expected.lines().count(),
+            "line boundary lost in {text:?} for {markdown:?}"
+        );
+        assert_eq!(
+            result["char_count"].as_u64().unwrap() as usize,
+            expected.chars().count(),
+            "{markdown:?}"
+        );
+    }
+    assert_eq!(
+        strip_markdown("[once]\n[once]\n[once]\n"),
+        "[once]\n[once]\n[once]"
+    );
+}
+
 /// `char_count` said only "character counts", leaving an agent to guess
 /// bytes or characters. The description says Unicode characters, and the
 /// count of a non-ASCII document is its chars, not its bytes.
