@@ -21906,3 +21906,40 @@ describe("autofix on an already valid link (label and destination)", () => {
     expect(fixed).toContain(link);
   });
 });
+
+describe("autofix: undescribed image followed by punctuation", () => {
+  it.each([
+    ".",
+    ",",
+    "!",
+    "?",
+    ";",
+    ":",
+    ")",
+    "...",
+    "。",
+    "、",
+    "—",
+  ])("keeps the punctuation %j and the image source", (punct) => {
+    const rules = [ruleMissingAltText];
+    const source = 'images/chart.png?v=2#top "Chart"';
+    for (const nl of ["\n", "\r\n"]) {
+      const doc = `See ![](${source})${punct} Next line.${nl}`;
+      const expected = `See ![TODO: describe image](${source})${punct} Next line.${nl}`;
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+    }
+  });
+
+  it("keeps punctuation at the very end of the document with no final newline", () => {
+    const rules = [ruleMissingAltText];
+    const doc = "Look: ![](a.png).";
+    const fixed = applyAllFixes(doc, lintDocument(doc, { rules }));
+    expect(fixed).toBe("Look: ![TODO: describe image](a.png).");
+  });
+});
