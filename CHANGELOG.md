@@ -12,6 +12,52 @@ All notable changes to Ashlr MD are documented here. This project adheres to
 Released 2026-06-06. [Release notes and downloads](https://github.com/ashlrai/ashlr-md/releases/tag/v0.4.0).
 <!-- fresh:end -->
 
+## [0.7.0] — 2026-11-05
+
+### Fixed
+- **PDF export prints once.** Creating the hidden print frame and closing
+  its document could each fire `load`, so a single export could print
+  twice. The `onload` handler now clears itself on the first fire and on
+  the error path (`src/lib/export.ts`).
+- **`invalid-link-target` autofix keeps the link label.** The fix now
+  rewrites the whole match as `[label](TODO)`, relocating the match in the
+  current document instead of splicing into stale offsets, so the label is
+  preserved when earlier edits moved it (`src/lib/mdlint.ts`).
+- **Milkdown editor timer leak.** `@milkdown/ctx@7.21.2` is patched through
+  `patchedDependencies` (`patches/@milkdown%2Fctx@7.21.2.patch`): a resolved
+  `Timer` now clears its timeout and drops its window listener instead of
+  leaving both registered until they expire.
+
+### Added
+- **Version-carrier gate in CI.** `bun run check:version`
+  (`scripts/cargo-version-sync.test.mjs`, `scripts/tauri-version-sync.test.mjs`)
+  fails when `package.json`, `src-tauri/Cargo.toml` and
+  `src-tauri/tauri.conf.json` disagree. `ci.yml` runs it on every pull
+  request alongside npm script path checks
+  (`scripts/package-scripts.test.mjs`, `scripts/package-script-paths.test.mjs`),
+  a Tauri plugin sync check (`scripts/tauri-plugins-sync.test.mjs`) and a
+  patched-dependency check (`scripts/patched-deps.test.mjs`).
+- **Windows native-QA dialog diagnostics.** `scripts/native-qa-open-dialog.ps1`
+  gains a bounded, read-only observation of owned top-level windows (class,
+  enabled flag, WindowPattern and modal state only; never titles, text,
+  paths or handles) and an allowlisted `qa-uia-detail:` reason marker for
+  each fixed failing check, plus a fix for the PowerShell automatic
+  `$Matches` variable overwriting the candidate-window array.
+  `native-qa-windows.yml` now runs a real PowerShell regression of the
+  selection block (`scripts/test-native-qa-open-dialog.ps1`);
+  `docs/WINDOWS-NATIVE-QA.md` documents the observation contract.
+
+### Tests
+- More than four hundred new `mdlint` autofix cases plus focused suites for
+  export, doc links, frontmatter, link export, Milkdown timers, line
+  revealing, snippets, unsaved buffers and the toast store.
+  `vitest.config.ts` now also picks up `test/**/*.test.ts` (CLI no-args and
+  unknown-flag coverage).
+- Forty new `mdopener-mcp` integration tests pin `export_text`,
+  `strip_markdown` and `char_count` for bracketed prose across scripts,
+  emoji, containers and reference/wiki-link shapes; the fixture tables live
+  in `docs/bracketed-prose-example-table.md`.
+
 ## [0.6.0] — 2026-11-02
 
 ### Added
@@ -3636,7 +3682,8 @@ callouts), WYSIWYG + source editing, PDF/DOCX/HTML export, local-first tiered
 AI, agent hand-off (`mdopen` CLI · `mdopener://` · MCP server), the macOS `.md`
 default handler, and smart agent-output rendering.
 
-[0.6.0]: https://github.com/ashlrai/ashlr-md/compare/v0.4.0...HEAD
+[0.7.0]: https://github.com/ashlrai/ashlr-md/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/ashlrai/ashlr-md/releases/tag/v0.6.0
 [0.5.0]: https://github.com/ashlrai/ashlr-md/releases/tag/v0.5.0
 [0.4.0]: https://github.com/ashlrai/ashlr-md/releases/tag/v0.4.0
 [0.3.0]: https://github.com/ashlrai/ashlr-md/compare/v0.2.0...v0.4.0
