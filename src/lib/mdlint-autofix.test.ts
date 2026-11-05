@@ -21706,3 +21706,59 @@ describe("autofix: invalid link idempotence with repeated identical links", () =
     expect(applyAllFixes(once, remaining)).toBe(once);
   });
 });
+
+describe("autofix: document mixing several described and undescribed images", () => {
+  const rules = [ruleMissingAltText];
+  const doc = [
+    "# Gallery",
+    "",
+    "![Logo](logo.png) and ![](one.png)",
+    "",
+    '- ![Chart **Q3**](q3.png "Q3") ![ ](two.png)',
+    "",
+    "![](three.png)",
+    "![Team photo](team%20photo.png?v=2#top)",
+    "",
+  ].join("\n");
+  const placeholder = "![TODO: describe image]";
+  const expected = [
+    "# Gallery",
+    "",
+    `![Logo](logo.png) and ${placeholder}(one.png)`,
+    "",
+    `- ![Chart **Q3**](q3.png "Q3") ${placeholder}(two.png)`,
+    "",
+    `${placeholder}(three.png)`,
+    "![Team photo](team%20photo.png?v=2#top)",
+    "",
+  ].join("\n");
+
+  it("reports one violation per undescribed image and none for described ones", () => {
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+      "missing-alt-text",
+      "missing-alt-text",
+      "missing-alt-text",
+    ]);
+  });
+
+  it("applyAllFixes repairs every undescribed image and keeps every described one", () => {
+    const fixed = applyAllFixes(doc, lintDocument(doc, { rules }));
+
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(expected);
+  });
+
+  it("applying fixes one at a time converges to the same document", () => {
+    let current = doc;
+    for (let remaining = 3; remaining > 0; remaining--) {
+      const violations = lintDocument(current, { rules });
+      expect(violations).toHaveLength(remaining);
+      current = applyFix(current, violations[0]);
+    }
+
+    expect(current).toBe(expected);
+  });
+});
