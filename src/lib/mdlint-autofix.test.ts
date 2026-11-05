@@ -15055,6 +15055,47 @@ describe("rule:invalid-link-target — invalid link beside a valid link", () => 
     expect(lintDocument(fixed, { rules })).toEqual([]);
     expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(expected);
   });
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("preserves a valid link whose destination contains the invalid link verbatim, in either order (%j endings)", (nl) => {
+    // `[outer](see [inner]()` is one valid link whose destination `see [inner](`
+    // ends at the first `)`, so the literal `[inner]()` sits inside it as a
+    // substring. A fix that searches for the invalid match without its `from`
+    // offset would splice TODO into the valid link's destination.
+    const valid = "[outer](see [inner]())";
+    const invalid = "[inner]()";
+    const repaired = "[inner](TODO)";
+    const rules = [ruleInvalidLinkTarget];
+
+    for (const validFirst of [true, false]) {
+      const doc = `Read ${validFirst ? `${valid} then ${invalid}` : `${invalid} then ${valid}`} end.${nl}`;
+      const expected = `Read ${validFirst ? `${valid} then ${repaired}` : `${repaired} then ${valid}`} end.${nl}`;
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+      const { from, to } = violations[0].range!;
+      // Two raw occurrences of `[inner]()`: the decoy inside the valid
+      // destination and the real link. The range must cover the real one.
+      expect(doc.split(invalid)).toHaveLength(3);
+      expect(doc.slice(from.offset, to.offset)).toBe(invalid);
+      expect(from.offset).toBe(
+        validFirst ? doc.lastIndexOf(invalid) : doc.indexOf(invalid),
+      );
+      if (validFirst) expect(doc.indexOf(invalid)).toBeLessThan(from.offset);
+      expect(violations[0].fix).not.toBeNull();
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      // Every byte outside the invalid link's span, the valid link included.
+      expect(
+        fixed.slice(0, from.offset) + fixed.slice(from.offset + repaired.length),
+      ).toBe(doc.slice(0, from.offset) + doc.slice(to.offset));
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+      expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(expected);
+    }
+  });
 });
 
 describe("invalid-link autofix: whitespace-only href beside a code span", () => {
