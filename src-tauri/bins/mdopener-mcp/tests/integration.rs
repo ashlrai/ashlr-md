@@ -18093,6 +18093,26 @@ fn bracketed_prose_survives_set_content_and_get_content() {
 }
 
 #[test]
+fn unicode_bracketed_prose_survives_set_content_and_get_content() {
+    let prose = "Before [café] [e\u{301}] [日本語] [مرحبا] [👩🏽‍💻].\n\
+        ［全角］ 【注記】 and [𠮷野家] after.\n";
+    let ipc = MockIpc::new()
+        .on_post("/content", Ok(json!({ "ok": true })))
+        .on_get(
+            "/content",
+            Ok(json!({ "path": "/tmp/話.md", "content": prose })),
+        );
+
+    let set = tool_set_content(id(1), &json!({ "content": prose }), &ipc);
+    assert!(set.error.is_none() && !is_error(&set));
+    assert_eq!(posted_body(&ipc, "/content")["content"], prose);
+
+    let get = tool_get_content(id(2), &ipc);
+    assert!(get.error.is_none() && !is_error(&get));
+    assert_eq!(content_text(&get)["content"], prose);
+}
+
+#[test]
 fn bracketed_prose_survives_edit_document_find_and_replace() {
     let ipc = MockIpc::new().on_post("/edit", Ok(json!({ "ok": true, "replacements": 1 })));
     let find = "see (cf. [3]).";
