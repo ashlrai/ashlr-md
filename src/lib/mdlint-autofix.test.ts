@@ -21906,3 +21906,23 @@ describe("autofix on an already valid link (label and destination)", () => {
     expect(fixed).toContain(link);
   });
 });
+
+describe("autofix: link placeholder idempotence", () => {
+  it.each([
+    "\n",
+    "\r\n",
+  ])("leaves the first pass unchanged on a second pass with %j line endings", (nl) => {
+    const rules = [ruleInvalidLinkTarget];
+    const doc = `See [docs]() and [home](#) now.${nl}`;
+    const violations = lintDocument(doc, { rules });
+    expect(violations.length).toBeGreaterThan(0);
+
+    const once = applyAllFixes(doc, violations);
+    expect(once).toContain("[docs](TODO)");
+    expect(once).not.toBe(doc);
+
+    const secondPassViolations = lintDocument(once, { rules });
+    expect(secondPassViolations).toEqual([]);
+    expect(applyAllFixes(once, secondPassViolations)).toBe(once);
+  });
+});
