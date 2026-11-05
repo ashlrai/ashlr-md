@@ -12259,6 +12259,35 @@ describe("invalid-link-target autofix: idempotence", () => {
     expect(once).toBe("Read [guide](TODO) for details.\n");
     expect(lintDocument(once, { rules: [ruleInvalidLinkTarget] })).toEqual([]);
   });
+
+  it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+  ])("applying the captured fix twice leaves an identical link inside masked code untouched (%s)", (_name, nl) => {
+    // Only the prose link is reported; the code-span and fenced twins are
+    // masked out of the lint pass — and a second application of the same fix
+    // must not rewrite them either.
+    const doc =
+      `See \`[x]()\` in a code span, then [x]() for real.${nl}` +
+      `\`\`\`${nl}[x]()${nl}\`\`\`${nl}`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+    const once = applyFix(doc, violations[0]);
+    expect(once).toBe(
+      `See \`[x]()\` in a code span, then [x](TODO) for real.${nl}` +
+        `\`\`\`${nl}[x]()${nl}\`\`\`${nl}`,
+    );
+
+    // The second application produces exactly the same Markdown: the only
+    // remaining "[x]()" occurrences live inside masked code.
+    const twice = applyFix(once, violations[0]);
+    expect(twice).toBe(once);
+    // Re-linting the fixed document finds nothing and changes nothing.
+    expect(lintDocument(once, { rules })).toEqual([]);
+    expect(applyAllFixes(once, lintDocument(once, { rules }))).toBe(once);
+  });
 });
 
 describe("invalid-link-target autofix: repeated application", () => {

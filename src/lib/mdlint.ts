@@ -600,9 +600,13 @@ export const ruleInvalidLinkTarget: LintRule = {
           severity: "warning",
           range: range(doc, from, to),
           fix: (d) => {
-            let idx = d.indexOf(originalMatch, from);
+            // Search the masked text (same offsets as `d`) so a stale fix
+            // applied a second time cannot rewrite an identical link inside
+            // code, front matter or HTML the rule skipped.
+            const masked = stripCodeBlocks(d);
+            let idx = masked.indexOf(originalMatch, from);
             if (idx === -1) {
-              idx = d.indexOf(originalMatch);
+              idx = masked.indexOf(originalMatch);
             }
             if (idx === -1) return d;
             return (
