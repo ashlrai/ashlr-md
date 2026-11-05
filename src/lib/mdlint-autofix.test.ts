@@ -21860,3 +21860,28 @@ describe("autofix: valid-link preservation across schemes and edge hrefs", () =>
     }
   });
 });
+
+describe("autofix on an already valid link (label and destination)", () => {
+  it.each([
+    ["relative path", "[Guide](./docs/guide.md)"],
+    ["https url", "[Site](https://example.com/a?b=1#c)"],
+    ["anchor", "[Top](#top)"],
+    ["with title", '[Guide](./guide.md "The guide")'],
+    ["label with emphasis", "[**Bold** _label_](./a.md)"],
+  ])("leaves label and destination unchanged (%s)", (_name, link) => {
+    const doc = `---\ntitle: Guide\n---\n\n# Title\n\nSee ${link} for more.\n`;
+    const violations = lintDocument(doc);
+
+    expect(violations.filter((v) => v.ruleId === "invalid-link-target")).toEqual([]);
+    expect(applyAllFixes(doc, violations)).toBe(doc);
+  });
+
+  it("keeps the valid link byte for byte when another fix runs on the same line", () => {
+    const link = "[Guide](./guide.md)";
+    const doc = `---\ntitle: Guide\n---\n\n# Title\n\n${link} text   \n`;
+    const fixed = applyAllFixes(doc, lintDocument(doc));
+
+    expect(fixed).toBe(`---\ntitle: Guide\n---\n\n# Title\n\n${link} text\n`);
+    expect(fixed).toContain(link);
+  });
+});
