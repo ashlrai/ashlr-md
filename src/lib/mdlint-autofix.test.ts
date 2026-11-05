@@ -21577,6 +21577,66 @@ describe("invalid-link autofix on the same line", () => {
     expect(lintDocument(expected, { rules })).toEqual([]);
     expect(applyAllFixes(expected, lintDocument(expected, { rules }))).toBe(expected);
   });
+
+  it.each([
+    [
+      "identical links touching",
+      "Pair [dup]()[dup]() end.",
+      ["[dup]()", "[dup]()"],
+      "Pair [dup](TODO)[dup](TODO) end.",
+    ],
+    [
+      "a link-shaped code span between them",
+      "See [a]() then `[decoy]()` then [b](#) end.",
+      ["[a]()", "[b](#)"],
+      "See [a](TODO) then `[decoy]()` then [b](TODO) end.",
+    ],
+    [
+      "bracketed [1] and [TODO] prose around them",
+      "Refs [1] [a]() and [TODO] note [b](?) end.",
+      ["[a]()", "[b](?)"],
+      "Refs [1] [a](TODO) and [TODO] note [b](TODO) end.",
+    ],
+    [
+      "an already-repaired link beside them",
+      "Keep [x](TODO), fix [a]() and [b](  ) done.",
+      ["[a]()", "[b](  )"],
+      "Keep [x](TODO), fix [a](TODO) and [b](TODO) done.",
+    ],
+  ])("repairs both links while the decoys around them stay byte-identical (%s)", (_name, line, raws, expectedLine) => {
+    const rules = [ruleInvalidLinkTarget];
+    const doc = `Head.\n\n${line}\n\nTail.\n`;
+    const expected = `Head.\n\n${expectedLine}\n\nTail.\n`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual([
+      "invalid-link-target",
+      "invalid-link-target",
+    ]);
+    // Each range covers exactly its own invalid link; the decoys, the
+    // already-repaired link and the surrounding lines are never part of one.
+    expect(
+      violations.map((v) => doc.slice(v.range!.from.offset, v.range!.to.offset)),
+    ).toEqual(raws);
+    expect(violations.every((v) => v.fix !== null)).toBe(true);
+
+    // One fix at a time repairs only its own link and leaves the rest of the
+    // line, decoys included, byte-identical.
+    for (const v of violations) {
+      const raw = doc.slice(v.range!.from.offset, v.range!.to.offset);
+      const spliced =
+        doc.slice(0, v.range!.from.offset) +
+        raw.replace(/\([^)]*\)$/, "(TODO)") +
+        doc.slice(v.range!.to.offset);
+      expect(applyFix(doc, v)).toBe(spliced);
+    }
+
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(applyAllFixes(doc, [...violations].reverse())).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
 });
 
 describe("autofix: undescribed image at the end of a paragraph", () => {
