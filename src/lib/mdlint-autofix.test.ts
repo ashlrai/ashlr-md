@@ -21881,6 +21881,28 @@ describe("autofix: undescribed image beside a described image", () => {
 
 describe("autofix: invalid link inside a blockquote", () => {
   it.each([
+    "\n",
+    "\r\n",
+  ])("preserves the complete blockquote with default rules (%j)", (nl) => {
+    const doc = [
+      "---",
+      "title: Guide",
+      "---",
+      "",
+      "> Before [draft]() after.",
+      "> > Nested quoted text.",
+      "",
+    ].join(nl);
+    const expected = doc.replace("[draft]()", "[draft](TODO)");
+    const violations = lintDocument(doc);
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected)).toEqual([]);
+  });
+
+  it.each([
     "",
     "#",
     "?",
