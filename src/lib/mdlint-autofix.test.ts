@@ -22750,3 +22750,34 @@ describe("autofix: two invalid links on one line", () => {
     expect(lintDocument(afterSecond, { rules })).toEqual([]);
   });
 });
+
+describe("autofix: undescribed image on the final line without a trailing newline", () => {
+  it.each([
+    ["only line", "![](shot.png)", "![TODO: describe image](shot.png)"],
+    [
+      "after other lines",
+      'Intro.\n\n![](images/a%20b.png?v=2#top "Chart")',
+      'Intro.\n\n![TODO: describe image](images/a%20b.png?v=2#top "Chart")',
+    ],
+    [
+      "inline with text",
+      "Before ![](a.png) after.",
+      "Before ![TODO: describe image](a.png) after.",
+    ],
+    [
+      "CRLF document",
+      "Intro.\r\n![](a.png)",
+      "Intro.\r\n![TODO: describe image](a.png)",
+    ],
+  ])("inserts the placeholder and adds no newline (%s)", (_name, doc, expected) => {
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.endsWith("\n")).toBe(false);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
