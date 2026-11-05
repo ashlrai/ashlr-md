@@ -21684,6 +21684,22 @@ describe("autofix: invalid link with an empty destination", () => {
   });
 });
 
+describe("default autofix: invalid link between unchanged paragraphs", () => {
+  it.each(["\n", "\r\n"])("preserves both paragraphs with %j line endings", (nl) => {
+    const before = `---${nl}title: Guide${nl}---${nl}${nl}Café introduction with *emphasis*.${nl}The first paragraph continues.`;
+    const after = `後文 includes [a valid link](./guide.md).${nl}The final line stays.`;
+    const doc = `${before}${nl}${nl}Read [draft]() for details.${nl}${nl}${after}${nl}`;
+    const expected = `${before}${nl}${nl}Read [draft](TODO) for details.${nl}${nl}${after}${nl}`;
+    const violations = lintDocument(doc);
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed)).toEqual([]);
+  });
+});
+
 describe("autofix: invalid links on separate lines", () => {
   it.each(["\n", "\r\n"])("preserves surrounding text with %j line endings", (nl) => {
     const rules = [ruleInvalidLinkTarget];
