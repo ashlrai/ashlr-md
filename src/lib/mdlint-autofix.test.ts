@@ -21458,6 +21458,27 @@ describe("invalid-link-target autofix: invalid link starting a blockquote line",
   });
 });
 
+describe("default autofix: descriptive image alt text is preserved", () => {
+  it.each([
+    "\n",
+    "\r\n",
+  ])("keeps the image unchanged while fixing other violations (%j)", (nl) => {
+    const image = '![A red fox resting in snow](images/fox%20photo.png?v=2#view "Fox")';
+    const doc = `---${nl}title: Wildlife${nl}---${nl}${nl}See ${image} and [the guide]().   ${nl}`;
+    const expected = `---${nl}title: Wildlife${nl}---${nl}${nl}See ${image} and [the guide](TODO).${nl}`;
+    const violations = lintDocument(doc);
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+      "invalid-link-target",
+      "no-trailing-spaces",
+    ]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed)).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed))).toBe(fixed);
+  });
+});
+
 describe("autofix: a described image is left unchanged", () => {
   it("returns the complete Markdown byte-for-byte when the only image has a description", () => {
     const doc = [
