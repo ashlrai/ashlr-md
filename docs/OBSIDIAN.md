@@ -133,7 +133,7 @@ literal text and are never transformed.
 ## Canvas (`.canvas`)
 
 Ashlr MD opens [JSON Canvas](https://jsoncanvas.org) (`.canvas`) files in a
-**read-only** viewer. Drag the background to **pan**, scroll to **zoom**, and use
+pan/zoom **editor**. Drag the background to **pan**, scroll to **zoom**, and use
 **Fit** (or the `+` / `−` buttons) to frame the whole canvas. The view auto-fits
 on open.
 
@@ -150,8 +150,15 @@ on open.
 default arrow-at-destination is honored). Node and edge **colors** use Obsidian's
 six-color preset palette as well as raw hex values.
 
-Canvas is read-only: node positions and the canvas file are **never written
-back**.
+**Editing is guarded.** Drag a node to move it, and use a text node's **Edit
+text** button to rewrite its Markdown. Each change patches the original JSON,
+so fields Ashlr MD does not know are preserved, and the write goes through the
+same save path as a document: a canvas that changed while you edited (for
+example, reloaded after an external edit) refuses the write ("Canvas changed
+during editing") instead of silently overwriting it. The canvas UI moves nodes
+and edits text nodes; it cannot add or delete nodes or edges, resize, or
+recolor. Agents can do more with the `edit_canvas` MCP tool, which applies
+typed ops to a `.canvas` file atomically (see [AGENTS.md](./AGENTS.md)).
 
 ---
 
@@ -174,8 +181,9 @@ the current vault note to Ashlr MD via the `mdopener://` scheme.
 Ashlr MD aims to *read* a vault faithfully, not to replace Obsidian's editor.
 The following are intentionally absent today:
 
-- **Editing or creating canvases.** `.canvas` files are view-only; positions and
-  content are never written back.
+- **Full canvas editing in the app.** The canvas UI moves nodes and edits text
+  nodes only; it cannot add or delete nodes or edges, resize, or recolor. (The
+  `edit_canvas` MCP tool applies those ops to a `.canvas` file on disk.)
 - **Obsidian community/core plugins** (Dataview, Templater, Tasks, etc.). Ashlr
   MD renders standard Markdown + the syntax documented above; plugin-specific
   query blocks and processors are not evaluated.

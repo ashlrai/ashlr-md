@@ -174,6 +174,48 @@ describe("startKeepingBuffers", () => {
     k.stop();
   });
 
+  it("changing one buffer leaves the other untouched", async () => {
+    vi.useFakeTimers();
+    disk["/d/a.md"] = "a disk";
+    disk["/d/b.md"] = "b disk";
+    await openPath("/d/a.md");
+    await openPath("/d/b.md");
+    const idOf = (p: string) =>
+      useDocumentStore.getState().tabs.find((t) => t.path === p)?.id as string;
+    const k = startKeepingBuffers();
+
+    // Edit b (the active tab): a stays clean and is not kept.
+    useDocumentStore.getState().setContent("b edited");
+    flushBuffers();
+    expect(readBuffers()).toEqual([
+      { path: "/d/b.md", fileName: "b.md", content: "b edited", base: "b disk" },
+    ]);
+    const a = () =>
+      useDocumentStore.getState().tabs.find((t) => t.path === "/d/a.md") as Tab;
+    expect(a().content).toBe("a disk");
+    expect(a().isDirty).toBe(false);
+
+    // Edit a next: b keeps its own text, and each is kept under its own path.
+    useDocumentStore.getState().switchTab(idOf("/d/a.md"));
+    useDocumentStore.getState().setContent("a edited");
+    flushBuffers();
+    expect(readBuffers()).toEqual([
+      { path: "/d/a.md", fileName: "a.md", content: "a edited", base: "a disk" },
+      { path: "/d/b.md", fileName: "b.md", content: "b edited", base: "b disk" },
+    ]);
+
+    // Undo a's edit: only a's kept text goes; b's stays.
+    useDocumentStore.getState().setContent("a disk");
+    flushBuffers();
+    expect(readBuffers()).toEqual([
+      { path: "/d/b.md", fileName: "b.md", content: "b edited", base: "b disk" },
+    ]);
+    const b = useDocumentStore.getState().tabs.find((t) => t.path === "/d/b.md") as Tab;
+    expect(b.content).toBe("b edited");
+    expect(b.isDirty).toBe(true);
+    k.stop();
+  });
+
   it("discard forgets the kept text and keeps nothing more", async () => {
     vi.useFakeTimers();
     disk["/d/a.md"] = "hello";
@@ -208,6 +250,32 @@ describe("restoreBuffers", () => {
     expect(b.content).toBe("b edited");
     expect(b.isDirty).toBe(true);
     expect(b.externalChange).toBe(false);
+  });
+
+  it("restores two documents each with its own text", async () => {
+    disk["/d/a.md"] = "a disk";
+    disk["/d/b.md"] = "b disk";
+    writeBuffers([
+      { path: "/d/a.md", fileName: "a.md", content: "a edited", base: "a disk" },
+      { path: "/d/b.md", fileName: "b.md", content: "b edited", base: "b disk" },
+    ]);
+    const r = await restoreBuffers(openPath);
+    expect(r.restored.sort()).toEqual(["a.md", "b.md"]);
+    const tabs = useDocumentStore.getState().tabs;
+    const content = (p: string) =>
+      collectBuffers(useDocumentStore.getState()).find((x) => x.path === p)?.content;
+    expect(tabs).toHaveLength(2);
+    expect(content("/d/a.md")).toBe("a edited");
+    expect(content("/d/b.md")).toBe("b edited");
+    // Changing b afterwards does not touch a.
+    const bId = tabs.find((t) => t.path === "/d/b.md")?.id as string;
+    useDocumentStore.getState().switchTab(bId);
+    useDocumentStore.getState().setContent("b again");
+    expect(content("/d/a.md")).toBe("a edited");
+    expect(
+      collectBuffers(useDocumentStore.getState()).find((x) => x.path === "/d/b.md")
+        ?.content,
+    ).toBe("b again");
   });
 
   it("offers the disk text when the file changed since the edits began", async () => {
