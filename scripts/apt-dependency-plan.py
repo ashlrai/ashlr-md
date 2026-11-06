@@ -4,6 +4,7 @@
 Archive-byte totals come from local APT Size metadata. They are estimates, not
 network-transfer, cache-hit, or CI-duration measurements.
 """
+import hashlib
 import json
 import os
 import platform
@@ -26,7 +27,7 @@ ARCH = r'[a-z0-9][a-z0-9-]*'
 INSTALL = re.compile(rf'^Inst ({NAME})(?::({ARCH}))?(?: \[[^\]]+\])? \(({VERSION}) .+ \[({ARCH})\]\)$')
 
 
-def bounded_command(argv, timeout=120, max_bytes=MAX_OUTPUT):
+def bounded_command(argv, timeout=120, max_bytes=MAX_OUTPUT, binary=False):
     """Fixed callers only; consume bounded output without inheriting CI credentials."""
     child = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                              env={'LC_ALL': 'C', 'LANG': 'C', 'PATH': '/usr/bin:/bin'})
@@ -46,7 +47,7 @@ def bounded_command(argv, timeout=120, max_bytes=MAX_OUTPUT):
                 if len(chunks) > max_bytes:
                     raise ValueError('dependency command output exceeded its bound')
         code = child.wait(timeout=max(0.01, deadline - time.monotonic()))
-        return code, chunks.decode('utf-8', errors='strict')
+        return code, chunks if binary else chunks.decode('utf-8', errors='strict')
     finally:
         if child.poll() is None:
             child.kill()
@@ -78,10 +79,9 @@ def parse_plan(text):
     return rows
 
 
-def parse_metadata(text):
+def metadata_fields(text):
     if len(text.encode('utf-8')) > MAX_OUTPUT:
         raise ValueError('APT metadata too large')
-    rows = {}
     for block in re.split(r'\n\s*\n', text.strip()):
         if not block:
             continue
@@ -93,13 +93,23 @@ def parse_metadata(text):
             if not separator or key in fields:
                 raise ValueError('malformed or duplicate APT metadata field')
             fields[key] = value.strip()
-        name, version, arch = (fields.get(key, '') for key in ('Package', 'Version', 'Architecture'))
-        if not re.fullmatch(NAME, name) or not re.fullmatch(VERSION, version) or not re.fullmatch(ARCH, arch):
-            raise ValueError('invalid APT package identity')
-        raw_size = fields.get('Size', '')
-        if not re.fullmatch(r'[0-9]{1,12}', raw_size) or not 0 < int(raw_size) <= 4 * 1024**3:
-            raise ValueError('missing or invalid archive Size metadata')
-        identity, size = (name, version, arch), int(raw_size)
+        yield fields
+
+
+def package_identity_size(fields):
+    name, version, arch = (fields.get(key, '') for key in ('Package', 'Version', 'Architecture'))
+    if not re.fullmatch(NAME, name) or not re.fullmatch(VERSION, version) or not re.fullmatch(ARCH, arch):
+        raise ValueError('invalid APT package identity')
+    raw_size = fields.get('Size', '')
+    if not re.fullmatch(r'[0-9]{1,12}', raw_size) or not 0 < int(raw_size) <= 4 * 1024**3:
+        raise ValueError('missing or invalid archive Size metadata')
+    return (name, version, arch), int(raw_size)
+
+
+def parse_metadata(text):
+    rows = {}
+    for fields in metadata_fields(text):
+        identity, size = package_identity_size(fields)
         if identity in rows and rows[identity] != size:
             raise ValueError('ambiguous archive Size metadata')
         rows[identity] = size
@@ -185,6 +195,86 @@ def collect(run=bounded_command):
             'archiveBytesReductionEstimate': reports['default']['archiveBytesEstimate'] - reports['withoutRecommends']['archiveBytesEstimate']}
 
 
+MIRRORS = ('https://azure.archive.ubuntu.com/ubuntu/', 'https://archive.ubuntu.com/ubuntu/')
+DOWNLOAD_PACKAGES = ('libjavascriptcoregtk-4.1-0', 'libwebkit2gtk-4.1-0')
+MAX_DOWNLOAD = 64 * 1024 * 1024
+
+
+def download_metadata(text):
+    rows = {}
+    for fields in metadata_fields(text):
+        key, size = package_identity_size(fields)
+        filename, digest = fields.get('Filename', ''), fields.get('SHA256', '')
+        if not re.fullmatch(r'pool/main/[A-Za-z0-9._+~/-]+\.deb', filename) or any(part in ('', '.', '..') for part in filename.split('/')):
+            raise ValueError('official archive filename unavailable')
+        if not filename.split('/')[-1].startswith(key[0] + '_') or not filename.endswith('_' + key[2] + '.deb'):
+            raise ValueError('archive filename does not match its package')
+        if not re.fullmatch(r'[a-f0-9]{64}', digest) or size > MAX_DOWNLOAD:
+            raise ValueError('bounded archive SHA256 evidence unavailable')
+        record = {'name': key[0], 'version': key[1], 'architecture': key[2],
+                  'size': size, 'filename': filename, 'sha256': digest}
+        if key in rows and rows[key] != record:
+            raise ValueError('ambiguous official archive metadata')
+        rows[key] = record
+    return rows
+
+
+def download_one(mirror, record, run=bounded_command):
+    if mirror not in MIRRORS or record['name'] not in DOWNLOAD_PACKAGES:
+        raise ValueError('download endpoint or package is not approved')
+    # Revalidate even internal records before putting any path on the wire.
+    checked = download_metadata('\n'.join([f'Package: {record["name"]}', f'Version: {record["version"]}',
+        f'Architecture: {record["architecture"]}', f'Size: {record["size"]}',
+        f'Filename: {record["filename"]}', f'SHA256: {record["sha256"]}', '']))
+    if list(checked.values()) != [record]:
+        raise ValueError('download record changed')
+    started = time.monotonic()
+    result = {'mirror': mirror, 'package': record['name'], 'version': record['version'],
+              'expectedBytes': record['size'], 'expectedSha256': record['sha256']}
+    try:
+        # No curlrc, inherited credentials, redirects, execution or installation.
+        # The parent also enforces a hard wall deadline and bounded binary IO.
+        code, body = run(['/usr/bin/curl', '--disable', '--silent', '--show-error', '--fail',
+                          '--proto', '=https', '--location', '--max-redirs', '0',
+                          '--connect-timeout', '5', '--max-time', '30',
+                          '--max-filesize', str(record['size']), mirror + record['filename']],
+                         timeout=35, max_bytes=record['size'], binary=True)
+        if code != 0:
+            result.update({'status': 'unavailable', 'curlExitCode': code})
+        elif len(body) != record['size'] or hashlib.sha256(body).hexdigest() != record['sha256']:
+            result['status'] = 'integrity-mismatch'
+        else:
+            result.update({'status': 'verified', 'verifiedBytes': len(body),
+                           'verifiedSha256': record['sha256']})
+    except (ValueError, OSError, subprocess.SubprocessError):
+        result['status'] = 'bounded-download-refused'
+    result['elapsedSeconds'] = round(time.monotonic() - started, 3)
+    return result
+
+
+def compare_mirrors(report, run=bounded_command):
+    selected = [item for item in report['plans']['withoutRecommends']['plannedPackages']
+                if item['name'] in DOWNLOAD_PACKAGES]
+    if len(selected) != 2 or {item['name'] for item in selected} != set(DOWNLOAD_PACKAGES):
+        raise ValueError('required heavy packages are absent or ambiguous')
+    code, text = run(['/usr/bin/apt-cache', 'show', *[f'{item["name"]}={item["version"]}' for item in selected]])
+    if code != 0:
+        raise ValueError('official archive metadata unavailable')
+    records = download_metadata(text)
+    expected = {(item['name'], item['version'], item['architecture']) for item in selected}
+    if set(records) != expected:
+        raise ValueError('official archive identities do not match the simulation')
+    downloads = []
+    for item in selected:
+        record = records[(item['name'], item['version'], item['architecture'])]
+        if record['size'] != item['archiveBytes']:
+            raise ValueError('official archive Size changed after simulation')
+        for mirror in MIRRORS:
+            downloads.append(download_one(mirror, record, run))
+    return {'downloads': downloads, 'payloadsExecutedOrInstalled': False,
+            'timingMeaning': 'wall time for these bounded exact-archive GETs only; not a CI-duration guarantee'}
+
+
 def main():
     if len(sys.argv) != 1 or sys.platform != 'linux' or os.geteuid() != 0 or platform.machine() != 'x86_64':
         raise ValueError('probe requires its fixed root-owned Linux runner invocation')
@@ -192,6 +282,7 @@ def main():
     if os_release.get('ID', '').strip('"') != 'ubuntu' or os_release.get('VERSION_ID', '').strip('"') != '22.04':
         raise ValueError('probe requires Ubuntu 22.04')
     report = collect()
+    report['mirrorComparison'] = compare_mirrors(report)
     report['runner'] = {'os': 'ubuntu-22.04', 'machine': platform.machine(),
                         'imageVersion': os.environ.get('ImageVersion'), 'sourceSha': os.environ.get('GITHUB_SHA')}
     print(json.dumps(report, indent=2, sort_keys=True))

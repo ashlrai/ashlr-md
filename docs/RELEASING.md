@@ -156,7 +156,14 @@ two simulations; it never installs packages or creates release staging. Keep the
 existing required assembly tuple in the dispatch for context; it is unused in
 probe mode. The output reports package counts and archive-byte estimates from
 exact local APT metadata, not network transfer, cache hits or an install-duration
-prediction. Missing or ambiguous evidence stops the measurement. A lower estimate
+prediction. The diagnostic also compares four bounded HTTPS GETs: the exact
+WebKit and JavaScriptCore archives from the official Azure and Ubuntu archive
+mirrors. Package/version/architecture, byte size, filename and SHA-256 come from
+the local APT metadata and must match each downloaded body. Payloads stay in
+bounded memory and are never executed or installed; failed, partial or changed
+responses are not verified measurements. Curl configuration, redirects and
+inherited credentials are disabled. Missing or ambiguous evidence stops the
+measurement. A lower estimate
 alone does not establish that a future full CI pass meets its unchanged deadline.
 
 Record the actual assembly run ID and require success. The uploaded
