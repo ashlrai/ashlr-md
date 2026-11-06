@@ -22339,6 +22339,125 @@ describe("autofix: undescribed image in a blockquote under the default rules", (
   });
 });
 
+describe("missing-alt-text autofix in a blockquote: deeper nesting and > look-alikes", () => {
+  const rules = [ruleMissingAltText];
+
+  it.each([
+    ["triple-nested markers, spaced", "> > > "],
+    ["triple-nested markers, tight", ">>> "],
+    ["a quote inside an ordered list item", "1. > "],
+  ])("inserts the placeholder and keeps the full marker run (%j)", (marker) => {
+    for (const nl of ["\n", "\r\n"]) {
+      const doc = `Intro.${nl}${nl}${marker}See ![](img/q.png) now.${nl}${marker}Next.${nl}`;
+      const expected = `Intro.${nl}${nl}${marker}See ![TODO: describe image](img/q.png) now.${nl}${marker}Next.${nl}`;
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+      // The marker run is outside the range: replacing the range cannot drop it.
+      const { from, to } = violations[0].range!;
+      expect(doc.slice(from.offset, to.offset)).toBe("![](img/q.png)");
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      expect(fixed).toContain(`${marker}See ![TODO: describe image](img/q.png)`);
+      expect(fixed).toContain(`${nl}${marker}Next.${nl}`);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+      expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+    }
+  });
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("keeps a > in the quoted prose and every marker while inserting the placeholder (%j)", (nl) => {
+    const doc = `> Ratio: 2 > 1, see ![](img/r.png) above.${nl}> Next.${nl}`;
+    const expected = `> Ratio: 2 > 1, see ![TODO: describe image](img/r.png) above.${nl}> Next.${nl}`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe("![](img/r.png)");
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // The mid-line `>` is prose, not a marker: it survives byte-for-byte,
+    // and so does the `> ` prefix opening each quoted line.
+    expect(fixed).toContain("2 > 1");
+    expect(fixed.split(nl).filter((line) => line.startsWith(">"))).toHaveLength(2);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("fixes images wrapped in emphasis inside a blockquote, keeping the emphasis and the marker (%j)", (nl) => {
+    const doc = `> *![](img/e.png)* then **![](img/s.png)** done.${nl}`;
+    const expected = `> *![TODO: describe image](img/e.png)* then **![TODO: describe image](img/s.png)** done.${nl}`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+      "missing-alt-text",
+      "missing-alt-text",
+    ]);
+    // The emphasis asterisks sit outside each range, so the fixes cannot
+    // disturb them.
+    expect(
+      violations.map((v) => doc.slice(v.range!.from.offset, v.range!.to.offset)),
+    ).toEqual(["![](img/e.png)", "![](img/s.png)"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.startsWith("> *")).toBe(true);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("keeps a > inside the image title and a hard break after it in a blockquote (%j)", (nl) => {
+    const doc = `> See ![](img/t.png "a > b") here.  ${nl}> Next.${nl}`;
+    const expected = `> See ![TODO: describe image](img/t.png "a > b") here.  ${nl}> Next.${nl}`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe('![](img/t.png "a > b")');
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // The `>` inside the title is part of the destination, not a marker, and
+    // the two-space hard break after "here." is preserved.
+    expect(fixed).toContain('"a > b"');
+    expect(fixed).toContain(`here.  ${nl}> Next.`);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("fixes the quoted and unquoted copies of an identical image independently (%j)", (nl) => {
+    const image = "![](img/same.png)";
+    const repaired = "![TODO: describe image](img/same.png)";
+    const doc = `> ${image} quoted.${nl}${nl}${image} plain.${nl}`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+      "missing-alt-text",
+      "missing-alt-text",
+    ]);
+    // Each fix splices its own offsets, so identical markup elsewhere in the
+    // document is not rewritten by a stale search.
+    expect(applyFix(doc, violations[0])).toBe(
+      `> ${repaired} quoted.${nl}${nl}${image} plain.${nl}`,
+    );
+    expect(applyFix(doc, violations[1])).toBe(
+      `> ${image} quoted.${nl}${nl}${repaired} plain.${nl}`,
+    );
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(`> ${repaired} quoted.${nl}${nl}${repaired} plain.${nl}`);
+    expect(fixed).toContain(`> ${repaired}`);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+});
+
 describe("autofix: invalid link with an empty destination", () => {
   it("keeps the link text and sets the destination to TODO", () => {
     const rules = [ruleInvalidLinkTarget];
