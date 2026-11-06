@@ -9,6 +9,7 @@
  *   (5) Graceful degradation — network errors, backend rejections
  *   (6) Combined embedSearch + crossSearch flow — semantic-first with keyword
  *       fallback, merging results, timeout handling
+ *   (7) Empty result contract — no phantom matches, no throw
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -20,7 +21,12 @@ vi.mock("@tauri-apps/api/core", () => ({
 }));
 
 // Imports AFTER mocks.
-import { type FileSearchResult, type SearchMatch, searchFiles } from "./crossSearch";
+import {
+  type FileSearchResult,
+  type SearchMatch,
+  searchFiles,
+  searchFilesOrThrow,
+} from "./crossSearch";
 import {
   embedAvailable,
   embedSearch,
@@ -520,5 +526,51 @@ describe("combined embedSearch + crossSearch — semantic-first pipeline", () =>
     const out = await searchFiles(emptyPaths, "anything");
     expect(out).toEqual([]);
     expect(invokeMock).not.toHaveBeenCalled();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// (7) Empty result contract — no phantom matches, no throw
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe("searchFiles — empty result contract", () => {
+  it("resolves [] with no phantom matches and does not throw", async () => {
+    invokeMock.mockResolvedValue([]);
+
+    await expect(searchFiles(["/a.md", "/b.md"], "nomatch")).resolves.toEqual([]);
+
+    const out = await searchFiles(["/a.md", "/b.md"], "nomatch");
+    expect(Array.isArray(out)).toBe(true);
+    expect(out).toHaveLength(0);
+    expect(out.flatMap((f) => f.matches)).toEqual([]);
+  });
+
+  it("a file result with matches: [] contributes zero matches", async () => {
+    invokeMock.mockResolvedValue([makeFileResult("/empty.md", "empty.md", [])]);
+
+    const out = await searchFiles(["/empty.md"], "query");
+    expect(out).toHaveLength(1);
+    expect(out[0].matches).toEqual([]);
+    expect(out.flatMap((f) => f.matches)).toHaveLength(0);
+  });
+
+  it("searchFilesOrThrow resolves [] rather than throwing on an empty result", async () => {
+    invokeMock.mockResolvedValue([]);
+
+    await expect(searchFilesOrThrow(["/a.md"], "nomatch")).resolves.toEqual([]);
+    expect(invokeMock).toHaveBeenCalledWith("search_files", {
+      paths: ["/a.md"],
+      query: "nomatch",
+      limit: undefined,
+    });
+  });
+
+  it("serializing an empty result produces no phantom matches", async () => {
+    invokeMock.mockResolvedValue([]);
+
+    const out = await searchFiles(["/a.md"], "nomatch");
+    const roundTripped = JSON.parse(JSON.stringify(out)) as FileSearchResult[];
+    expect(roundTripped).toEqual([]);
+    expect(roundTripped.flatMap((f) => f.matches)).toHaveLength(0);
   });
 });
