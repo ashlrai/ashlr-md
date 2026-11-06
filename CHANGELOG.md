@@ -24,7 +24,10 @@ Released 2026-06-06. [Release notes and downloads](https://github.com/ashlrai/as
 - Reading-time estimates round up to the next whole minute, so 221 words at
   220 words per minute correctly reports two minutes.
 - A stale invalid-link autofix searches only prose the lint rule checks,
-  preserving identical links inside code, frontmatter and HTML.
+  preserving identical links inside code, frontmatter and HTML, and applies to
+  the nearest live match: earlier fixes can shrink the document and move the
+  link before its recorded offset, so a search that only looked forward could
+  repair a later identical link instead.
 - The release gate waits for successful full CI on its exact source commit
   before starting native builds, avoiding a failed build run while the
   post-merge suites are still finishing.
@@ -32,6 +35,10 @@ Released 2026-06-06. [Release notes and downloads](https://github.com/ashlrai/as
 ### Tests
 - Added word-count cases for blank lines, CRLF frontmatter, tilde fences and
   reading-time boundaries, plus image-description and stale-autofix cases.
+- Added the invalid-link autofix integration and relocation suites
+  (`src/lib/mdlint-link-integration.test.ts`,
+  `src/lib/mdlint-link-relocation.test.ts`), hundreds more `mdlint` autofix
+  cases, and `mdopener-mcp` integration cases for the export tools.
 
 ## [0.7.0] — 2026-11-05
 
@@ -3743,7 +3750,8 @@ callouts), WYSIWYG + source editing, PDF/DOCX/HTML export, local-first tiered
 AI, agent hand-off (`mdopen` CLI · `mdopener://` · MCP server), the macOS `.md`
 default handler, and smart agent-output rendering.
 
-[0.7.1]: https://github.com/ashlrai/ashlr-md/compare/v0.7.0...HEAD
+[0.7.2]: https://github.com/ashlrai/ashlr-md/compare/v0.7.1...HEAD
+[0.7.1]: https://github.com/ashlrai/ashlr-md/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/ashlrai/ashlr-md/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/ashlrai/ashlr-md/releases/tag/v0.6.0
 [0.5.0]: https://github.com/ashlrai/ashlr-md/releases/tag/v0.5.0

@@ -224,7 +224,7 @@ cd src-tauri/bins/mdopener-afm && ./build.sh
 |---|---|
 | `src/` | React 19 frontend: renderer, editors, AI sidebar, export |
 | `src-tauri/src/` | Rust core: files, watcher, deep links, AI proxy, loopback IPC |
-| `src-tauri/bins/` | `mdopen`, `mdopener-mcp`, and the Swift on-device sidecar |
+| `src-tauri/bins/` | `mdopen`, `mdopener-mcp`, and the macOS Swift sidecars (`mdopener-afm`, `mdopener-setdefault`) |
 | `landing/` | The marketing site |
 
 Product goal: [docs/VISION.md](./docs/VISION.md). Releases: [docs/RELEASING.md](./docs/RELEASING.md).

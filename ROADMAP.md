@@ -17,7 +17,7 @@ A change is "done" only when it works end-to-end in the running app, is beautifu
 in all three themes, degrades gracefully, passes every quality gate, and never
 leaks data off-device without explicit consent. Quality over scope, every time.
 
-## Shipped (v0.4)
+## Shipped since v0.4
 
 **Distribution & reach**
 - **Auto-update channel is live**: v0.4.0 published with a working `latest.json`; the in-app updater pulls signed releases.
