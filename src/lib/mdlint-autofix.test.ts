@@ -34,6 +34,29 @@ import {
   ruleOrphanedHeading,
 } from "./mdlint";
 
+describe("invalid-link autofix across separate lines", () => {
+  it("repairs both repeated links while preserving mixed line breaks and prose", () => {
+    const rules = [ruleInvalidLinkTarget];
+    const doc = "Before [draft]() first.\r\nBetween lines.\nAfter [draft]() last.\r\n";
+    const expected =
+      "Before [draft](TODO) first.\r\nBetween lines.\nAfter [draft](TODO) last.\r\n";
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual([
+      "invalid-link-target",
+      "invalid-link-target",
+    ]);
+    expect(applyFix(doc, violations[0])).toBe(
+      "Before [draft](TODO) first.\r\nBetween lines.\nAfter [draft]() last.\r\n",
+    );
+    expect(applyFix(doc, violations[1])).toBe(
+      "Before [draft]() first.\r\nBetween lines.\nAfter [draft](TODO) last.\r\n",
+    );
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+});
+
 describe("invalid-link autofix: an empty href inside prose", () => {
   const rules = [ruleInvalidLinkTarget];
 
