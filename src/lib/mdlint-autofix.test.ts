@@ -34,6 +34,16 @@ import {
   ruleOrphanedHeading,
 } from "./mdlint";
 
+it("autofixes an empty href while preserving the link text", () => {
+  const doc = "[Read the guide]()";
+  const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
+
+  expect(violations).toHaveLength(1);
+  expect(violations[0].ruleId).toBe("invalid-link-target");
+  expect(applyFix(doc, violations[0])).toBe("[Read the guide](TODO)");
+  expect(applyAllFixes(doc, violations)).toBe("[Read the guide](TODO)");
+});
+
 describe("invalid-link autofix: an empty href inside prose", () => {
   const rules = [ruleInvalidLinkTarget];
 
