@@ -2,7 +2,7 @@ import { Crepe } from "@milkdown/crepe";
 import { editorViewCtx, parserCtx, serializerCtx } from "@milkdown/kit/core";
 import { type Node, Schema } from "@milkdown/kit/prose/model";
 import { EditorState, TextSelection } from "@milkdown/kit/prose/state";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   insertTableTransaction,
   syncTableTransaction,
@@ -195,6 +195,9 @@ describe("insertTableTransaction", () => {
       "| Left | Center | Right |\n| :--- | :---: | ---: |\n| one | two | three |";
     const root = document.createElement("div");
     document.body.appendChild(root);
+    // Milkdown leaves initialization timeouts queued even after they resolve.
+    // Own those timers so their callbacks finish before the DOM is torn down.
+    vi.useFakeTimers();
     const crepe = new Crepe({ root, defaultValue: "Before" });
     try {
       await crepe.create();
@@ -215,8 +218,13 @@ describe("insertTableTransaction", () => {
         rows: [["one", "two", "three"]],
       });
     } finally {
-      await crepe.destroy();
-      root.remove();
+      try {
+        await crepe.destroy();
+        await vi.runOnlyPendingTimersAsync();
+      } finally {
+        vi.useRealTimers();
+        root.remove();
+      }
     }
   });
 
