@@ -1,42 +1,84 @@
 # Ashlr MD
 
-> Ashlr MD is an open-source (MIT), local-first Markdown app for macOS, Windows and Linux that renders, edits and exports `.md` files, and lets AI coding agents drive it over MCP.
+> Open-source Markdown app for macOS, Windows, and Linux. Agents install one command, call a CLI that prints JSON, and drive the live document over MCP.
 
-## Product and plans
+Ashlr MD is a desktop app plus `mdopen` and the `mdopener-mcp` server. People read and edit `.md` files. Agents open, edit, export, and request a human review.
 
-- [README](README.md): project overview, install paths and how to connect an agent over MCP.
-- [Vision](docs/VISION.md): the north-star goal and what "finished" means for the app.
-- [Roadmap](ROADMAP.md): planned milestones and the build-run-verify loop used to ship them.
-- [Changelog](CHANGELOG.md): release-by-release record of user-visible changes.
-- [Install guide](docs/INSTALL.md): per-OS installation steps, including the `mdopen` command-line tool.
+The install command, from a checkout on macOS or Linux:
 
-## Agent integration
+```bash
+SKIP_APP_BUILD=1 bash scripts/install.sh
+```
 
-- [Agent guide](docs/AGENTS.md): the MCP server (`mdopener-mcp`) tools, the `mdopen` CLI and the auto-open hook.
-- [Phantom integration](docs/PHANTOM.md): how Phantom hands Markdown to Ashlr MD for viewing, and what has merged so far.
-- [MCP discovery metadata](docs/mcp-registry.md): how `server.json` describes the `mdopener-mcp` server for registry discovery.
-- [Agent contribution rules](AGENTS.md): the standing rules coding agents follow when changing this repository.
+Then:
 
-## Editor and app integrations
+```bash
+mdopener-mcp doctor --json
+mdopener-mcp setup --local --json
+mdopener-mcp --ashlr-handshake --json
+claude mcp add --scope user ashlr-md "$(command -v mdopener-mcp)"
+codex mcp add ashlr-md -- "$(command -v mdopener-mcp)"
+python3 scripts/connect-cursor.py
+```
 
-- [Obsidian compatibility](docs/OBSIDIAN.md): a compatibility layer (not a reimplementation) listing what is supported and what is not yet.
-- [VS Code extension](integrations/vscode/README.md): opens the current Markdown file in Ashlr MD via the `mdopener://` scheme.
-- [Obsidian plugin](integrations/obsidian/README.md): opens the current note in Ashlr MD via the `mdopener://` scheme.
-- [Raycast extension](integrations/raycast/README.md): lists recent Spotlight-indexed Markdown files and opens one in Ashlr MD.
+## Start
 
-## Contributing and security
+- [README](https://github.com/ashlrai/ashlr-md/blob/main/README.md): what it is, the install command, the JSON commands, and the MCP snippets
+- [Copy-paste examples](https://github.com/ashlrai/ashlr-md/blob/main/docs/EXAMPLES.md): every command, including Windows
+- [Full agent guide](https://github.com/ashlrai/ashlr-md/blob/main/llms-full.txt): the same material in one file
+- [MCP tool contract](https://github.com/ashlrai/ashlr-md/blob/main/docs/AGENTS.md): every tool, in server order
+- [Install a release](https://github.com/ashlrai/ashlr-md/blob/main/docs/INSTALL.md): macOS, Windows, and Linux downloads
 
-- [Contributing](CONTRIBUTING.md): prerequisites, the develop loop and the checks to run before a pull request.
-- [Security policy](SECURITY.md): how to report a vulnerability and the project's threat model.
-- [Release process](docs/RELEASING.md): the pre-release checklist and how tags are cut.
-- [Post-quantum readiness](docs/PQ-READINESS.md): what the app does with cryptography today and what a post-quantum migration would touch.
+## CLI
 
-## Samples
-
-- [Showcase](samples/showcase.md): a single document exercising the supported Markdown features.
-- [Agent plan sample](samples/agent-plan.md): an example implementation plan as an agent would write it.
+- [doctor --fix](https://github.com/ashlrai/ashlr-md/blob/main/docs/doctor-fix.md): `mdopener-mcp doctor --fix --json` previews repairs and writes nothing
+- [Handshake](https://github.com/ashlrai/ashlr-md/blob/main/docs/ashlr-handshake.md): `mdopener-mcp --ashlr-handshake --json`
+- [Local AI](https://github.com/ashlrai/ashlr-md/blob/main/docs/local-ai.md): `localInference`, offline mode, and base URL rules
+- [Phantom](https://github.com/ashlrai/ashlr-md/blob/main/docs/PHANTOM.md): how Phantom calls `mdopen`
 
 ## Optional
 
-- [Landing page readme](landing/README.md): how to preview and deploy the public landing page.
-- [Original MD 0.5 Linux probe](docs/NATIVE-QA-PROPOSAL.md): a bounded, manual, read-only Linux qualification of a pinned release artifact.
+- [Docs index](https://github.com/ashlrai/ashlr-md/blob/main/docs/README.md): the rest of the guides
+- [Vision](https://github.com/ashlrai/ashlr-md/blob/main/docs/VISION.md): the product goal
+- [Security](https://github.com/ashlrai/ashlr-md/blob/main/SECURITY.md): threat model
+- [Obsidian](https://github.com/ashlrai/ashlr-md/blob/main/docs/OBSIDIAN.md): vault notes, wikilinks, and the Open in Ashlr MD plugin
+- [Contributing](https://github.com/ashlrai/ashlr-md/blob/main/CONTRIBUTING.md): how to send a change
+
+## Product and plans
+
+- [README](README.md): project overview and agent setup.
+- [Vision](docs/VISION.md): the product goal.
+- [Roadmap](ROADMAP.md): planned work and the build loop.
+- [Changelog](CHANGELOG.md): user-visible changes.
+- [Install guide](docs/INSTALL.md): installation and command-line setup.
+
+## Agent integration
+
+- [Agent guide](docs/AGENTS.md): the MCP tool contract and CLI.
+- [Phantom integration](docs/PHANTOM.md): how Phantom opens Markdown.
+- [MCP discovery metadata](docs/mcp-registry.md): server registry metadata.
+- [Agent contribution rules](AGENTS.md): repository instructions for agents.
+
+## Editor and app integrations
+
+- [Obsidian compatibility](docs/OBSIDIAN.md): supported vault features.
+- [VS Code extension](integrations/vscode/README.md): open Markdown from VS Code.
+- [Obsidian plugin](integrations/obsidian/README.md): open notes from Obsidian.
+- [Raycast extension](integrations/raycast/README.md): open recent Markdown files.
+
+## Contributing and security
+
+- [Contributing](CONTRIBUTING.md): development and checks.
+- [Security policy](SECURITY.md): vulnerability reporting and threat model.
+- [Release process](docs/RELEASING.md): release runbook.
+- [Post-quantum readiness](docs/PQ-READINESS.md): cryptography inventory and migration considerations.
+
+## Samples
+
+- [Showcase](samples/showcase.md): supported Markdown features.
+- [Agent plan sample](samples/agent-plan.md): an example agent plan.
+
+## More resources
+
+- [Landing page readme](landing/README.md): landing page development.
+- [Historical Linux probe](docs/NATIVE-QA-PROPOSAL.md): a bounded historical qualification proposal.

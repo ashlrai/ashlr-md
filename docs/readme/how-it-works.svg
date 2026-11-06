@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="300" viewBox="0 0 1200 300">
+  <rect width="1200" height="300" fill="#fbfaf6"/>
+  <g font-family="'DejaVu Sans', sans-serif">
+    <rect x="24" y="48" width="250" height="200" rx="18" fill="#ffffff" stroke="#e6e2d6"/>
+    <text x="48" y="92" font-size="13" font-weight="700" fill="#0969da">1. Install</text>
+    <text x="48" y="132" font-size="16" fill="#1a1a17">One command builds</text>
+    <text x="48" y="156" font-size="16" fill="#1a1a17">mdopen and</text>
+    <text x="48" y="180" font-size="16" fill="#1a1a17">mdopener-mcp.</text>
+    <rect x="298" y="132" width="36" height="4" fill="#0969da"/>
+    <polygon points="334,124 334,144 348,134" fill="#0969da"/>
+
+    <rect x="360" y="48" width="250" height="200" rx="18" fill="#ffffff" stroke="#e6e2d6"/>
+    <text x="384" y="92" font-size="13" font-weight="700" fill="#0969da">2. Connect</text>
+    <text x="384" y="132" font-size="16" fill="#1a1a17">Claude, Cursor,</text>
+    <text x="384" y="156" font-size="16" fill="#1a1a17">or Codex launches</text>
+    <text x="384" y="180" font-size="16" fill="#1a1a17">the MCP server.</text>
+    <rect x="634" y="132" width="36" height="4" fill="#0969da"/>
+    <polygon points="670,124 670,144 684,134" fill="#0969da"/>
+
+    <rect x="696" y="48" width="250" height="200" rx="18" fill="#ffffff" stroke="#e6e2d6"/>
+    <text x="720" y="92" font-size="13" font-weight="700" fill="#0969da">3. Open</text>
+    <text x="720" y="132" font-family="'DejaVu Sans Mono', monospace" font-size="15" fill="#1a1a17">open_file puts the</text>
+    <text x="720" y="156" font-size="16" fill="#1a1a17">Markdown in the</text>
+    <text x="720" y="180" font-size="16" fill="#1a1a17">Ashlr MD window.</text>
+    <rect x="970" y="132" width="36" height="4" fill="#0969da"/>
+    <polygon points="1006,124 1006,144 1020,134" fill="#0969da"/>
+
+    <rect x="1032" y="48" width="148" height="200" rx="18" fill="#16181d"/>
+    <text x="1052" y="92" font-size="13" font-weight="700" fill="#6ba8ff">4. Review</text>
+    <text x="1052" y="132" font-size="15" fill="#ffffff">JSON verdict</text>
+    <text x="1052" y="156" font-size="15" fill="#ffffff">comes back</text>
+    <text x="1052" y="180" font-size="15" fill="#ffffff">to the agent.</text>
+  </g>
+</svg>

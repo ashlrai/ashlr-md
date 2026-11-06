@@ -134,6 +134,11 @@ test('the checker flags a missing target, a bad anchor, and bad structure', () =
     assert.ok(problems.some((p) => /entry must be/.test(p)));
 
     assert.ok(llmsTxtProblems('## No H1\n> s\n- [A](docs/a.md): x\n', root).some((p) => /H1/.test(p)));
+    assert.ok(llmsTxtProblems(good.replace('docs/b.md', 'http://example.com'), root).some((p) => /external link must be https/.test(p)));
+    assert.deepEqual(llmsTxtProblems(good.replace('docs/b.md', 'https://example.com'), root), []);
+    assert.ok(llmsTxtProblems(good.replace('## Docs', '### Docs'), root).some((p) => /only H1 and H2/.test(p)));
+    assert.ok(llmsTxtProblems(good.replace('docs/a.md#real-heading', '#real-heading'), root).some((p) => /same-file anchors/.test(p)));
+
     assert.ok(
       llmsTxtProblems('# T\n\n> s\n\n## S\n\n- [Up](../outside.md): x\n', root).some((p) => /escapes/.test(p)),
     );

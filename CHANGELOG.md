@@ -12,9 +12,111 @@ All notable changes to Ashlr MD are documented here. This project adheres to
 Released 2026-06-06. [Release notes and downloads](https://github.com/ashlrai/ashlr-md/releases/tag/v0.4.0).
 <!-- fresh:end -->
 
-## [0.4.1] — Unreleased
+## [0.7.3] - 2026-11-06
+
+### Fixed
+- Use HTTPS for official Ubuntu package sources during Linux CI dependency installation, preserving the configured mirrors and package verification.
+
+## [0.7.2] - 2026-11-05
+
+### Fixed
+- Keep integration planning text consistent with the existing punctuation contract, and run that regression before the full suite.
+- Add a read-only Linux assembly workflow that preserves exact original build ZIPs, source/run/attempt binding, four-platform signature checks and verified staging for maintainer publication.
+
+## [0.7.1] - 2026-11-05
+
+### Fixed
+- Reading-time estimates round up to the next whole minute, so 221 words at
+  220 words per minute correctly reports two minutes.
+- A stale invalid-link autofix searches only prose the lint rule checks,
+  preserving identical links inside code, frontmatter and HTML, and applies to
+  the nearest live match: earlier fixes can shrink the document and move the
+  link before its recorded offset, so a search that only looked forward could
+  repair a later identical link instead.
+- The release gate waits for successful full CI on its exact source commit
+  before starting native builds, avoiding a failed build run while the
+  post-merge suites are still finishing.
+
+### Tests
+- Added word-count cases for blank lines, CRLF frontmatter, tilde fences and
+  reading-time boundaries, plus image-description and stale-autofix cases.
+- Added the invalid-link autofix integration and relocation suites
+  (`src/lib/mdlint-link-integration.test.ts`,
+  `src/lib/mdlint-link-relocation.test.ts`), hundreds more `mdlint` autofix
+  cases, and `mdopener-mcp` integration cases for the export tools.
+
+## [0.7.0] — 2026-11-05
+
+### Fixed
+- **PDF export prints once.** Creating the hidden print frame and closing
+  its document could each fire `load`, so a single export could print
+  twice. The `onload` handler now clears itself on the first fire and on
+  the error path (`src/lib/export.ts`).
+- **`invalid-link-target` autofix keeps the link label.** The fix now
+  rewrites the whole match as `[label](TODO)`, relocating the match in the
+  current document instead of splicing into stale offsets, so the label is
+  preserved when earlier edits moved it (`src/lib/mdlint.ts`).
+- **Milkdown editor timer leak.** `@milkdown/ctx@7.21.2` is patched through
+  `patchedDependencies` (`patches/@milkdown%2Fctx@7.21.2.patch`): a resolved
+  `Timer` now clears its timeout and drops its window listener instead of
+  leaving both registered until they expire.
 
 ### Added
+- **Version-carrier gate in CI.** `bun run check:version`
+  (`scripts/cargo-version-sync.test.mjs`, `scripts/tauri-version-sync.test.mjs`)
+  fails when `package.json`, `src-tauri/Cargo.toml` and
+  `src-tauri/tauri.conf.json` disagree. `ci.yml` runs it on every pull
+  request alongside npm script path checks
+  (`scripts/package-scripts.test.mjs`, `scripts/package-script-paths.test.mjs`),
+  a Tauri plugin sync check (`scripts/tauri-plugins-sync.test.mjs`) and a
+  patched-dependency check (`scripts/patched-deps.test.mjs`).
+- **Windows native-QA dialog diagnostics.** `scripts/native-qa-open-dialog.ps1`
+  gains a bounded, read-only observation of owned top-level windows (class,
+  enabled flag, WindowPattern and modal state only; never titles, text,
+  paths or handles) and an allowlisted `qa-uia-detail:` reason marker for
+  each fixed failing check, plus a fix for the PowerShell automatic
+  `$Matches` variable overwriting the candidate-window array.
+  `native-qa-windows.yml` now runs a real PowerShell regression of the
+  selection block (`scripts/test-native-qa-open-dialog.ps1`);
+  `docs/WINDOWS-NATIVE-QA.md` documents the observation contract.
+
+### Tests
+- More than four hundred new `mdlint` autofix cases plus focused suites for
+  export, doc links, frontmatter, link export, Milkdown timers, line
+  revealing, snippets, unsaved buffers and the toast store.
+  `vitest.config.ts` now also picks up `test/**/*.test.ts` (CLI no-args and
+  unknown-flag coverage).
+- Forty new `mdopener-mcp` integration tests pin `export_text`,
+  `strip_markdown` and `char_count` for bracketed prose across scripts,
+  emoji, containers and reference/wiki-link shapes; the fixture tables live
+  in `docs/bracketed-prose-example-table.md`.
+
+## [0.6.0] — 2026-11-02
+
+### Added
+- **Agent-first README, `llms.txt` and `llms-full.txt`.** The README now leads
+  with one install command (`SKIP_APP_BUILD=1 bash scripts/install.sh`, which
+  also links `mdopener-mcp` onto `PATH`), the `--json` CLI and copy-paste MCP
+  setup for Claude Code, Codex and Cursor (`scripts/connect-cursor.py`).
+  `llms.txt` is the index and `llms-full.txt` the manual in one file.
+  `docs/EXAMPLES.md` holds every copy-paste command, including Windows.
+  `scripts/check-readme-parity.mjs` and `scripts/check-docs.py` keep the README
+  and `docs/AGENTS.md` in step with `tool_registry()` and the CLI `HELP`
+  text, and `bun run check:doc-links` fails on a relative link or `#anchor` in
+  the repository's Markdown that points nowhere.
+- **Automatic semantic re-indexing (opt-in).** The `autoEmbedIndex` setting
+  (Preferences, the embeddings section: "Keep the semantic index fresh
+  automatically", off by default) re-indexes changed files in the watched
+  folder, and the library at startup, on this device. It only updates the
+  search index.
+- **Manual native qualification of the original 0.5 build** (not a release
+  step, nothing is published or promoted). `native-qa.yml` runs a bounded Linux
+  AppImage/WebView smoke and `native-qa-windows.yml` installs the original
+  signed Windows NSIS build and opens a document. Both are `workflow_dispatch`
+  only, hold `contents: read` and `actions: read` and no other permission, and
+  retrieve the original Actions artifacts after provenance and digest checks.
+  The probe step runs without a token. Scope and limits:
+  `docs/NATIVE-QA-PROPOSAL.md` and `docs/WINDOWS-NATIVE-QA.md`.
 - **`mdopener-mcp setup --local [--json]`** finds Ollama (`127.0.0.1:11434`)
   and oMLX (`127.0.0.1:8000`) with the same loopback-only, key-free probe as
   `doctor`, probes the configured `localInference` block when there is one,
@@ -79,58 +181,6 @@ Released 2026-06-06. [Release notes and downloads](https://github.com/ashlrai/as
   when the file changed since the review, so an approval of an earlier version
   is never reported as current. Corrupt or oversized files are ignored.
 
-### Security
-- **Offline mode fails closed on the shared client builders.** With
-  `localInference.offline` set, a non-loopback host is refused before a
-  socket exists for chat, every embedding client, search and the
-  `mdopener-mcp` sidecar. `anthropic_client_builder` returns that refusal
-  and builds no client, including for a loopback gateway. The test-only
-  re-exports of the two client builders are behind the `test-support`
-  feature. A non-boolean `offline` value counts as on.
-- **Model, embedding and Anthropic requests never follow redirects, and
-  `localhost` is pinned to loopback.** Every reqwest client in the app comes
-  from one builder (`local_inference::client_builder`): a local server
-  answering 307/308 can no longer re-send a prompt or document text to
-  another host, and `localhost` is 127.0.0.1/::1 without DNS. The MCP
-  sidecar pins `localhost` the same way, and its `OLLAMA_HOST` now also needs
-  `localInference.allowRemote: true` for a non-loopback (https) host.
-
-### Changed
-- **`OLLAMA_HOST` is loopback-gated in the app.** A non-loopback Ollama now
-  needs `localInference.allowRemote: true` in `~/.ashlr/config.json` and an
-  https URL; otherwise no request is made.
-  **Migration for remote Ollama users:** add
-  `"localInference": { "provider": "ollama", "baseUrl": "https://<host>/v1", "allowRemote": true }`
-  to `~/.ashlr/config.json` and set `OLLAMA_HOST` to the same `https://` host.
-  Plain http to a remote host is never allowed. Without this the AI sidebar
-  and embeddings show:
-  `OLLAMA_HOST refused (remote-not-allowed): a non-loopback Ollama needs localInference.allowRemote true in ~/.ashlr/config.json and https. No request was sent.`
-  (`remote-requires-https` instead when `allowRemote` is set but the URL is http).
-- **AI and embedding errors no longer carry secrets.** An Anthropic error quoted
-  the endpoint's whole response body, so a gateway that names the rejected
-  `x-api-key` put the key into the AI sidebar's error. Ollama and embedding errors
-  carried the base URL's path (where a proxy token can sit) through the HTTP
-  client's message, and an Ollama error body could quote the `Authorization: Basic`
-  value built from an `OLLAMA_HOST` user name and password. Error bodies are now
-  redacted (the key, and the credentials, path segments and query values of the
-  base URL) and cut to 300 characters, and client errors omit the URL. A new test
-  drives each of these calls against a 401 that echoes the request, a redirect, a
-  closed port and a malformed 200, and fails on any 8-character run of a secret.
-- **Docs: running under `phantom exec`.** `docs/PHANTOM.md` lists the settings Ashlr MD
-  reads (`ANTHROPIC_BASE_URL`, `OLLAMA_HOST` for the app and the sidecar) and their
-  rules. It notes that the Anthropic key comes from Settings, not `ANTHROPIC_API_KEY`,
-  and that `phm:` references are never resolved. It also covers LiteLLM: 1.83.0 or
-  newer, preferring a current release.
-- **MCP sidecar: https Ollama.** The sidecar now speaks `https://` to Ollama
-  (system TLS through `native-tls`, already in the workspace). `OLLAMA_HOST`
-  follows the `ANTHROPIC_BASE_URL` rules: `https://` to any host, or plain
-  `http://` only to `127.0.0.1` or `[::1]`; `:port`, `0.0.0.0` and `[::]` map
-  to loopback. Plain http to any other host, `localhost` by name, a user name or
-  password, a query or fragment and other schemes are refused before any
-  connection, and the refusal does not echo the value. Redirects are refused,
-  not followed. The default (`http://127.0.0.1:11434`) is unchanged.
-
-### Added
 - **Anthropic key from the environment (opt-in).** With
   `ASHLR_MD_ANTHROPIC_KEY_FROM_ENV=1` the AI sidebar uses `ANTHROPIC_API_KEY` instead
   of the Settings key, so a `phm_` placeholder from `phantom exec` works. A placeholder
@@ -177,6 +227,21 @@ Released 2026-06-06. [Release notes and downloads](https://github.com/ashlrai/as
   `prefers-reduced-motion`.
 
 ### Security
+- **Offline mode fails closed on the shared client builders.** With
+  `localInference.offline` set, a non-loopback host is refused before a
+  socket exists for chat, every embedding client, search and the
+  `mdopener-mcp` sidecar. `anthropic_client_builder` returns that refusal
+  and builds no client, including for a loopback gateway. The test-only
+  re-exports of the two client builders are behind the `test-support`
+  feature. A non-boolean `offline` value counts as on.
+- **Model, embedding and Anthropic requests never follow redirects, and
+  `localhost` is pinned to loopback.** Every reqwest client in the app comes
+  from one builder (`local_inference::client_builder`): a local server
+  answering 307/308 can no longer re-send a prompt or document text to
+  another host, and `localhost` is 127.0.0.1/::1 without DNS. The MCP
+  sidecar pins `localhost` the same way, and its `OLLAMA_HOST` now also needs
+  `localInference.allowRemote: true` for a non-loopback (https) host.
+
 - **An exported page runs no script.** A template's CSS went into the
   exported HTML's `<style>` as written, so a `</style>` in it ended the element
   and the rest parsed as markup, an event handler included. The editor now
@@ -227,7 +292,95 @@ Released 2026-06-06. [Release notes and downloads](https://github.com/ashlrai/as
   outside the app. Provider errors, the selection popover and the editors'
   inline AI already showed their text as text.
 
+### Changed
+- **Auto-tag self-heals a missed tag.** `auto-tag.yml` now gates on tag
+  existence instead of a version diff between commits: when the manifest
+  version on `main` has no `v<version>` tag and every required check for that
+  commit is green, the tag is created. A tag missed on an earlier run is made
+  by the next green main CI run (`workflow_run`) or by `workflow_dispatch`,
+  so a release tag no longer depends on the bump commit's own CI window.
+- **New pre-merge gates in `Check (Linux)`.** `bun run check:version`
+  (`scripts/cargo-version-sync.test.mjs` and `tauri-version-sync.test.mjs`)
+  fails when `package.json`, `src-tauri/tauri.conf.json` and
+  `src-tauri/Cargo.toml` disagree, `bun run check:workflow-bash`
+  (`scripts/ci/workflow-bash.mjs`) runs `bash -n` over every bash/sh run block
+  in `.github/workflows` so a syntax error fails before merge instead of on a
+  runner, and `scripts/package-scripts.test.mjs` /
+  `package-script-paths.test.mjs` check that npm scripts name real files.
+- **Windows native QA deepened** (still `workflow_dispatch` only, read
+  permissions only). `native-qa-windows.yml` adds a real PowerShell
+  dialog-selection regression check (`scripts/native-qa-open-dialog.ps1` with
+  `test-native-qa-open-dialog.ps1`), and `scripts/native-qa-windows.py` gained
+  `--check-driver`, `--check-process-query` and `--check-uia` preflights,
+  bounded driver-trust verification, optional process-argv diagnostics and
+  cleanup of the driver staging directory.
+- **CI: a fast pull request lane and a merge queue.** `Check (Linux)` is the
+  one required aggregate check. Pull requests and merge queue candidates run
+  typecheck, Biome, the crypto policy check, the CI gate tests and pinned
+  diff secret scans. The full Linux and macOS suites (frontend, `cargo test
+  --workspace`, release assembly validator tests) run on every push to `main`
+  and daily at 04:23 ET, and their aggregate fails on any required failure.
+  Codecov uploads are daily or manual only. A scheduled run that fails opens a
+  FIX-MAIN issue (`fix-main.yml`); nothing is reverted.
+  `scripts/ci-local.sh` runs the gates for your change before you push, scoped
+  by `scripts/ci/select.mjs`.
+- **CI hardening.** Every third-party GitHub Action is pinned to a commit SHA,
+  workflow default permissions are read-only, and CODEOWNERS covers the
+  workflows and the files that make keyed or network requests (growth-only).
+  CodeQL, OpenSSF Scorecard, Renovate, CodeRabbit and Socket
+  are configured and stay off the pull request path.
+- **`OLLAMA_HOST` is loopback-gated in the app.** A non-loopback Ollama now
+  needs `localInference.allowRemote: true` in `~/.ashlr/config.json` and an
+  https URL; otherwise no request is made.
+  **Migration for remote Ollama users:** add
+  `"localInference": { "provider": "ollama", "baseUrl": "https://<host>/v1", "allowRemote": true }`
+  to `~/.ashlr/config.json` and set `OLLAMA_HOST` to the same `https://` host.
+  Plain http to a remote host is never allowed. Without this the AI sidebar
+  and embeddings show:
+  `OLLAMA_HOST refused (remote-not-allowed): a non-loopback Ollama needs localInference.allowRemote true in ~/.ashlr/config.json and https. No request was sent.`
+  (`remote-requires-https` instead when `allowRemote` is set but the URL is http).
+- **AI and embedding errors no longer carry secrets.** An Anthropic error quoted
+  the endpoint's whole response body, so a gateway that names the rejected
+  `x-api-key` put the key into the AI sidebar's error. Ollama and embedding errors
+  carried the base URL's path (where a proxy token can sit) through the HTTP
+  client's message, and an Ollama error body could quote the `Authorization: Basic`
+  value built from an `OLLAMA_HOST` user name and password. Error bodies are now
+  redacted (the key, and the credentials, path segments and query values of the
+  base URL) and cut to 300 characters, and client errors omit the URL. A new test
+  drives each of these calls against a 401 that echoes the request, a redirect, a
+  closed port and a malformed 200, and fails on any 8-character run of a secret.
+- **Docs: running under `phantom exec`.** `docs/PHANTOM.md` lists the settings Ashlr MD
+  reads (`ANTHROPIC_BASE_URL`, `OLLAMA_HOST` for the app and the sidecar) and their
+  rules. It notes that the Anthropic key comes from Settings, not `ANTHROPIC_API_KEY`,
+  and that `phm:` references are never resolved. It also covers LiteLLM: 1.83.0 or
+  newer, preferring a current release.
+- **MCP sidecar: https Ollama.** The sidecar now speaks `https://` to Ollama
+  (system TLS through `native-tls`, already in the workspace). `OLLAMA_HOST`
+  follows the `ANTHROPIC_BASE_URL` rules: `https://` to any host, or plain
+  `http://` only to `127.0.0.1` or `[::1]`; `:port`, `0.0.0.0` and `[::]` map
+  to loopback. Plain http to any other host, `localhost` by name, a user name or
+  password, a query or fragment and other schemes are refused before any
+  connection, and the refusal does not echo the value. Redirects are refused,
+  not followed. The default (`http://127.0.0.1:11434`) is unchanged.
+
 ### Fixed
+- **PDF export opens the print dialog once.** The hidden print frame's load
+  handler fired for the frame's own creation and again for `document.close()`,
+  so a PDF export could print twice.
+- **Export attribute parsing no longer stops at a broken attribute.** The
+  attribute scan used a sticky (`y`) regular expression under `matchAll`, which
+  shadowed the iterator's skip-ahead and ended the scan at the first malformed
+  attribute, so a `class` or `style` after it was missed and the email-HTML
+  export profile could merge its rules in twice or not at all.
+- **The `invalid-link-target` autofix keeps the link's label.** The fix
+  rewrote only the URL portion by computed offsets, which could land outside
+  the link; it now rewrites the matched link as `[label](TODO)`, keeping the
+  original label.
+- **A resolved Milkdown timer no longer turns itself rejected.** A vendored
+  patch (`patches/@milkdown%2Fctx@7.21.2.patch`, wired through
+  `patchedDependencies`) clears a timer's pending timeout when the awaited
+  editor event arrives, so the timeout can no longer fire later and mark an
+  already-resolved timer rejected.
 - **The command palette highlight goes back to the first row when the recent
   files change while it is open.** It stayed on the old index, on another row.
 - **A folder moved into the watched folder lists its notes in Activity at
@@ -3416,12 +3569,26 @@ Released 2026-06-06. [Release notes and downloads](https://github.com/ashlrai/as
   `export` request reports back when no document is open instead of no-op'ing.
 
 ### Internal
+- Test coverage grew by more than 26,000 lines: `mdlint-autofix.test.ts`
+  across image, link, placeholder and prose cases, the `mdopener-mcp`
+  `integration.rs` payload suites, and `mdopen` / `mdopener-mcp` CLI help,
+  version, no-argument and unknown-flag coverage.
 - Removed two unused dependencies and dead plugin exports; broken wikilinks now
   re-resolve shortly after the missing note is created instead of staying broken
   for the session.
 - Split the 1,091-line `SettingsPanel.tsx` into per-section components (one file
   per preferences section, plus a shared icon set) — no behavior change, the
   panel is now a thin composition shell.
+
+## [0.5.0] — 2026-11-01
+
+Build-qualified prerelease, published as a GitHub prerelease from the
+`release-validation/md-0.5.0-editing-repairs` branch (commit `721b976`) for
+four-platform build and updater-artifact qualification. It was not a stable,
+installation-ready release: native launch/install/update testing was still
+pending, macOS builds were ad-hoc signed and not notarized, and no updater
+feed or compiled assets were published. Superseded by [0.6.0], which contains
+every change the candidate carried plus all work merged to `main` since.
 
 ## [0.4.0] — 2026-06-06
 
@@ -3588,7 +3755,12 @@ callouts), WYSIWYG + source editing, PDF/DOCX/HTML export, local-first tiered
 AI, agent hand-off (`mdopen` CLI · `mdopener://` · MCP server), the macOS `.md`
 default handler, and smart agent-output rendering.
 
-[0.4.1]: https://github.com/ashlrai/ashlr-md/compare/v0.4.0...HEAD
+[0.7.3]: https://github.com/ashlrai/ashlr-md/compare/v0.7.2...HEAD
+[0.7.2]: https://github.com/ashlrai/ashlr-md/compare/v0.7.1...v0.7.2
+[0.7.1]: https://github.com/ashlrai/ashlr-md/compare/v0.7.0...v0.7.1
+[0.7.0]: https://github.com/ashlrai/ashlr-md/compare/v0.6.0...v0.7.0
+[0.6.0]: https://github.com/ashlrai/ashlr-md/releases/tag/v0.6.0
+[0.5.0]: https://github.com/ashlrai/ashlr-md/releases/tag/v0.5.0
 [0.4.0]: https://github.com/ashlrai/ashlr-md/releases/tag/v0.4.0
 [0.3.0]: https://github.com/ashlrai/ashlr-md/compare/v0.2.0...v0.4.0
 [0.2.0]: https://github.com/ashlrai/ashlr-md/releases/tag/v0.2.0

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Fixed original-0.5 artifact probe. No install, update, publication or credentials in app."""
 import hashlib
+import http.client
 import importlib.util
 import json
 import os
@@ -27,6 +28,18 @@ ZIP_APP = 'release/bundle/appimage/Ashlr MD_0.5.0_amd64.AppImage'
 APP_HASH = 'f4ebaa941f596877937df68713be3646783c8f00d05ac7af692a170484f17c9f'
 HEADING = 'Ashlr native qualification 721b976'
 
+# This reads the real document; only the renderer's copy-link control is excluded.
+DOM_SCRIPT = r"""
+const article = document.querySelector('article.reading-surface');
+const heading = article?.querySelector('h1')?.cloneNode(true);
+heading?.querySelectorAll('button.heading-anchor').forEach(button => button.remove());
+return {
+  heading: heading?.textContent,
+  text: [...(article?.querySelectorAll('p') ?? [])].map(p => p.textContent)
+    .find(text => text === 'Native WebView Unicode: café 日本語.')
+};
+"""
+
 
 def require(ok, message):
     if not ok:
@@ -43,6 +56,51 @@ def module():
 def plain_opener():
     # Never inherit an ambient HTTP proxy for local automation or credentials.
     return urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+
+def metadata_path(path):
+    # Exact same-repository, read-only API grammar used by fixed provenance inputs.
+    prefix = '/repos/ashlrai/ashlr-md'
+    if not isinstance(path, str) or not path.startswith(prefix + '/'):
+        return False
+    tail = path[len(prefix):]
+    page = r'\?per_page=100&page=(?:[1-9][0-9]?|100)'
+    routes = (
+        rf'/git/ref/tags/{re.escape(TAG)}',
+        r'/git/tags/[0-9a-f]{40}',
+        r'/actions/workflows/(?:release|ci)\.yml',
+        rf'/actions/runs/{RUN}',
+        rf'/actions/runs/{RUN}/artifacts' + page,
+        r'/actions/runs/[1-9][0-9]*/attempts/[1-9][0-9]*/jobs' + page,
+        rf'/actions/workflows/ci\.yml/runs\?event=workflow_dispatch&head_sha={SHA}&per_page=100&page=(?:[1-9][0-9]?|100)',
+        rf'/contents/(?:\.github/workflows/(?:release|ci)\.yml|src-tauri/tauri\.conf\.json|src-tauri/Cargo\.toml|package\.json)\?ref={SHA}',
+        r'/releases/latest',
+    )
+    return len(path) <= 512 and any(re.fullmatch(route, tail, flags=re.ASCII) for route in routes)
+
+
+def metadata_fetcher(token):
+    require(isinstance(token, str) and bool(token) and not any(c in token for c in '\r\n'), 'invalid preparation token')
+    def fetch(path):
+        require(metadata_path(path), 'unsupported preparation metadata path')
+        class NoRedirect(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self, *args, **kwargs):
+                return None
+        req = urllib.request.Request('https://api.github.com' + path,
+            headers={'Authorization': f'Bearer {token}', 'Accept': 'application/vnd.github+json',
+                     'User-Agent': 'ashlr-native-qa', 'X-GitHub-Api-Version': '2022-11-28'})
+        try:
+            with urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect).open(req, timeout=30) as response:
+                require(response.status == 200, 'unexpected metadata status')
+                raw = response.read(16 * 1024 * 1024 + 1)
+                require(len(raw) <= 16 * 1024 * 1024, 'metadata response too large')
+                value = json.loads(raw)
+                require(isinstance(value, dict), 'metadata must be an object')
+                return value
+        except (OSError, ValueError, http.client.HTTPException):
+            # Never include request headers, response bodies or credential-bearing objects.
+            raise ValueError('preparation metadata request failed') from None
+    return fetch
 
 
 def download_zip(artifact, dest, token):
@@ -196,10 +254,12 @@ def probe(work, app):
             require(session_id(session), 'invalid session id')
             until = time.monotonic() + 60
             while True:
-                value = wd('POST', f'/session/{session}/execute/sync', {'script': 'return {heading: document.querySelector("h1")?.textContent, text: [...document.querySelectorAll("p")].map(x => x.textContent).find(x => x === "Native WebView Unicode: café 日本語.")};', 'args': []})
+                value = wd('POST', f'/session/{session}/execute/sync', {'script': DOM_SCRIPT, 'args': []})
                 if oracle(value):
                     break
-                require(time.monotonic() < until, 'native DOM fixture mismatch/timeout')
+                if time.monotonic() >= until:
+                    print('Bounded synthetic DOM observation:', json.dumps({key: str(value.get(key, ''))[:256] for key in ('heading', 'text')} if isinstance(value, dict) else {'type': type(value).__name__}, ensure_ascii=True), file=sys.stderr)
+                    raise ValueError('native DOM fixture mismatch/timeout')
                 time.sleep(0.3)
             require(fixture.read_text() == f'# {HEADING}\n\nNative WebView Unicode: café 日本語.\n', 'fixture unexpectedly changed')
             print('PASS: original signed Linux AppImage launched and native DOM fixture matched; no install/update exercised', flush=True)
@@ -257,7 +317,8 @@ def prepare():
         raise
     # Output precedes verification so the always-cleanup step owns failed preparation.
     prov = module()
-    artifacts = prov.pages(prov.fetch, f'{prov.REPO}/actions/runs/{RUN}/artifacts', 'artifacts')
+    api = metadata_fetcher(token)
+    artifacts = prov.pages(api, f'{prov.REPO}/actions/runs/{RUN}/artifacts', 'artifacts')
     zips = {}
     for leg in prov.LEGS:
         a = prov.exactly([x for x in artifacts if x.get('name') == leg], leg)
@@ -265,14 +326,15 @@ def prepare():
         target = work / (leg + '.zip')
         download_zip(a, target, token)
         zips[leg] = target
+    receipt = prov.verify_provenance(api, TAG, SHA, RUN, zips)
+    latest = api(prov.REPO + '/releases/latest')
+    api = None
     token = None
-    receipt = prov.verify_provenance(prov.fetch, TAG, SHA, RUN, zips)
     app, sig = select_linux(zips['bundle-ubuntu-22.04'], work)
     key = work / 'public-key.txt'
     key.write_text(receipt['public_key'])
     subprocess.run([str(ROOT / 'scripts/release-signature-check/target/release/release-signature-check'), str(key), str(sig), str(app)], check=True, timeout=30)
     # Read-only metadata: abort on any drift; never accept a UI Install dialog.
-    latest = prov.fetch(prov.REPO + '/releases/latest')
     require(latest.get('tag_name') == 'v0.4.0' and latest.get('prerelease') is False, 'stable release changed; review before probe')
     with plain_opener().open('https://github.com/ashlrai/ashlr-md/releases/latest/download/latest.json', timeout=30) as response:
         metadata = json.loads(response.read(1024 * 1024 + 1))

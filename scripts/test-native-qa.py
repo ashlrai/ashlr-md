@@ -12,6 +12,80 @@ qa = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(qa)
 
 class Tests(unittest.TestCase):
+    def test_metadata_exact_routes_and_rejection_before_request(self):
+        prefix='/repos/ashlrai/ashlr-md'
+        good=[f'/git/ref/tags/{qa.TAG}', '/git/tags/'+'a'*40,
+              '/actions/workflows/release.yml','/actions/workflows/ci.yml',
+              f'/actions/runs/{qa.RUN}', f'/actions/runs/{qa.RUN}/artifacts?per_page=100&page=1',
+              '/actions/runs/123/attempts/2/jobs?per_page=100&page=100',
+              f'/actions/workflows/ci.yml/runs?event=workflow_dispatch&head_sha={qa.SHA}&per_page=100&page=1',
+              '/releases/latest']
+        good += [f'/contents/{p}?ref={qa.SHA}' for p in qa.module().SOURCE]
+        for route in good: self.assertTrue(qa.metadata_path(prefix+route),route)
+        bad=[None, 'https://api.github.com'+prefix+'/releases/latest', '//evil.invalid/x',
+             '/repos/other/repo/releases/latest', prefix+'-other/releases/latest',
+             prefix+'/../other/releases/latest', prefix+'/%2e%2e/releases/latest',
+             prefix+'/releases/latest?ref=x',prefix+'/releases/latest#fragment',
+             prefix+'/releases/latest\n', prefix+'/releases/latest/extra',
+             prefix+f'/contents/package.json?ref={qa.SHA}&ref=other',
+             prefix+f'/contents/package.json?ref={qa.SHA}%26x=1',
+             prefix+'/actions/runs/123/attempts/1/jobs?per_page=100&page=101',
+             prefix+'/actions/runs/123/attempts/1/jobs?per_page=100&page=1&page=2']
+        api=qa.metadata_fetcher('synthetic-token')
+        with patch.object(qa.urllib.request,'Request') as request:
+            for route in bad:
+                with self.assertRaises(ValueError): api(route)
+            request.assert_not_called()
+
+    def test_metadata_auth_bounds_redirects_and_sanitized_errors(self):
+        from unittest.mock import MagicMock
+        import io
+        class Response(io.BytesIO):
+            status=200
+        opener=MagicMock()
+        api=qa.metadata_fetcher('synthetic-token')
+        route='/repos/ashlrai/ashlr-md/releases/latest'
+        opener.open.return_value=Response(b'{"tag_name":"v0.4.0"}')
+        with patch.object(qa.urllib.request,'build_opener',return_value=opener) as build:
+            self.assertEqual(api(route), {'tag_name':'v0.4.0'})
+            request=opener.open.call_args.args[0]
+            self.assertEqual(request.full_url,'https://api.github.com'+route)
+            self.assertEqual(request.get_method(),'GET')
+            self.assertEqual(request.get_header('Authorization'),'Bearer synthetic-token')
+            self.assertEqual(opener.open.call_args.kwargs['timeout'],30)
+            self.assertEqual(build.call_args.args[0].proxies,{})
+            self.assertIsNone(build.call_args.args[1]().redirect_request(None,None,302,'',{},'https://elsewhere.invalid'))
+            for raw in (b'not JSON', b'[]', b'x'*(16*1024*1024+1)):
+                opener.open.return_value=Response(raw)
+                with self.assertRaisesRegex(ValueError,'^preparation metadata request failed$'): api(route)
+            response=Response(b'{}'); response.status=302; opener.open.return_value=response
+            with self.assertRaises(ValueError): api(route)
+            opener.open.side_effect=qa.urllib.error.URLError('synthetic-token must not appear')
+            with self.assertRaisesRegex(ValueError,'^preparation metadata request failed$'): api(route)
+            opener.open.side_effect=qa.http.client.BadStatusLine('synthetic-token must not appear')
+            with self.assertRaisesRegex(ValueError,'^preparation metadata request failed$'): api(route)
+
+    def test_prepare_uses_scoped_api_without_token_in_subprocess_or_receipt(self):
+        from unittest.mock import MagicMock
+        import io
+        prov=MagicMock(REPO='/repos/ashlrai/ashlr-md', LEGS=('bundle-ubuntu-22.04',))
+        prov.pages.return_value=[{'name':'bundle-ubuntu-22.04','expired':False,'workflow_run':{'head_sha':qa.SHA}}]
+        prov.exactly.side_effect=lambda values,label: values[0]
+        prov.verify_provenance.return_value={'public_key':'synthetic-key'}
+        api=MagicMock(return_value={'tag_name':'v0.4.0','prerelease':False})
+        opener=MagicMock(); opener.open.return_value=io.BytesIO(b'{"version":"0.4.0"}')
+        with tempfile.TemporaryDirectory() as t:
+            root=Path(t); out=root/'out'; out.touch(); work=root/'md050-original-native-qa'
+            def child(*args,**kwargs): self.assertNotIn('GH_TOKEN',qa.os.environ)
+            with patch.dict(qa.os.environ,{'GH_TOKEN':'synthetic-token','RUNNER_TEMP':t,'GITHUB_OUTPUT':str(out)},clear=True), patch.object(qa,'module',return_value=prov), patch.object(qa,'metadata_fetcher',return_value=api), patch.object(qa,'download_zip') as download, patch.object(qa,'select_linux',return_value=(work/qa.APP,work/'app.sig')), patch.object(qa.subprocess,'run',side_effect=child), patch.object(qa,'plain_opener',return_value=opener):
+                qa.prepare()
+                self.assertIs(prov.pages.call_args.args[0],api)
+                self.assertIs(prov.verify_provenance.call_args.args[0],api)
+                api.assert_called_once_with('/repos/ashlrai/ashlr-md/releases/latest')
+                prov.fetch.assert_not_called()
+                self.assertEqual(download.call_args.args[2],'synthetic-token')
+                self.assertNotIn('synthetic-token',(work/'qualified.json').read_text())
+
     def test_dom_oracle(self):
         good = {'heading': qa.HEADING, 'text': 'Native WebView Unicode: café 日本語.'}
         self.assertTrue(qa.oracle(good))
@@ -94,6 +168,22 @@ class Tests(unittest.TestCase):
                 with self.assertRaises(TimeoutError): qa.probe(root,app)
                 cleanup.assert_called_once_with(proc)
             self.assertIn(('DELETE','/session/synthetic-1'),calls)
+
+    def test_dom_mismatch_logs_only_bounded_observation_then_cleans_up(self):
+        from unittest.mock import Mock
+        with tempfile.TemporaryDirectory() as t:
+            root=Path(t); app=root/'app'; app.write_bytes(b'synthetic')
+            proc=Mock(pid=123456); proc.poll.return_value=None
+            def driver(method,path,payload=None):
+                if path=='/session': return {'sessionId':'synthetic-1'}
+                if path.endswith('/execute/sync'): return {'heading':'x'*1000, 'text':'wrong', 'extra':'must not log'}
+                return {}
+            with patch.object(qa,'validate_probe_paths'), patch.object(qa.subprocess,'Popen',return_value=proc), patch.object(qa,'wd',side_effect=driver), patch.object(qa,'stop_group') as cleanup, patch.object(qa.signal,'signal'), patch.object(qa.signal,'alarm'), patch.object(qa.time,'monotonic',side_effect=[0,0,61]), patch('builtins.print') as output:
+                with self.assertRaisesRegex(ValueError,'native DOM fixture mismatch'): qa.probe(root,app)
+                cleanup.assert_called_once_with(proc)
+                entries=[c.args[1] for c in output.call_args_list if c.args[0]=='Bounded synthetic DOM observation:']
+                self.assertEqual(len(entries),1)
+                self.assertEqual(qa.json.loads(entries[0]), {'heading':'x'*256,'text':'wrong'})
 
     def test_malformed_delete_cannot_skip_group_cleanup(self):
         from unittest.mock import Mock
