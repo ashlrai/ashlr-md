@@ -2,7 +2,7 @@
 
 These fixtures come from [`integration.rs`](../src-tauri/bins/mdopener-mcp/tests/integration.rs). Each row maps the exact input to the expected plain-text output for the named test and operation. The table includes the bracket-specific export, reference, checkbox, escape, and heading cases; the separate [bracket preservation guide](integration-bracket-preservation.md) presents selected examples.
 
-Inputs and outputs are JSON strings: `\n` is a newline, `\t` is a tab, and `\\` is a literal backslash. This preserves trailing and blank lines. `export_text (trimmed)` matches the heading test’s trimmed text result. Reference definitions are part of the input and do not appear in the output.
+Inputs and outputs are JSON strings: `\n` is a newline, `\t` is a tab, and `\\` is a literal backslash, and `\u2014` is an em dash. This preserves trailing and blank lines. `export_text (trimmed)` matches the heading test’s trimmed text result. Reference definitions are part of the input and do not appear in the output.
 
 | Integration test | Operation | Markdown input | Expected text |
 | --- | --- | --- | --- |
@@ -67,6 +67,18 @@ Inputs and outputs are JSON strings: `\n` is a newline, `\t` is a tab, and `\\` 
 | `export_text_keeps_bracketed_prose_at_the_start_and_end_of_a_paragraph` | `export_text` | ` "[one] wraps a paragraph\nspanning two lines [two]\n\n[three] opens the next.\n" ` | ` "[one] wraps a paragraph\nspanning two lines [two]\n\n[three] opens the next." ` |
 | `export_text_keeps_bracketed_prose_at_the_start_and_end_of_a_paragraph` | `export_text` | ` "[sic] see [the guide](/guide) for details [TODO].\n" ` | ` "[sic] see the guide for details [TODO]." ` |
 | `export_text_keeps_bracketed_prose_at_the_start_and_end_of_a_paragraph` | `export_text` | ` "[sic] recheck [the guide] now.\n\n[the guide]: /guide\n" ` | ` "[sic] recheck the guide now." ` |
+| `export_text_keeps_bracketed_prose_at_paragraph_end_with_closing_marks` | `export_text` | ` "Confirmed [sic],\n" ` | ` "Confirmed [sic]," ` |
+| `export_text_keeps_bracketed_prose_at_paragraph_end_with_closing_marks` | `export_text` | ` "(as noted [1])\n" ` | ` "(as noted [1])" ` |
+| `export_text_keeps_bracketed_prose_at_paragraph_end_with_closing_marks` | `export_text` | ` "She said \"verbatim [sic]\"\n" ` | ` "She said \"verbatim [sic]\"" ` |
+| `export_text_keeps_bracketed_prose_at_paragraph_end_with_closing_marks` | `export_text` | ` "Ends [a]\u2014\n" ` | ` "Ends [a]\u2014" ` |
+| `export_text_keeps_bracketed_prose_at_paragraph_end_with_closing_marks` | `export_text` | ` "確認 [要確認]。\n" ` | ` "確認 [要確認]。" ` |
+| `export_text_keeps_bracketed_prose_at_paragraph_end_with_closing_marks` | `export_text` | ` "[sic].\n" ` | ` "[sic]." ` |
+| `export_text_keeps_bracketed_prose_at_paragraph_end_with_closing_marks` | `export_text` | ` "Ends [needs\nreview].\n" ` | ` "Ends [needs\nreview]." ` |
+| `export_text_keeps_bracketed_prose_at_paragraph_end_with_closing_marks` | `export_text` | ` "> > Nested quote ends [a].\n" ` | ` "Nested quote ends [a]." ` |
+| `export_text_keeps_bracketed_prose_at_paragraph_end_with_closing_marks` | `export_text` | ` "- item one\n\n  second paragraph ends [a].\n" ` | ` "item one\n\nsecond paragraph ends [a]." ` |
+| `export_text_keeps_bracketed_prose_at_paragraph_end_with_closing_marks` | `export_text` | ` "Plan [Draft]\n---\n" ` | ` "Plan [Draft]" ` |
+| `export_text_keeps_bracketed_prose_at_paragraph_end_with_closing_marks` | `export_text` | ` "Ends [a].\n<div>raw html</div>\n" ` | ` "Ends [a].\nraw html" ` |
+| `export_text_keeps_bracketed_prose_at_paragraph_end_with_closing_marks` | `export_text` | ` "[a]: /u\n\nEnds [a].\n" ` | ` "Ends a." ` |
 | `export_text_keeps_bracketed_sic_in_surrounding_prose` | `export_text` | ` "The report says the result was 'definately [sic] confirmed' by [the authors](https://example.com).\n" ` | ` "The report says the result was 'definately [sic] confirmed' by the authors." ` |
 | `export_text_keeps_bracketed_prose_in_list_items` | `export_text` | ` "- The quote says 'definately [sic]' in [the report](/report).\n" ` | ` "The quote says 'definately [sic]' in the report." ` |
 | `export_text_keeps_bracketed_prose_in_list_items` | `export_text` | ` "1. [sic] begins the note.\n2. End with [TODO].\n" ` | ` "[sic] begins the note.\nEnd with [TODO]." ` |
@@ -75,6 +87,7 @@ Inputs and outputs are JSON strings: `\n` is a newline, `\t` is a tab, and `\\` 
 | `export_text_keeps_bracketed_phrases_adjacent_to_punctuation` | `export_text` | ` "She wrote: '[exact wording]'; he agreed!\n" ` | ` "She wrote: '[exact wording]'; he agreed!" ` |
 | `export_text_keeps_bracketed_phrases_adjacent_to_punctuation` | `export_text` | ` "Status:[**needs review**]?! See [the guide](/guide), then [sic]; done.\n" ` | ` "Status:[needs review]?! See the guide, then [sic]; done." ` |
 | `export_text_keeps_punctuation_immediately_after_prose_brackets` | `export_text` | ` "Compare [sic],next; [TODO]:now; [1]!really; [x]?yes; [note].End.\n" ` | ` "Compare [sic],next; [TODO]:now; [1]!really; [x]?yes; [note].End." ` |
+| `export_text_keeps_bracketed_phrases_holding_punctuation` | `export_text` | ` "Mark [wait...] then [yes!?] done.\n" ` | ` "Mark [wait...] then [yes!?] done." ` |
 | `export_text_keeps_adjacent_bracketed_phrases_in_order` | `export_text` | ` "The notes say [first phrase][second phrase] here.\n" ` | ` "The notes say [first phrase][second phrase] here." ` |
 | `export_text_keeps_adjacent_bracketed_phrases_in_order` | `export_text` | ` "Review [TODO][sic] before [the release](/release).\n" ` | ` "Review [TODO][sic] before the release." ` |
 | `export_text_keeps_adjacent_bracketed_phrases_in_order` | `export_text` | ` "Keep [first][second] together.\n\n[first]: /guide\n" ` | ` "Keep [first][second] together." ` |

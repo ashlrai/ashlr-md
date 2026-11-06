@@ -88,14 +88,14 @@ jobs:
           PY
 
   full-suite-evidence:
-    # Release gate: the full suite (macOS and Windows included) must have
+    # Release gate: the Linux and macOS full suites must have
     # passed in a CI run on this exact sha: either a manual workflow_dispatch
     # run, or the post-merge push-to-main run, which executes the same
     # linux-full and macos-full suites.
     name: Full suite green on release sha
     needs: [prepare]
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 20
     permissions:
       actions: read
     steps:
@@ -107,16 +107,24 @@ jobs:
           CI_WORKFLOW: ci.yml
         run: |
           set -euo pipefail
-          n=0
-          for event in workflow_dispatch push; do
-            c="$(gh api "repos/${REPO}/actions/workflows/${CI_WORKFLOW}/runs?event=${event}&head_sha=${SHA}&status=success&per_page=1" --jq '.total_count')"
-            n=$((n + ${c:-0}))
+          # The tag can arrive before post-merge CI completes (v0.7.0 did).
+          # Keep the same exact-SHA success requirement, waiting at most 15 min.
+          # API errors and malformed evidence fail immediately, never as zero.
+          for attempt in {0..30}; do
+            for event in workflow_dispatch push; do
+              c="$(gh api "repos/${REPO}/actions/workflows/${CI_WORKFLOW}/runs?event=${event}&head_sha=${SHA}&status=success&per_page=1" --jq '.total_count')"
+              [[ "$c" =~ ^(0|[1-9][0-9]*)$ ]] || { echo "::error::Invalid CI run count"; exit 1; }
+              if [ "$c" != 0 ]; then
+                echo "full suite green on ${SHA} (${c} ${event} run(s))"
+                exit 0
+              fi
+            done
+            if [ "$attempt" -eq 30 ]; then break; fi
+            echo "Waiting for successful exact-SHA full CI (${attempt}/30)"
+            sleep 30
           done
-          if [ "$n" -lt 1 ]; then
-            echo "::error::No successful workflow_dispatch or push run of ${CI_WORKFLOW} on ${SHA}. Wait for the push-to-main CI run to go green, or run 'gh workflow run ${CI_WORKFLOW} --ref <this ref>', then release."
-            exit 1
-          fi
-          echo "full suite green on ${SHA} (${n} run(s))"
+          echo "::error::No successful workflow_dispatch or push run of ${CI_WORKFLOW} on ${SHA} after 15 minutes. Run 'gh workflow run ${CI_WORKFLOW} --ref <this ref>' and inspect CI before retrying."
+          exit 1
 
   # ---------------------------------------------------------------------------
   # Build matrix: macOS (aarch64 + x86_64), Linux (x86_64), Windows (x86_64).

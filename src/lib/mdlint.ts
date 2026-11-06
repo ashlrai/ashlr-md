@@ -600,14 +600,16 @@ export const ruleInvalidLinkTarget: LintRule = {
           severity: "warning",
           range: range(doc, from, to),
           fix: (d) => {
-            let idx = d.indexOf(originalMatch, from);
+            // Search the masked text (same offsets as `d`) so a stale fix
+            // applied a second time cannot rewrite an identical link inside
+            // code, front matter or HTML the rule skipped.
+            const masked = stripCodeBlocks(d);
+            let idx = masked.indexOf(originalMatch, from);
             if (idx !== from) {
-              // A fix applied since linting may have shifted this match (a
-              // shorter replacement moves it before its recorded offset):
-              // splice the occurrence closest to `from` rather than the
-              // first match in the document, which could be an identical
-              // link inside a code span.
-              const prev = d.lastIndexOf(originalMatch, from);
+              // Earlier fixes can shrink the document and move this link
+              // before its recorded offset. Prefer the nearest live match,
+              // retaining the mask so code samples cannot become targets.
+              const prev = masked.lastIndexOf(originalMatch, from);
               if (idx === -1 || (prev !== -1 && from - prev <= idx - from)) {
                 idx = prev;
               }
