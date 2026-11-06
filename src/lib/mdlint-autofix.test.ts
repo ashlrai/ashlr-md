@@ -255,6 +255,69 @@ describe("autofix: undescribed image with a Unicode source", () => {
     expect(fixed).toBe(expected);
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
+
+  it.each([
+    // Other Unicode-source describes cover decomposed accents, percent-encoded
+    // UTF-8, angle brackets, titles, Arabic paths and BMP emoji; these shapes
+    // appear in no image source in this file.
+    ["right-to-left scripts with a combining mark", "images/עברית/مِصر.png"],
+    ["a ZWJ emoji sequence and a flag", "images/👨‍👩‍👧‍👦/chart-🇯🇵.png"],
+    ["a supplementary-plane name", "images/𝔘𝔫𝔦𝔠𝔬𝔡𝔢/𝕏.png"],
+    ["mixed normalization forms", "images/café/café.png"],
+  ])("preserves %s in the source exactly", (_kind, source) => {
+    const rules = [ruleMissingAltText];
+    for (const nl of ["\n", "\r\n"]) {
+      const image = `![](${source})`;
+      const doc = `前文 ${image} 後文${nl}`;
+      const expected = `前文 ![TODO: describe image](${source}) 後文${nl}`;
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+      // The range covers the image only, at exact code-unit offsets —
+      // supplementary-plane characters count as two UTF-16 units each.
+      const { from, to } = violations[0].range!;
+      expect(doc.slice(from.offset, to.offset)).toBe(image);
+
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      // The source is preserved byte-for-byte and exactly one placeholder was
+      // inserted; removing it restores the input exactly.
+      expect(fixed).toContain(`](${source})`);
+      expect(fixed.match(/TODO: describe image/g)).toHaveLength(1);
+      expect(fixed.replace("TODO: describe image", "")).toBe(doc);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+      expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+    }
+  });
+
+  it("reports code-unit offsets when supplementary-plane characters precede the image", () => {
+    const rules = [ruleMissingAltText];
+    const source = "images/図.png";
+    const image = `![](${source})`;
+    // "😀" is one surrogate pair; "🖼️" is a pair plus a variation selector.
+    const prefix = "😀 🖼️ ";
+    const doc = `${prefix}${image} tail\n`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    // Offsets and columns are UTF-16 code units, matching String#slice: a
+    // byte-based offset would land inside the image's surrogate pairs.
+    expect(violations[0].range).toEqual({
+      from: { offset: prefix.length, line: 1, col: prefix.length },
+      to: {
+        offset: prefix.length + image.length,
+        line: 1,
+        col: prefix.length + image.length,
+      },
+    });
+    expect(applyFix(doc, violations[0])).toBe(
+      `${prefix}![TODO: describe image](${source}) tail\n`,
+    );
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(`${prefix}![TODO: describe image](${source}) tail\n`);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
 });
 
 describe("autofix: undescribed image with spaces in its filename", () => {
