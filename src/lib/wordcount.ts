@@ -10,7 +10,10 @@ import { atxHeading, markdownLines } from "./outline";
 
 export interface DocStats {
   words: number;
-  /** Estimated reading time in minutes (>= 1 for any non-empty document). */
+  /**
+   * Estimated reading time in minutes, rounded up to the next whole minute
+   * (>= 1 for any non-empty document).
+   */
   minutes: number;
 }
 
@@ -44,6 +47,6 @@ export function computeDocStats(content: string): DocStats {
     .replace(/`[^`]*`/g, " ");
   const trimmed = prose.trim();
   const words = trimmed ? trimmed.split(/\s+/).length : 0;
-  const minutes = words === 0 ? 0 : Math.max(1, Math.round(words / WORDS_PER_MINUTE));
+  const minutes = Math.ceil(words / WORDS_PER_MINUTE);
   return { words, minutes };
 }
