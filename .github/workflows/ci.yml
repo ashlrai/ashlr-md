@@ -60,7 +60,14 @@ jobs:
         run: bunx biome check src
 
       - name: CI gate regression tests
-        run: node --test scripts/ci/gate.test.mjs
+        run: node --test scripts/ci/gate.test.mjs scripts/ci/release-gate.test.mjs scripts/ci/assembly-workflow.test.mjs
+      - name: Dependency plan parser regressions
+        run: |
+          python3 scripts/test-apt-dependency-plan.py
+          python3 scripts/test-apt-https-sources.py
+
+      - name: User-facing punctuation regression
+        run: bun run test -- src/noDashes.test.ts
 
       - name: Check npm script file paths
         run: node --test scripts/package-scripts.test.mjs
@@ -208,6 +215,7 @@ jobs:
       - name: Test release assembly validator
         run: |
           python3 scripts/test-release-provenance.py
+          python3 scripts/test-prepare-release-assembly.py
           python3 scripts/test-release-archive.py
           python3 scripts/test-assemble-updater.py
           cargo test --locked --manifest-path scripts/release-signature-check/Cargo.toml
@@ -224,6 +232,7 @@ jobs:
       - name: Install Linux system dependencies
         timeout-minutes: 8
         run: |
+          sudo python3 scripts/apt-https-sources.py
           apt_opts=(-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30)
           sudo apt-get "${apt_opts[@]}" update
           sudo apt-get "${apt_opts[@]}" install -y \
