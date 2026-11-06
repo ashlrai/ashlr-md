@@ -79,6 +79,46 @@ describe("recentStore", () => {
     expect(recents.filter((r) => r.path === "/a.md")).toHaveLength(1);
   });
 
+  it("add() of the same item twice keeps a single entry, most recent first", () => {
+    const { add } = useRecentStore.getState();
+    add("/older.md", "older.md", 1000);
+    add("/same.md", "same.md", 2000);
+    // Same path, fileName and openedAt added again — a true duplicate add.
+    add("/same.md", "same.md", 2000);
+
+    const { recents } = useRecentStore.getState();
+    // Dedup: the path is stored once and the list did not grow.
+    expect(recents).toHaveLength(2);
+    expect(recents.filter((r) => r.path === "/same.md")).toHaveLength(1);
+    // Ordering: most recent first — the duplicate add changed nothing.
+    expect(recents.map((r) => r.path)).toEqual(["/same.md", "/older.md"]);
+    expect(recents[0]).toEqual({
+      path: "/same.md",
+      fileName: "same.md",
+      openedAt: 2000,
+    });
+
+    // The persisted blob carries the same deduped, ordered list.
+    expect(getStoredState<{ recents: RecentFile[] }>(STORE_KEY)?.state.recents).toEqual(
+      recents,
+    );
+  });
+
+  it("add() of the same item again promotes it ahead of equal-openedAt entries", () => {
+    const { add } = useRecentStore.getState();
+    add("/a.md", "a.md", 1000);
+    add("/b.md", "b.md", 1000);
+    // Tied openedAt sorts newest insertion first: [b, a]. Re-adding /a.md is a
+    // fresh insertion, so it now wins the tie.
+    add("/a.md", "a.md", 1000);
+
+    const { recents } = useRecentStore.getState();
+    // Dedup still holds: two paths, one entry each.
+    expect(recents).toHaveLength(2);
+    expect(recents.filter((r) => r.path === "/a.md")).toHaveLength(1);
+    expect(recents.map((r) => r.path)).toEqual(["/a.md", "/b.md"]);
+  });
+
   it("remove() deletes a single entry by path", () => {
     useRecentStore.getState().add("/a.md", "a.md", 1000);
     useRecentStore.getState().add("/b.md", "b.md", 1001);
