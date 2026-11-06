@@ -49,9 +49,23 @@ class ProvenanceTests(unittest.TestCase):
         jobs = [{'id':n+1,'run_id':RUN,'head_sha':SHA,'name':f'Build & release ({platform})','status':'completed','conclusion':'success','steps':copy.deepcopy(steps)} for n,platform in enumerate(PLATFORMS)]
         jobs.append({'id':10,'run_id':RUN,'head_sha':SHA,'name':'Full suite green on release sha','status':'completed','conclusion':'success','steps':[{'name':'Require a successful workflow_dispatch CI run on this sha','status':'completed','conclusion':'success'}]})
         self.data[f'{REPO}/actions/runs/{RUN}/attempts/1/jobs?per_page=100&page=1'] = {'total_count':len(jobs),'jobs':jobs}
-        ci = {'id':CI,'workflow_id':CI_WORKFLOW,'path':'.github/workflows/ci.yml','head_sha':SHA,'event':'workflow_dispatch','status':'completed','conclusion':'success','run_attempt':1,'repository':repo,'head_repository':repo}
+        ci = {'id':CI,'workflow_id':CI_WORKFLOW,'path':'.github/workflows/ci.yml','head_sha':SHA,'head_branch':'v0.4.0','event':'workflow_dispatch','status':'completed','conclusion':'success','run_attempt':1,'repository':repo,'head_repository':repo}
         self.data[f'{REPO}/actions/workflows/ci.yml/runs?event=workflow_dispatch&head_sha={SHA}&per_page=100&page=1'] = {'total_count':1,'workflow_runs':[ci]}
-        self.data[f'{REPO}/actions/runs/{CI}/attempts/1/jobs?per_page=100&page=1'] = {'total_count':2,'jobs':[{'id':101,'run_id':CI,'head_sha':SHA,'name':'Linux full suite','status':'completed','conclusion':'success'}, {'id':102,'run_id':CI,'head_sha':SHA,'name':'macOS full suite','status':'completed','conclusion':'success'}]}
+        self.data[f'{REPO}/actions/workflows/ci.yml/runs?event=push&head_sha={SHA}&per_page=100&page=1'] = {'total_count':0,'workflow_runs':[]}
+        self.data[f'{REPO}/actions/runs/{CI}'] = copy.deepcopy(ci)
+        required = {
+            'Linux full suite': ['Unit tests', 'Frontend build', 'Test release assembly validator',
+                                 'Install Linux system dependencies', 'Rust check (workspace)',
+                                 'Rust clippy (workspace, Linux)', 'Rust tests (workspace)'],
+            'macOS full suite': ['Rust check (workspace)', 'Rust clippy (workspace)'],
+            'Check (Linux)': ['Require every needed job'],
+            'Typecheck, lint, crypto policy': [], 'Secret scan (diff)': [], 'Secret-shape scan': [],
+        }
+        ci_jobs = [{'id':101+n, 'run_id':CI, 'run_attempt':1, 'head_sha':SHA, 'name':name,
+                    'status':'completed', 'conclusion':'success',
+                    'steps':[{'name':name, 'status':'completed', 'conclusion':'success'} for name in steps]}
+                   for n, (name, steps) in enumerate(required.items())]
+        self.data[f'{REPO}/actions/runs/{CI}/attempts/1/jobs?per_page=100&page=1'] = {'total_count':len(ci_jobs),'jobs':ci_jobs}
         artifacts = []
         for n,platform in enumerate(PLATFORMS):
             name = f'bundle-{platform}'
@@ -136,6 +150,65 @@ class ProvenanceTests(unittest.TestCase):
         jobs = self.data[f'{REPO}/actions/runs/{CI}/attempts/1/jobs?per_page=100&page=1']['jobs']
         jobs[1]['conclusion'] = 'skipped'
         with self.assertRaisesRegex(ValueError, 'no successful exact-SHA manual full CI'): self.verify()
+    def use_push_ci(self):
+        manual = self.data[f'{REPO}/actions/workflows/ci.yml/runs?event=workflow_dispatch&head_sha={SHA}&per_page=100&page=1']
+        ci = copy.deepcopy(manual['workflow_runs'][0])
+        ci.update(event='push', head_branch='main')
+        manual.update(total_count=0, workflow_runs=[])
+        self.data[f'{REPO}/actions/workflows/ci.yml/runs?event=push&head_sha={SHA}&per_page=100&page=1'] = {'total_count':1,'workflow_runs':[ci]}
+        self.data[f'{REPO}/actions/runs/{CI}'] = copy.deepcopy(ci)
+        return ci
+    def test_canonical_main_push_full_ci_records_honest_event_and_ref(self):
+        self.use_push_ci()
+        evidence = self.verify()
+        self.assertEqual(evidence['full_ci'], {'id':CI,'attempt':1,'event':'push','ref':'main'})
+        self.assertIsNone(evidence['manual_ci'])
+    def test_push_requires_main_and_rejects_foreign_or_partial_event_evidence(self):
+        ci = self.use_push_ci()
+        for key, value in [('head_branch','v0.4.0'), ('head_branch','feature'),
+                           ('event','pull_request'), ('event','merge_group'), ('event','schedule'),
+                           ('head_sha',OTHER), ('workflow_id',42),
+                           ('head_repository',{'id':42,'full_name':'fork/ashlr-md'})]:
+            with self.subTest(key=key, value=value):
+                old = ci[key]; ci[key] = value
+                with self.assertRaisesRegex(ValueError, 'no successful exact-SHA'): self.verify()
+                ci[key] = old
+    def test_both_ci_events_require_critical_steps_gate_and_current_attempt(self):
+        key = f'{REPO}/actions/runs/{CI}/attempts/1/jobs?per_page=100&page=1'
+        for event in ('workflow_dispatch', 'push'):
+            if event == 'push': self.use_push_ci()
+            jobs = self.data[key]['jobs']
+            for name, step in [('Linux full suite','Rust tests (workspace)'),
+                               ('Linux full suite','Unit tests'), ('macOS full suite','Rust clippy (workspace)'),
+                               ('Check (Linux)','Require every needed job')]:
+                target = next(s for j in jobs if j['name'] == name for s in j['steps'] if s['name'] == step)
+                target['conclusion'] = 'skipped'
+                with self.assertRaisesRegex(ValueError, 'no successful exact-SHA'): self.verify()
+                target['conclusion'] = 'success'
+            jobs[0]['run_attempt'] = 2
+            with self.assertRaisesRegex(ValueError, 'no successful exact-SHA'): self.verify()
+            jobs[0]['run_attempt'] = 1
+    def test_ci_rerun_race_rejects_instead_of_mixing_attempts(self):
+        current = self.data[f'{REPO}/actions/runs/{CI}']
+        current['run_attempt'] = 2
+        with self.assertRaisesRegex(ValueError, 'current attempt changed'): self.verify()
+        current['run_attempt'] = 1
+        reads = 0
+        def raced(path):
+            nonlocal reads
+            response = self.api(path)
+            if path == f'{REPO}/actions/runs/{CI}':
+                reads += 1
+                if reads > 1: response['run_attempt'] = 2
+            return response
+        with self.assertRaisesRegex(ValueError, 'current attempt changed'):
+            p.verify_provenance(raced, 'v0.4.0', SHA, RUN, self.zips)
+    def test_fast_only_push_success_cannot_qualify(self):
+        self.use_push_ci()
+        self.data[f'{REPO}/actions/runs/{CI}/attempts/1/jobs?per_page=100&page=1'] = {
+            'total_count':1, 'jobs':[{'id':501,'run_id':CI,'run_attempt':1,'head_sha':SHA,
+                                    'name':'Typecheck, lint, crypto policy','status':'completed','conclusion':'success'}]}
+        with self.assertRaisesRegex(ValueError, 'no successful exact-SHA'): self.verify()
     def test_annotated_tag_peels_to_expected_sha(self):
         tagsha = 'c' * 40
         self.data[f'{REPO}/git/ref/tags/v0.4.0']['object'] = {'type':'tag','sha':tagsha}
