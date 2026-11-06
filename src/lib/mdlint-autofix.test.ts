@@ -61,6 +61,30 @@ describe("invalid-link autofix: an empty href inside prose", () => {
   });
 });
 
+describe("invalid-link autofix beside a valid link", () => {
+  it.each([
+    true,
+    false,
+  ])("changes only the empty href (valid link first: %s)", (validFirst) => {
+    const rules = [ruleInvalidLinkTarget];
+    const valid = '[guide](./guide.md?version=2#intro "Guide")';
+    const invalid = "[guide]()";
+    const repaired = "[guide](TODO)";
+    for (const nl of ["\n", "\r\n"]) {
+      const doc = `Read ${validFirst ? `${valid} and ${invalid}` : `${invalid} and ${valid}`} next.${nl}`;
+      const expected = `Read ${validFirst ? `${valid} and ${repaired}` : `${repaired} and ${valid}`} next.${nl}`;
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+      const { from, to } = violations[0].range!;
+      expect(doc.slice(from.offset, to.offset)).toBe(invalid);
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      expect(applyAllFixes(doc, violations)).toBe(expected);
+      expect(lintDocument(expected, { rules })).toEqual([]);
+    }
+  });
+});
+
 describe("invalid-link autofix preserves surrounding punctuation", () => {
   it("retains punctuation and neighboring text for single and multiple fixes", () => {
     const doc = 'See ("[draft]()"), then [guide](#)! Keep [valid](./guide.md).\r\n';
