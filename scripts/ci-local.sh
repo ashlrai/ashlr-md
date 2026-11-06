@@ -16,7 +16,7 @@ rust_args="$(printf '%s\n' "$sel" | sed -n 's/^rust_args=//p')"
 msg="ci-local: js=$js rust=$rust"; [ "$rust" = true ] && msg="$msg cargo='$rust_args'"
 echo "$msg (vs $base)"
 pids=()
-( bun run typecheck && bunx biome check src && bun run check:crypto && bun run check:doc-links \
+( bun run typecheck && bunx biome check src && bun run check:crypto && bun run check:version && bun run check:doc-links \
   && bun run test:conflicts && bun run test:select \
   && if [ "$js" = true ]; then bunx vitest run --changed "$base" --passWithNoTests; fi ) & pids+=($!)
 if [ "$rust" = true ]; then
