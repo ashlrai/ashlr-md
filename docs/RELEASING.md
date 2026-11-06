@@ -24,6 +24,10 @@ gh workflow run release.yml -R ashlrai/ashlr-md -f version=X.Y.Z   # build exist
 (section 4) is still a separate maintainer step. The full-suite gate accepts a
 successful `ci.yml` run on the exact tag commit from either `workflow_dispatch`
 or the post-merge push to `main`.
+It waits up to 15 minutes for that exact-SHA CI to finish, since the tag can
+arrive before the full suites complete. API errors or malformed evidence stop
+the gate immediately. This build gate does not replace the separate manual CI
+evidence required for assembly in section 4.
 
 ---
 
@@ -127,6 +131,58 @@ native build is still required; these runner selections do not certify signing o
 runtime support.
 
 ## 4. Assembling & Publishing the GitHub Release
+
+### Isolated read-only Linux assembly
+
+When the local maintainer host is not Linux, use `release-assemble.yml` on
+canonical `main`. This workflow assembles staging only. It has read access to
+source and original build artifacts, no release-write permission, no OIDC and
+no signing key. It never creates tags or publishes a GitHub Release.
+
+After the exact tagged source has successful manual full CI and its original
+push release build has completed successfully on attempt 1, dispatch:
+
+```sh
+gh workflow run release-assemble.yml --repo ashlrai/ashlr-md --ref main \
+  -f release_tag=vX.Y.Z -f source_sha=REVIEWED_FULL_SHA \
+  -f release_run_id=ORIGINAL_BUILD_RUN_ID -f release_run_attempt=1 \
+  -f publication_date=YYYY-MM-DDTHH:MM:SSZ
+```
+
+For dependency diagnosis, the same main-only workflow accepts `apt_plan_only=true`.
+This separate read-only job skips assembly and compares the fixed ten Linux CI
+prerequisites with and without recommended packages. It updates metadata and runs
+two simulations; it never installs packages or creates release staging. Keep the
+existing required assembly tuple in the dispatch for context; it is unused in
+probe mode. The output reports package counts and archive-byte estimates from
+exact local APT metadata, not network transfer, cache hits or an install-duration
+prediction. The diagnostic also compares four bounded HTTPS GETs: the exact
+WebKit and JavaScriptCore archives from the official Azure and Ubuntu archive
+mirrors. Package/version/architecture, byte size, filename and SHA-256 come from
+the local APT metadata and must match each downloaded body. Payloads stay in
+bounded memory and are never executed or installed; failed, partial or changed
+responses are not verified measurements. Curl configuration, redirects and
+inherited credentials are disabled. Missing or ambiguous evidence stops the
+measurement. A lower estimate
+alone does not establish that a future full CI pass meets its unchanged deadline.
+
+Record the actual assembly run ID and require success. The uploaded
+`ashlr-md-assembly-RUN_ID-ATTEMPT` staging contains four updater payloads,
+their original signatures, `latest.json` and `provenance.json`. The latter
+binds the exact source, original build run/attempt, artifact IDs/digests,
+manual CI and selected asset hashes. The workflow downloads original ZIPs
+without repacking, preserves the existing strict live provenance checks,
+uses the reviewed pinned inspection tools and verifies all signatures and
+platform payloads before exposing staging. A failed or skipped check uploads
+nothing. Re-running this read-only assembly never re-runs the original build
+or publishes anything.
+
+The native installers described below still require separate byte-preserving
+staging and independent acceptance. A staging artifact is not publication.
+Download it by its exact artifact ID, recheck its recorded source/build tuple
+and every staged hash/signature, then follow the maintainer publication steps
+below. Keep the resulting public receipt separate from this assembly proof.
+
 
 Because `release.yml` only uploads artifacts (see §2), a maintainer must
 assemble and independently validate the release before publishing. Do not publish
