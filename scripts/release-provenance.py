@@ -14,6 +14,17 @@ REPO = '/repos/ashlrai/ashlr-md'
 REPO_ID = 1257779576
 LEGS = ('bundle-macos-15', 'bundle-macos-15-intel', 'bundle-ubuntu-22.04', 'bundle-windows-latest')
 SOURCE = ('.github/workflows/release.yml', '.github/workflows/ci.yml', 'src-tauri/tauri.conf.json', 'src-tauri/Cargo.toml', 'package.json')
+CI_STEPS = {
+    'Linux full suite': ('Unit tests', 'Frontend build', 'Test release assembly validator',
+                         'Install Linux system dependencies', 'Rust check (workspace)',
+                         'Rust clippy (workspace, Linux)', 'Rust tests (workspace)'),
+    # This role checks/clippies macOS code. It does not run macOS runtime tests.
+    'macOS full suite': ('Rust check (workspace)', 'Rust clippy (workspace)'),
+    'Check (Linux)': ('Require every needed job',),
+    'Typecheck, lint, crypto policy': (),
+    'Secret scan (diff)': (),
+    'Secret-shape scan': (),
+}
 
 
 def fail(message): raise ValueError(message)
@@ -51,13 +62,35 @@ def exactly(items, label):
     return items[0]
 
 
-def job_ok(jobs, name, run_id, sha, steps=()):
+def job_ok(jobs, name, run_id, sha, steps=(), attempt=None):
     j = exactly([x for x in jobs if x.get('name') == name], f'job {name}')
     if j.get('run_id') != run_id or j.get('head_sha') != sha: fail(f'job {name} run/SHA mismatch')
+    if attempt is not None and (type(j.get('run_attempt')) is not int or j.get('run_attempt') != attempt): fail(f'job {name} attempt mismatch')
     if (j.get('status'), j.get('conclusion')) != ('completed', 'success'): fail(f'job {name} did not succeed')
     for step in steps:
         s = exactly([x for x in j.get('steps', []) if x.get('name') == step], f'step {name}/{step}')
         if (s.get('status'), s.get('conclusion')) != ('completed', 'success'): fail(f'step {name}/{step} did not succeed')
+
+
+def ci_run_ok(run, sha, workflow_id):
+    event = run.get('event')
+    return (type(run.get('id')) is int and run['id'] > 0 and
+            type(run.get('run_attempt')) is int and run['run_attempt'] > 0 and
+            run.get('workflow_id') == workflow_id and run.get('path') == '.github/workflows/ci.yml' and
+            run.get('head_sha') == sha and
+            (event == 'workflow_dispatch' or (event == 'push' and run.get('head_branch') == 'main')) and
+            run.get('repository', {}).get('id') == REPO_ID and
+            run.get('head_repository', {}).get('id') == REPO_ID and
+            run.get('repository', {}).get('full_name') == 'ashlrai/ashlr-md' and
+            run.get('head_repository', {}).get('full_name') == 'ashlrai/ashlr-md' and
+            (run.get('status'), run.get('conclusion')) == ('completed', 'success'))
+
+
+def same_ci_attempt(api, recorded, sha, workflow_id):
+    current = api(f'{REPO}/actions/runs/{recorded["id"]}')
+    keys = ('id', 'run_attempt', 'workflow_id', 'path', 'head_sha', 'head_branch', 'event')
+    if not ci_run_ok(current, sha, workflow_id) or any(current.get(key) != recorded.get(key) for key in keys):
+        fail('CI run identity/current attempt changed during verification')
 
 
 def source(api, path, sha):
@@ -105,16 +138,28 @@ def verify_provenance(api, tag, expected_sha, run_id, zips):
     job_ok(jobs, 'Full suite green on release sha', run_id, expected_sha, ('Require a successful workflow_dispatch CI run on this sha',))
     for leg in LEGS:
         job_ok(jobs, f'Build & release ({leg.removeprefix("bundle-")})', run_id, expected_sha, ('Build Tauri app', 'Upload bundle artifacts'))
-    cis = pages(api, f'{REPO}/actions/workflows/ci.yml/runs?event=workflow_dispatch&head_sha={expected_sha}', 'workflow_runs')
-    matching = [c for c in cis if c.get('workflow_id') == ci_workflow.get('id') and c.get('path') == '.github/workflows/ci.yml' and c.get('event') == 'workflow_dispatch' and c.get('head_sha') == expected_sha and c.get('repository', {}).get('id') == REPO_ID and c.get('head_repository', {}).get('id') == REPO_ID and (c.get('status'), c.get('conclusion')) == ('completed', 'success') and isinstance(c.get('run_attempt'), int) and c['run_attempt'] >= 1]
+    # The producer already admits manual CI or a canonical push-to-main full
+    # run. Both execute these exact full roles; PR/queue/scheduled/tag pushes
+    # and fast-only runs cannot stand in for them.
+    cis = []
+    for event in ('workflow_dispatch', 'push'):
+        rows = pages(api, f'{REPO}/actions/workflows/ci.yml/runs?event={event}&head_sha={expected_sha}', 'workflow_runs')
+        cis.extend(c for c in rows if c.get('event') == event)
+    matching = [c for c in cis if ci_run_ok(c, expected_sha, ci_workflow['id'])]
     ci_evidence = None
     for c in matching:
+        same_ci_attempt(api, c, expected_sha, ci_workflow['id'])
         cjobs = pages(api, f'{REPO}/actions/runs/{c["id"]}/attempts/{c["run_attempt"]}/jobs', 'jobs')
         try:
-            job_ok(cjobs, 'Linux full suite', c['id'], expected_sha); job_ok(cjobs, 'macOS full suite', c['id'], expected_sha)
-            ci_evidence = {'id': c['id'], 'attempt': c['run_attempt']}; break
-        except ValueError: pass
-    if ci_evidence is None: fail('no successful exact-SHA manual full CI with Linux and macOS full-suite jobs')
+            for name, steps in CI_STEPS.items():
+                job_ok(cjobs, name, c['id'], expected_sha, steps, c['run_attempt'])
+        except ValueError:
+            continue
+        same_ci_attempt(api, c, expected_sha, ci_workflow['id'])
+        ci_evidence = {'id': c['id'], 'attempt': c['run_attempt'], 'event': c['event'], 'ref': c.get('head_branch')}
+        selected_ci = c
+        break
+    if ci_evidence is None: fail('no successful exact-SHA manual full CI or canonical main-push full CI with both full-suite roles and gate')
     files = {name: source(api, name, expected_sha) for name in SOURCE}
     config = json.loads(files['src-tauri/tauri.conf.json'])
     version = config['version']
@@ -138,4 +183,7 @@ def verify_provenance(api, tag, expected_sha, run_id, zips):
         report[name] = {'id': a['id'], 'digest': d}
     if len({x['id'] for x in report.values()}) != len(LEGS): fail('duplicate artifact IDs')
     if api(f'{REPO}/git/ref/tags/{tag}').get('object') != ref['object']: fail('tag changed during verification')
-    return {'repo': 'ashlrai/ashlr-md', 'repository_id': REPO_ID, 'source_sha256': {k: hashlib.sha256(v).hexdigest() for k, v in files.items()}, 'tag': tag, 'tag_object': ref['object'], 'sha': expected_sha, 'release_run': run_id, 'release_workflow_id': release_workflow['id'], 'release_attempt': 1, 'manual_ci': ci_evidence, 'version': version, 'public_key': pubkey, 'artifacts': report, 'linux_version_evidence': 'source-bound CI provenance, not embedded runtime version'}
+    same_ci_attempt(api, selected_ci, expected_sha, ci_workflow['id'])
+    return {'repo': 'ashlrai/ashlr-md', 'repository_id': REPO_ID, 'source_sha256': {k: hashlib.sha256(v).hexdigest() for k, v in files.items()}, 'tag': tag, 'tag_object': ref['object'], 'sha': expected_sha, 'release_run': run_id, 'release_workflow_id': release_workflow['id'], 'release_attempt': 1,
+            'full_ci': ci_evidence, 'manual_ci': ci_evidence if ci_evidence['event'] == 'workflow_dispatch' else None,
+            'version': version, 'public_key': pubkey, 'artifacts': report, 'linux_version_evidence': 'source-bound CI provenance, not embedded runtime version'}
