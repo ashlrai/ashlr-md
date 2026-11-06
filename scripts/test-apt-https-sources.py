@@ -49,6 +49,40 @@ class SourcesTests(unittest.TestCase):
             finally: os.close(fd)
             self.assertEqual(path.read_text(), 'deb https://archive.ubuntu.com/ubuntu jammy main\n')
 
+    def test_fixed_hosted_mirror_file_indirection_preserves_source_and_priority(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            apt = root / 'etc' / 'apt'
+            directory = apt / 'sources.list.d'
+            directory.mkdir(parents=True)
+            legacy = 'deb [signed-by=/keyring] mirror+file:/etc/apt/apt-mirrors.txt jammy main universe\n'
+            deb822 = ('Types: deb\nURIs: mirror+file:/etc/apt/apt-mirrors.txt\n'
+                      'Suites: jammy jammy-updates\nComponents: main universe\nSigned-By: /keyring\n')
+            mirrors = ('# mirror order is unchanged\n'
+                       'http://azure.archive.ubuntu.com/ubuntu/\tpriority:1\n'
+                       'https://archive.ubuntu.com/ubuntu/\tpriority:2\n'
+                       'https://security.ubuntu.com/ubuntu/\tpriority:3\n'
+                       'http://unapproved.example/ubuntu/ priority:4\n')
+            (apt / 'sources.list').write_text(legacy)
+            (directory / 'ubuntu.sources').write_text(deb822)
+            target = apt / 'apt-mirrors.txt'; target.write_text(mirrors)
+            original_open = sources.owned_directory
+            def isolated(name, parent=None):
+                return original_open(tmp if name == '/' else name, parent)
+            with patch.object(sources, 'owned_directory', side_effect=isolated):
+                sources.main()
+                sources.main()
+            expected = mirrors.replace('http://azure.archive.ubuntu.com/', 'https://azure.archive.ubuntu.com/')
+            self.assertEqual(target.read_text(), expected)
+            self.assertEqual((apt / 'sources.list').read_text(), legacy)
+            self.assertEqual((directory / 'ubuntu.sources').read_text(), deb822)
+            target.chmod(0o664)
+            fd = sources.owned_directory(apt)
+            try:
+                with self.assertRaises(ValueError): sources.update_file(fd, 'apt-mirrors.txt')
+            finally: os.close(fd)
+            self.assertEqual(target.read_text(), expected)
+
     def test_group_or_world_writable_file_or_directory_is_refused(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
