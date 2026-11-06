@@ -24484,3 +24484,215 @@ describe("invalid-link autofix: whitespace-only href in a table cell", () => {
     expect(lintDocument(expected, { rules })).toEqual([]);
   });
 });
+
+describe("autofix: an undescribed image at the very end of a document", () => {
+  const rules = [ruleMissingAltText];
+  const PLACEHOLDER = "TODO: describe image";
+
+  it.each([
+    ["LF, with a final newline", "\n", "\n"],
+    ["LF, no final newline", "\n", ""],
+    ["CRLF, with a final newline", "\r\n", "\r\n"],
+    ["CRLF, no final newline", "\r\n", ""],
+  ])("adds the placeholder inline at the end of the last line and keeps every preceding byte (%s)", (_name, nl, end) => {
+    const before = `# Report${nl}${nl}Intro with [docs](./guide.md) and *emphasis*.${nl}${nl}Closing figure: `;
+    const image = '![](images/final.png?v=2#top "Final")';
+    const repaired = `![${PLACEHOLDER}](images/final.png?v=2#top "Final")`;
+    const doc = `${before}${image}${end}`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    // The image is the last thing in the document: its range ends at the
+    // final newline, or at EOF when the file has none.
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(image);
+    expect(to.offset).toBe(doc.length - end.length);
+
+    const expected = `${before}${repaired}${end}`;
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // Every byte before the image survived and nothing but the placeholder
+    // changed: removing it restores the input exactly.
+    expect(fixed.slice(0, from.offset)).toBe(doc.slice(0, from.offset));
+    expect(fixed.slice(from.offset)).toBe(`${repaired}${end}`);
+    expect(fixed.replace(PLACEHOLDER, "")).toBe(doc);
+    expect(fixed.length).toBe(doc.length + PLACEHOLDER.length);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("adds the placeholder to an image that is the entire last line (%j line endings)", (nl) => {
+    const before = `First paragraph stays.${nl}${nl}`;
+    const image = "![](end.png)";
+    const doc = `${before}${image}`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const { from, to } = violations[0].range!;
+    expect(from.offset).toBe(before.length);
+    // No bytes, not even a newline, follow the image.
+    expect(to.offset).toBe(doc.length);
+
+    const expected = `${before}![${PLACEHOLDER}](end.png)`;
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.slice(0, from.offset)).toBe(before);
+    expect(fixed.endsWith("\n")).toBe(false);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+
+  it.each([
+    ["a space", " "],
+    ["spaces and a tab", " \t "],
+    ["a non-breaking space", "\u00a0"],
+  ])("replaces a whitespace-only description at the end of the document (%s)", (_name, blank) => {
+    for (const nl of ["\n", "\r\n"]) {
+      const before = `Notes stay.${nl}${nl}`;
+      const doc = `${before}![${blank}](img/end.png)`;
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+      const { from, to } = violations[0].range!;
+      expect(to.offset).toBe(doc.length);
+
+      const expected = `${before}![${PLACEHOLDER}](img/end.png)`;
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      expect(fixed.slice(0, from.offset)).toBe(doc.slice(0, from.offset));
+      // The blank description is gone: the doc grew by placeholder minus blank.
+      expect(fixed.length).toBe(doc.length - blank.length + PLACEHOLDER.length);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+      expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+    }
+  });
+
+  it.each([
+    ["a colon", ":"],
+    ["an exclamation mark", "!"],
+    ["an em dash", "—"],
+    ["a bracketed note", "[sic]"],
+  ])("keeps %s touching the image at the end of the document", (_name, tail) => {
+    for (const nl of ["\n", "\r\n"]) {
+      const before = `Intro paragraph.${nl}${nl}Summary ends${tail}`;
+      const image = "![](end.png)";
+      const doc = `${before}${image}`;
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+      const { from, to } = violations[0].range!;
+      // The touching byte(s) belong to the prose, not to the image.
+      expect(doc.slice(from.offset, to.offset)).toBe(image);
+      expect(from.offset).toBe(before.length);
+      expect(to.offset).toBe(doc.length);
+
+      const expected = `${before}![${PLACEHOLDER}](end.png)`;
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      expect(fixed.slice(0, from.offset)).toBe(before);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+    }
+  });
+
+  it("describes both of two identical images when the second ends the document", () => {
+    for (const nl of ["\n", "\r\n"]) {
+      const image = "![](same.png)";
+      const repaired = `![${PLACEHOLDER}](same.png)`;
+      const before = `Intro.${nl}${nl}Pair: `;
+      const doc = `${before}${image} ${image}`;
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+        "missing-alt-text",
+        "missing-alt-text",
+      ]);
+      // Offsets, not text search, place each fix: the second violation's fix
+      // lands on the image at EOF, never on the earlier twin.
+      expect(violations[1].range!.to.offset).toBe(doc.length);
+      expect(applyFix(doc, violations[0])).toBe(`${before}${repaired} ${image}`);
+      expect(applyFix(doc, violations[1])).toBe(`${before}${image} ${repaired}`);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(`${before}${repaired} ${repaired}`);
+      expect(fixed.slice(0, before.length)).toBe(before);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+    }
+  });
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("describes only the live image ending the document, not fenced or code-span decoys (%j line endings)", (nl) => {
+    const before = [
+      "```md",
+      "![](in-fence.png)",
+      "```",
+      "",
+      "Keep `![](in-span.png)` and ![described](ok.png).",
+      "",
+      "Tail: ",
+    ].join(nl);
+    const doc = `${before}![](live.png)`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const { from } = violations[0].range!;
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(`${before}![${PLACEHOLDER}](live.png)`);
+    // The decoys and the described image are byte-for-byte intact.
+    expect(fixed.slice(0, from.offset)).toBe(before);
+    expect(fixed).toContain("![](in-fence.png)");
+    expect(fixed).toContain("`![](in-span.png)`");
+    expect(fixed).toContain("![described](ok.png)");
+    expect(fixed.match(/TODO: describe image/g)).toHaveLength(1);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it("fixes the image at the end while an earlier invalid link is repaired too", () => {
+    for (const nl of ["\n", "\r\n"]) {
+      const both = [ruleInvalidLinkTarget, ruleMissingAltText];
+      const before = `Intro [draft]() middle.${nl}${nl}Closing: `;
+      const beforeFixed = `Intro [draft](TODO) middle.${nl}${nl}Closing: `;
+      const doc = `${before}![](end.png)`;
+      const violations = lintDocument(doc, { rules: both });
+
+      expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+        "invalid-link-target",
+        "missing-alt-text",
+      ]);
+      // The image violation ends at EOF; the earlier link fix does not shift
+      // or swallow it.
+      expect(violations[1].range!.to.offset).toBe(doc.length);
+      const expected = `${beforeFixed}![${PLACEHOLDER}](end.png)`;
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      expect(applyAllFixes(doc, [...violations].reverse())).toBe(expected);
+      // The image fix leaves every byte before it in place.
+      expect(fixed.slice(0, beforeFixed.length)).toBe(beforeFixed);
+      expect(fixed.slice(beforeFixed.length)).toBe(`![${PLACEHOLDER}](end.png)`);
+      expect(lintDocument(fixed, { rules: both })).toEqual([]);
+    }
+  });
+
+  it("keeps a hard break on the previous line when the image ends the document", () => {
+    for (const nl of ["\n", "\r\n"]) {
+      const before = `Last words.  ${nl}`;
+      const doc = `${before}![](end.png)`;
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(`${before}![${PLACEHOLDER}](end.png)`);
+      // The two-space hard break is the whitespace rule's concern, not this
+      // fix's: it survives byte-for-byte.
+      expect(fixed).toContain(`.  ${nl}`);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+    }
+  });
+});
