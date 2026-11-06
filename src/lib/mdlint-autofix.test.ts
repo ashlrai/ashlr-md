@@ -7199,6 +7199,143 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 
+  describe("autofix at the end of a line", () => {
+    const rules = [ruleInvalidLinkTarget];
+
+    it.each([
+      ["an empty destination", ""],
+      ["a whitespace-only destination", " \t"],
+      ["a bare hash destination", "#"],
+      ["a bare query destination", "?"],
+    ])("writes TODO into %s and leaves the prose before it byte-for-byte", (_name, href) => {
+      const prose = "Closing thought — read the draft";
+      for (const nl of ["\n", "\r\n"]) {
+        const doc = `Intro paragraph.${nl}${nl}${prose} [draft](${href})${nl}Afterword.${nl}`;
+        const violations = lintDocument(doc, { rules });
+
+        expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+        const { from, to } = violations[0].range!;
+        expect(doc.slice(from.offset, to.offset)).toBe(`[draft](${href})`);
+        // The link's `)` is the last byte of its line.
+        expect(doc.slice(to.offset, to.offset + nl.length)).toBe(nl);
+
+        const expected = `Intro paragraph.${nl}${nl}${prose} [draft](TODO)${nl}Afterword.${nl}`;
+        expect(applyFix(doc, violations[0])).toBe(expected);
+        const fixed = applyAllFixes(doc, violations);
+        expect(fixed).toBe(expected);
+        // Every byte before the link and the line ending after it survived.
+        expect(fixed.slice(0, from.offset)).toBe(doc.slice(0, from.offset));
+        expect(fixed.slice(from.offset)).toBe(`[draft](TODO)${nl}Afterword.${nl}`);
+        expect(lintDocument(fixed, { rules })).toEqual([]);
+        expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+      }
+    });
+
+    it.each([
+      ["a single space", " "],
+      ["three spaces", "   "],
+      ["a tab", "\t"],
+      ["a mixed run", " \t "],
+    ])("keeps %s of trailing whitespace after the link, short of a hard break", (_name, trail) => {
+      for (const nl of ["\n", "\r\n"]) {
+        const doc = `End of the section [draft]()${trail}${nl}Next line.${nl}`;
+        const expected = `End of the section [draft](TODO)${trail}${nl}Next line.${nl}`;
+        const violations = lintDocument(doc, { rules });
+
+        expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+        const { from, to } = violations[0].range!;
+        expect(doc.slice(from.offset, to.offset)).toBe("[draft]()");
+        // Only the link is replaced: the trailing run and the line ending
+        // stay, since trimming them is the whitespace rule's job.
+        expect(applyFix(doc, violations[0])).toBe(expected);
+        const fixed = applyAllFixes(doc, violations);
+        expect(fixed).toBe(expected);
+        expect(fixed.slice(0, from.offset)).toBe(doc.slice(0, from.offset));
+        expect(fixed.slice(from.offset)).toBe(
+          `[draft](TODO)${trail}${nl}Next line.${nl}`,
+        );
+        expect(lintDocument(fixed, { rules })).toEqual([]);
+      }
+    });
+
+    it.each([
+      ["a code span", "`[guide](#)`"],
+      ["an inline math span", "$[guide](#)$"],
+    ])("repairs the link ending the line, never its identical twin inside %s", (_name, twin) => {
+      for (const nl of ["\n", "\r\n"]) {
+        const doc = `See ${twin} in samples, then [guide](#)${nl}Done.${nl}`;
+        const violations = lintDocument(doc, { rules });
+
+        // Only the prose link at the line's end is flagged: the span masks
+        // its twin from the rule and from the fix's masked search alike.
+        expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+        const { from, to } = violations[0].range!;
+        expect(doc.slice(from.offset, to.offset)).toBe("[guide](#)");
+        expect(doc.indexOf("[guide](#)")).toBeLessThan(from.offset);
+        expect(doc.slice(to.offset, to.offset + nl.length)).toBe(nl);
+
+        const expected = `See ${twin} in samples, then [guide](TODO)${nl}Done.${nl}`;
+        expect(applyFix(doc, violations[0])).toBe(expected);
+        const fixed = applyAllFixes(doc, violations);
+        expect(fixed).toBe(expected);
+        expect(fixed).toContain(twin);
+        // Re-applying the stale fix finds no `[guide](#)` outside the span,
+        // so it is a no-op rather than a rewrite of the sample.
+        expect(applyFix(fixed, violations[0])).toBe(fixed);
+        expect(applyAllFixes(fixed, violations)).toBe(fixed);
+        expect(lintDocument(fixed, { rules })).toEqual([]);
+      }
+    });
+
+    it("fixes only the line-ending one of two identical invalid links on a line", () => {
+      for (const nl of ["\n", "\r\n"]) {
+        const doc = `See [x]() and [x]()${nl}Tail.${nl}`;
+        const violations = lintDocument(doc, { rules });
+
+        expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+          "invalid-link-target",
+          "invalid-link-target",
+        ]);
+        // Each fix searches from its own offset, so the second violation's
+        // fix lands on the line-ending `[x]()`, not on the earlier twin.
+        expect(applyFix(doc, violations[1])).toBe(
+          `See [x]() and [x](TODO)${nl}Tail.${nl}`,
+        );
+        expect(applyFix(doc, violations[0])).toBe(
+          `See [x](TODO) and [x]()${nl}Tail.${nl}`,
+        );
+        const fixed = applyAllFixes(doc, violations);
+        expect(fixed).toBe(`See [x](TODO) and [x](TODO)${nl}Tail.${nl}`);
+        expect(lintDocument(fixed, { rules })).toEqual([]);
+      }
+    });
+
+    it.each([
+      ["an ATX heading line", "## See [wip](#)", "## See [wip](TODO)"],
+      [
+        "a setext heading's text line",
+        "Release [wip](#)\n===",
+        "Release [wip](TODO)\n===",
+      ],
+    ])("fixes the link ending %s mid-document and keeps the markup around it", (_name, line, done) => {
+      for (const nl of ["\n", "\r\n"]) {
+        const text = line.replaceAll("\n", nl);
+        const want = done.replaceAll("\n", nl);
+        const doc = `Intro.${nl}${nl}${text}${nl}${nl}Body.${nl}`;
+        const expected = `Intro.${nl}${nl}${want}${nl}${nl}Body.${nl}`;
+        const violations = lintDocument(doc, { rules });
+
+        expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+        const { from, to } = violations[0].range!;
+        expect(doc.slice(from.offset, to.offset)).toBe("[wip](#)");
+        expect(applyFix(doc, violations[0])).toBe(expected);
+        const fixed = applyAllFixes(doc, violations);
+        expect(fixed).toBe(expected);
+        expect(lintDocument(fixed, { rules })).toEqual([]);
+      }
+    });
+  });
+
   it.each([
     ["no trailing newline", ""],
     ["one trailing newline", "\n"],
