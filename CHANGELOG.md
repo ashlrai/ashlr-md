@@ -12,6 +12,21 @@ All notable changes to Ashlr MD are documented here. This project adheres to
 Released 2026-06-06. [Release notes and downloads](https://github.com/ashlrai/ashlr-md/releases/tag/v0.4.0).
 <!-- fresh:end -->
 
+## [0.7.1] - 2026-11-05
+
+### Fixed
+- Reading-time estimates round up to the next whole minute, so 221 words at
+  220 words per minute correctly reports two minutes.
+- A stale invalid-link autofix searches only prose the lint rule checks,
+  preserving identical links inside code, frontmatter and HTML.
+- The release gate waits for successful full CI on its exact source commit
+  before starting native builds, avoiding a failed build run while the
+  post-merge suites are still finishing.
+
+### Tests
+- Added word-count cases for blank lines, CRLF frontmatter, tilde fences and
+  reading-time boundaries, plus image-description and stale-autofix cases.
+
 ## [0.7.0] — 2026-11-05
 
 ### Fixed
@@ -3722,7 +3737,8 @@ callouts), WYSIWYG + source editing, PDF/DOCX/HTML export, local-first tiered
 AI, agent hand-off (`mdopen` CLI · `mdopener://` · MCP server), the macOS `.md`
 default handler, and smart agent-output rendering.
 
-[0.7.0]: https://github.com/ashlrai/ashlr-md/compare/v0.6.0...HEAD
+[0.7.1]: https://github.com/ashlrai/ashlr-md/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/ashlrai/ashlr-md/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/ashlrai/ashlr-md/releases/tag/v0.6.0
 [0.5.0]: https://github.com/ashlrai/ashlr-md/releases/tag/v0.5.0
 [0.4.0]: https://github.com/ashlrai/ashlr-md/releases/tag/v0.4.0

@@ -60,7 +60,7 @@ jobs:
         run: bunx biome check src
 
       - name: CI gate regression tests
-        run: node --test scripts/ci/gate.test.mjs
+        run: node --test scripts/ci/gate.test.mjs scripts/ci/release-gate.test.mjs
 
       - name: Check npm script file paths
         run: node --test scripts/package-scripts.test.mjs
