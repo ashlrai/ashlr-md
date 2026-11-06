@@ -13020,6 +13020,38 @@ describe("invalid-link-target autofix: empty href case", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 
+  it.each([
+    "\n",
+    "\r\n",
+  ])("fixes only the invalid link beside a valid link inside a footnote definition (%j)", (nl) => {
+    const valid = "[guide](./guide.md#setup)";
+    for (const validFirst of [true, false]) {
+      const pair = validFirst
+        ? `${valid} and [draft]()`
+        : `[draft]() and ${valid}`;
+      const fixedPair = validFirst
+        ? `${valid} and [draft](TODO)`
+        : `[draft](TODO) and ${valid}`;
+      const doc = `Text cites a note[^1].${nl}${nl}[^1]: See ${pair} next.${nl}`;
+      const expected = `Text cites a note[^1].${nl}${nl}[^1]: See ${fixedPair} next.${nl}`;
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations).toHaveLength(1);
+      expect(violations[0].ruleId).toBe("invalid-link-target");
+      const { from, to } = violations[0].range!;
+      expect(doc.slice(from.offset, to.offset)).toBe("[draft]()");
+
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      // The valid link and both [^1] footnote markers survive byte-for-byte.
+      expect(fixed).toContain(valid);
+      expect(fixed.match(/\[\^1\]/g)).toHaveLength(2);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+      expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+    }
+  });
+
   it("leaves empty hrefs inside an HTML comment and inline math untouched while fixing the visible link", () => {
     const doc = "<!-- [draft]() -->\n\nKeep $[x]()$ and fix [real]() here.\n";
     const expected = "<!-- [draft]() -->\n\nKeep $[x]()$ and fix [real](TODO) here.\n";
