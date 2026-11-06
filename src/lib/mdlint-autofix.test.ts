@@ -52,6 +52,63 @@ describe("autofix preserves [sic] in prose", () => {
   });
 });
 
+describe("autofix preserves [TODO] in prose", () => {
+  it.each([
+    "\n",
+    "\r\n",
+  ])("leaves the bracketed note unchanged while fixing the link and image (%j)", (nl) => {
+    const rules = [ruleInvalidLinkTarget, ruleMissingAltText];
+    const note = "Margin note [TODO] stays prose.";
+    const doc = `${note}${nl}See [draft]() and ![](chart.png).${nl}`;
+    const expected = `${note}${nl}See [draft](TODO) and ![TODO: describe image](chart.png).${nl}`;
+    const violations = lintDocument(doc, { rules });
+
+    // The bare "[TODO]" is prose, not a link: only the empty href and the
+    // alt-less image are flagged.
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+      "invalid-link-target",
+      "missing-alt-text",
+    ]);
+    expect(applyFix(doc, violations[0])).toBe(
+      `${note}${nl}See [draft](TODO) and ![](chart.png).${nl}`,
+    );
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // The prose "[TODO]" survived byte-for-byte beside the generated
+    // "(TODO)" href and "TODO: describe image" alt.
+    expect(fixed).toContain(note);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+
+  it("is a no-op when the document's only brackets are [TODO] notes", () => {
+    const rules = [ruleInvalidLinkTarget, ruleMissingAltText];
+    const doc = "First [TODO] note.\nSecond [TODO] note.\n";
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toEqual([]);
+    expect(applyAllFixes(doc, violations)).toBe(doc);
+  });
+
+  it("fixes a link whose label is [TODO] without touching a prose [TODO]", () => {
+    const rules = [ruleInvalidLinkTarget];
+    const doc = "Keep [TODO] prose; fix [TODO]() link.\n";
+    const expected = "Keep [TODO] prose; fix [TODO](TODO) link.\n";
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe("[TODO]()");
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // The generated "(TODO)" href is a valid target on the next pass, and the
+    // leading prose "[TODO]" is never mistaken for a link or for the href.
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+});
+
 describe("invalid-link autofix across separate lines", () => {
   it("repairs both repeated links while preserving mixed line breaks and prose", () => {
     const rules = [ruleInvalidLinkTarget];
