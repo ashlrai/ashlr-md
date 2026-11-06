@@ -11,6 +11,7 @@ import agentsDoc from "../docs/AGENTS.md?raw";
 import installDoc from "../docs/INSTALL.md?raw";
 import phantomDoc from "../docs/PHANTOM.md?raw";
 import releasingDoc from "../docs/RELEASING.md?raw";
+import shortcutsDoc from "../docs/SHORTCUTS.md?raw";
 import obsidianReadme from "../integrations/obsidian/README.md?raw";
 import vscodeReadme from "../integrations/vscode/README.md?raw";
 import landingHtml from "../landing/index.html?raw";
@@ -485,15 +486,20 @@ describe("doc facts: uninstalling", () => {
 
 describe("doc facts: README quick start", () => {
   it("says how mdopen gets on PATH before telling you to run it", () => {
-    // Step 2 said "run `mdopen notes.md`", but no installer puts mdopen on
-    // PATH, so a new user got "command not found".
-    const start = readme.split("## 30-second start")[1]?.split("\n## ")[0] ?? "";
-    const step = start.split("\n").find((l) => l.includes("`mdopen ")) ?? "";
-    expect(step, "README.md: the 30-second start no longer runs mdopen").not.toBe("");
+    const start = readme.split("## Start\n")[1]?.split("\n## ")[0] ?? "";
+    const command = start.indexOf("\nmdopen samples/agent-plan.md\n");
     expect(
-      step,
-      `name Install mdopen at ${where("README.md", readme, step)}`,
-    ).toContain("Install mdopen");
+      command,
+      "README Start must retain its actual mdopen command",
+    ).toBeGreaterThan(0);
+    const beforeCommand = start.slice(0, command);
+    expect(beforeCommand).toContain("SKIP_APP_BUILD=1 bash scripts/install.sh");
+    expect(beforeCommand).toContain("links both onto `PATH`");
+    expect(beforeCommand).toContain('export PATH="$HOME/.local/bin:$PATH"');
+    expect(beforeCommand).toContain("after the app itself is installed");
+    const download = readme.split("## Download\n")[1]?.split("\n## ")[0] ?? "";
+    expect(download).toContain("installers do not put `mdopen` on `PATH`");
+    expect(download).toContain("Preferences, Command-line tool, Install mdopen");
   });
 });
 
@@ -871,7 +877,7 @@ describe("doc facts: release asset names", () => {
 });
 
 // ── Keyboard shortcuts ────────────────────────────────────────────────────────
-// The README's shortcut table and the landing page's shortcut grid list every
+// The linked shortcut reference and the landing page's shortcut grid list every
 // registered shortcut (src/lib/commands.ts) plus the inline AI rewrite, which
 // the WYSIWYG editor binds itself. Both used to miss ⌘⇧C and ⌘⇧T.
 
@@ -914,17 +920,19 @@ describe("doc facts: keyboard shortcuts", () => {
     expect(markdownEditor).toMatch(/e\.key === "i"/);
   });
 
-  it("README's table lists exactly the real shortcuts", () => {
-    const section = readme.slice(readme.indexOf("## Keyboard shortcuts"));
-    const table = section.slice(0, section.indexOf("\n## ", 1));
+  it("README links a shortcut reference listing exactly the real shortcuts", () => {
+    expect(readme).toContain("[Keyboard shortcuts](./docs/SHORTCUTS.md)");
+    expect(shortcutsDoc).toContain("use **Ctrl** on Windows & Linux");
+    const table = shortcutsDoc;
     const listed = table
       .split("\n")
       .filter((l) => l.startsWith("| ") && l.includes("`"))
       .flatMap((l) => all(/`([^`]+)`/g, l.split("|")[2] ?? ""))
       .map(fromGlyphs);
-    expect(sorted([...new Set(listed)]), "fix README.md's shortcut table").toEqual(
-      documentedShortcuts,
-    );
+    expect(
+      sorted([...new Set(listed)]),
+      "fix docs/SHORTCUTS.md's shortcut table",
+    ).toEqual(documentedShortcuts);
   });
 
   it("the landing page's grid lists exactly the real shortcuts", () => {

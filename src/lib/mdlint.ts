@@ -293,12 +293,12 @@ export const ruleNoBareUrls: LintRule = {
       const to = from + url.length;
       violations.push({
         ruleId: "no-bare-urls",
-        message: `Bare URL: ${url.length > 60 ? url.slice(0, 57) + "…" : url}`,
+        message: `Bare URL: ${url.length > 60 ? `${url.slice(0, 57)}…` : url}`,
         severity: "warning",
         range: range(doc, from, to),
         fix: (d) => {
           // Replace this specific occurrence by offset
-          return d.slice(0, from) + `[${url}](${url})` + d.slice(to);
+          return `${d.slice(0, from)}[${url}](${url})${d.slice(to)}`;
         },
       });
     }
@@ -591,15 +591,34 @@ export const ruleInvalidLinkTarget: LintRule = {
       if (/^\s*$/.test(href) || href === "#" || href === "?") {
         const from = m.index;
         const to = from + m[0].length;
-        const hrefEnd = to - 1;
-        const hrefStart = hrefEnd - href.length;
-        const text = m[1] || "link";
+        // Keep the captured label for autofix; the fallback is display-only.
+        const text = m[1];
+        const originalMatch = m[0];
         violations.push({
           ruleId: "invalid-link-target",
-          message: `Invalid link target: [${text.slice(0, 30)}](${href || "empty"})`,
+          message: `Invalid link target: [${(text || "link").slice(0, 30)}](${href || "empty"})`,
           severity: "warning",
           range: range(doc, from, to),
-          fix: (d) => d.slice(0, hrefStart) + "TODO" + d.slice(hrefEnd),
+          fix: (d) => {
+            // Search the masked text (same offsets as `d`) so a stale fix
+            // applied a second time cannot rewrite an identical link inside
+            // code, front matter or HTML the rule skipped.
+            const masked = stripCodeBlocks(d);
+            let idx = masked.indexOf(originalMatch, from);
+            if (idx !== from) {
+              // Earlier fixes can shrink the document and move this link
+              // before its recorded offset. Prefer the nearest live match,
+              // retaining the mask so code samples cannot become targets.
+              const prev = masked.lastIndexOf(originalMatch, from);
+              if (idx === -1 || (prev !== -1 && from - prev <= idx - from)) {
+                idx = prev;
+              }
+            }
+            if (idx === -1) return d;
+            return (
+              d.slice(0, idx) + `[${text}](TODO)` + d.slice(idx + originalMatch.length)
+            );
+          },
         });
       }
     }
@@ -633,7 +652,7 @@ export const ruleMissingAltText: LintRule = {
         const src = srcMatch ? srcMatch[1] : "";
         violations.push({
           ruleId: "missing-alt-text",
-          message: `Image is missing alt text: ${src.length > 40 ? src.slice(0, 37) + "…" : src}`,
+          message: `Image is missing alt text: ${src.length > 40 ? `${src.slice(0, 37)}…` : src}`,
           severity: "warning",
           range: range(doc, from, to),
           fix: (d) => {

@@ -27,15 +27,24 @@
  */
 
 import type { Element } from "hast";
-import { type ChangeEvent, createContext, useCallback, useContext } from "react";
+import {
+  type ChangeEvent,
+  createContext,
+  type RefObject,
+  useCallback,
+  useContext,
+} from "react";
 import { toggleTaskAtLine } from "../../lib/tasklist";
 import { useDocumentStore } from "../../store/documentStore";
 
 /**
- * The Markdown text the enclosing Renderer renders, so a checkbox can tell
- * whether its line is a line of the open document. null outside a Renderer.
+ * The committed source and editability of the enclosing Renderer. Its stable
+ * identity lets unchanged checkboxes skip prose edits. null outside a Renderer.
  */
-export const TaskSourceContext = createContext<string | null>(null);
+export const TaskSourceContext = createContext<{
+  source: RefObject<string>;
+  editable: boolean;
+} | null>(null);
 
 // ---------------------------------------------------------------------------
 // Props
@@ -56,26 +65,25 @@ interface TaskCheckboxProps {
 // ---------------------------------------------------------------------------
 
 export function TaskCheckbox({ node, checked, ...rest }: TaskCheckboxProps) {
-  const content = useDocumentStore((s) => s.content);
-  const setContent = useDocumentStore((s) => s.setContent);
-  const save = useDocumentStore((s) => s.save);
-
   const source = useContext(TaskSourceContext);
   // 1-based, set by rehype-task-lines; 0 when the line holds no task.
   const line = Number(node?.properties?.dataTaskLine ?? 0);
   // A checkbox of an embedded note does not toggle the open document.
-  const sourceLine = source === content && Number.isInteger(line) ? line : 0;
+  const sourceLine = source?.editable && Number.isInteger(line) ? line : 0;
 
   const handleChange = useCallback(
     (_e: ChangeEvent<HTMLInputElement>) => {
-      if (!sourceLine) return;
+      // Read the latest state at click time. Subscribing every checkbox to the
+      // entire document made all 1,000 tasks rerender on each prose edit.
+      const { content, setContent, save } = useDocumentStore.getState();
+      if (!sourceLine || source?.source.current !== content) return;
       const updated = toggleTaskAtLine(content, sourceLine);
       if (updated === content) return; // no-op guard
       setContent(updated);
       // Fire-and-forget — errors surface via documentStore.error.
       save().catch(() => {});
     },
-    [content, sourceLine, setContent, save],
+    [source, sourceLine],
   );
 
   // Strip the `node` and `disabled` props to avoid leaking onto the DOM input.

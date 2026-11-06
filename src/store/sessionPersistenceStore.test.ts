@@ -108,7 +108,7 @@ class MockIDBObjectStore {
 
   put(value: IdbRecord): MockIDBRequest {
     const req = new MockIDBRequest();
-    const key = String(value["path"] ?? "");
+    const key = String(value.path ?? "");
     this._data.set(key, { ...value });
     setTimeout(() => req._resolve(undefined), 0);
     return req;
