@@ -25418,3 +25418,120 @@ describe("invalid-link autofix: a whitespace-only link target", () => {
     expect(applyFix(doc, violations[0])).toBe("[ok](./ok.md) and [blank](TODO) end\n");
   });
 });
+
+describe("autofix: undescribed image adjacent to punctuation", () => {
+  const rules = [ruleMissingAltText];
+
+  // Marks the earlier punctuation tables do not cover: ASCII syntax
+  // characters, reference marks, non-Latin sentence punctuation, CJK
+  // brackets and multi-code-unit emoji punctuation.
+  it.each([
+    ["angle brackets", "<", ">"],
+    ["double hyphens", "--", "--"],
+    ["highlight equals signs", "==", "=="],
+    ["single tildes", "~", "~"],
+    ["carets", "^", "^"],
+    ["plus signs", "+", "+"],
+    ["pipes", "|", "|"],
+    ["ampersands", "&", "&"],
+    ["CJK book-title brackets", "《", "》"],
+    ["CJK lenticular brackets", "【", "】"],
+    ["CJK angle brackets", "〈", "〉"],
+    ["CJK tortoise-shell brackets", "〔", "〕"],
+    ["dagger footnotes", "†", "‡"],
+    ["a section mark and a pilcrow", "§", "¶"],
+    ["a per-mille sign and a bullet", "‰", "•"],
+    ["an interpunct and a prime", "·", "′"],
+    ["an inverted question mark", "¿", "?"],
+    ["an ellipsis and an exclamation-question emoji", "…", "⁉️"],
+  ])("keeps %s touching the image unchanged", (_name, open, close) => {
+    const image = "![](a.png)";
+    const doc = `See ${open}${image}${close} next.\n`;
+    const expected = `See ${open}![TODO: describe image](a.png)${close} next.\n`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    // The flagged range is the image alone: no adjacent mark is inside it.
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(image);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(expected);
+  });
+
+  it.each([
+    ["an exclamation-question pair", "!?"],
+    ["a stacked exclamation-question run", "!?!?"],
+    ["a double exclamation emoji", "‼️"],
+    ["a degree and unit", "°C"],
+    ["a trademark sign", "™"],
+    ["a copyright sign", "©"],
+    ["a registered sign", "®"],
+    ["a percent sign", "%"],
+    ["a double prime", "″"],
+    ["a srcset-like hint", "@2x"],
+    ["a hashtag", "#fig2"],
+    ["a footnote reference", "[^1]"],
+    ["a possessive 's", "'s"],
+    ["an emoticon", ";-)"],
+    ["a Greek question mark", ";"],
+    ["an Arabic question mark", "؟"],
+    ["an Arabic comma", "،"],
+    ["an Arabic semicolon", "؛"],
+    ["an Urdu full stop", "۔"],
+    ["a Devanagari danda", "।"],
+    ["a double danda", "॥"],
+  ])("keeps %s after the image byte-identical", (_name, punct) => {
+    const image = "![](a.png)";
+    for (const nl of ["\n", "\r\n"]) {
+      const doc = `See ${image}${punct} Next.${nl}`;
+      const expected = `See ![TODO: describe image](a.png)${punct} Next.${nl}`;
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations).toHaveLength(1);
+      const { from, to } = violations[0].range!;
+      expect(doc.slice(from.offset, to.offset)).toBe(image);
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+    }
+  });
+
+  it("inserts the description inside a link label beside a comma", () => {
+    const image = "![](a.png)";
+    const doc = `See [see ${image}, fig. 2](x.md) next.\n`;
+    const expected = `See [see ![TODO: describe image](a.png), fig. 2](x.md) next.\n`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(image);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // The comma inside the label and the link destination are unchanged.
+    expect(fixed).toContain(", fig. 2](x.md)");
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("restores the input byte-for-byte once the placeholder is removed (%j)", (nl) => {
+    const doc = `Notes — see §2: ![](a.png)† (p. 4) — done.${nl}`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(
+      `Notes — see §2: ![TODO: describe image](a.png)† (p. 4) — done.${nl}`,
+    );
+    // Only the placeholder was inserted: removing it gives the input back
+    // with every adjacent mark where it was.
+    expect(fixed.replace("![TODO: describe image](a.png)", "![](a.png)")).toBe(doc);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
