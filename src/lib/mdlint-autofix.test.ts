@@ -25065,6 +25065,27 @@ describe("autofix: undescribed image in a document with no final newline", () =>
   const rules = [ruleMissingAltText];
 
   it.each([
+    "\n",
+    "\r\n",
+  ])("fixes an earlier link and the final image without adding a newline (%j)", (nl) => {
+    const batchRules = [ruleInvalidLinkTarget, ruleMissingAltText];
+    const doc = `Read [guide]() first.${nl}${nl}![](images/final.png)`;
+    const expected = `Read [guide](TODO) first.${nl}${nl}![TODO: describe image](images/final.png)`;
+    const violations = lintDocument(doc, { rules: batchRules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+      "invalid-link-target",
+      "missing-alt-text",
+    ]);
+    expect(violations[1].range!.to.offset).toBe(doc.length);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.endsWith("\n")).toBe(false);
+    expect(fixed.endsWith("\r")).toBe(false);
+    expect(lintDocument(fixed, { rules: batchRules })).toEqual([]);
+  });
+
+  it.each([
     ["an image-only document", "![](a.png)", "![TODO: describe image](a.png)"],
     [
       "an image inside a prose last line",
@@ -25108,7 +25129,7 @@ describe("autofix: undescribed image in a document with no final newline", () =>
   it.each([
     ["LF", "\n"],
     ["CRLF", "\r\n"],
-  ])("flags a last-line image ending exactly at the last byte (%j line endings)", (nl) => {
+  ])("flags a last-line image ending exactly at the last byte (%s line endings)", (_name, nl) => {
     const doc = `# Summary${nl}${nl}Total: ![](img/summary.png)`;
     const expected = `# Summary${nl}${nl}Total: ![TODO: describe image](img/summary.png)`;
     const violations = lintDocument(doc, { rules });
