@@ -1,0 +1,175 @@
+Ashlr MD open PR inventory and proposed supersede map
+Snapshot: REST pulls API, 2026-11-06; default e051e4b8d548cfdea50fc4f1424029316d0626a2
+CONSOLIDATION-PENDING means changes are in the local CONS-MD-AUTOFIX-TESTS-1 branch, with no published PR yet.
+REVIEW means not assessed for closure. No PR should be closed based on this status.
+CLOSE-EMPTY: none verified.
+
+PR | classification | disposition | changed paths
+#1520 | autofix tests | CONSOLIDATION-PENDING: CONS-MD-AUTOFIX-TESTS-1 | src/lib/mdlint-autofix.test.ts
+#1514 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#1511 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#1506 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#1502 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#1495 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#1479 | biome/config | REVIEW | vitest.config.ts
+#1472 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#1471 | autofix tests | CONSOLIDATION-PENDING: CONS-MD-AUTOFIX-TESTS-1 | src/lib/mdlint-autofix.test.ts
+#1470 | autofix tests | CONSOLIDATION-PENDING: CONS-MD-AUTOFIX-TESTS-1 | src/lib/mdlint-autofix.test.ts
+#1464 | other src/lib tests | REVIEW | src/lib/wordcount.test.ts
+#1436 | autofix tests | CONSOLIDATION-PENDING: CONS-MD-AUTOFIX-TESTS-1 | src/lib/mdlint-autofix.test.ts
+#1422 | autofix tests | CONSOLIDATION-PENDING: CONS-MD-AUTOFIX-TESTS-1 | src/lib/mdlint-autofix.test.ts
+#1420 | autofix tests | CONSOLIDATION-PENDING: CONS-MD-AUTOFIX-TESTS-1 | src/lib/mdlint-autofix.test.ts
+#1419 | autofix tests | CONSOLIDATION-PENDING: CONS-MD-AUTOFIX-TESTS-1 | src/lib/mdlint-autofix.test.ts
+#1414 | autofix tests | CONSOLIDATION-PENDING: CONS-MD-AUTOFIX-TESTS-1 | src/lib/mdlint-autofix.test.ts
+#1410 | autofix tests | CONSOLIDATION-PENDING: CONS-MD-AUTOFIX-TESTS-1 | src/lib/mdlint-autofix.test.ts
+#1408 | autofix tests | CONSOLIDATION-PENDING: CONS-MD-AUTOFIX-TESTS-1 | src/lib/mdlint-autofix.test.ts
+#1396 | autofix tests | CONSOLIDATION-PENDING: CONS-MD-AUTOFIX-TESTS-1 | src/lib/mdlint-autofix.test.ts
+#1395 | autofix tests | CONSOLIDATION-PENDING: CONS-MD-AUTOFIX-TESTS-1 | src/lib/mdlint-autofix.test.ts
+#1392 | autofix tests | CONSOLIDATION-PENDING: CONS-MD-AUTOFIX-TESTS-1 | src/lib/mdlint-autofix.test.ts
+#1388 | autofix tests | CONSOLIDATION-PENDING: CONS-MD-AUTOFIX-TESTS-1 | src/lib/mdlint-autofix.test.ts
+#1387 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#1381 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#1376 | autofix tests | CONSOLIDATION-PENDING: CONS-MD-AUTOFIX-TESTS-1 | src/lib/mdlint-autofix.test.ts
+#1362 | autofix tests | CONSOLIDATION-PENDING: CONS-MD-AUTOFIX-TESTS-1 | src/lib/mdlint-autofix.test.ts
+#1354 | autofix tests | CONSOLIDATION-PENDING: CONS-MD-AUTOFIX-TESTS-1 | src/lib/mdlint-autofix.test.ts
+#1347 | autofix tests | CONSOLIDATION-PENDING: CONS-MD-AUTOFIX-TESTS-1 | src/lib/mdlint-autofix.test.ts
+#1344 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#1343 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts, src/lib/mdlint.ts
+#1322 | autofix tests | CONSOLIDATION-PENDING: CONS-MD-AUTOFIX-TESTS-1 | src/lib/mdlint-autofix.test.ts
+#1315 | autofix tests | CONSOLIDATION-PENDING: CONS-MD-AUTOFIX-TESTS-1 | src/lib/mdlint-autofix.test.ts
+#1312 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#1309 | autofix tests | CONSOLIDATION-PENDING: CONS-MD-AUTOFIX-TESTS-1 | src/lib/mdlint-autofix.test.ts
+#1306 | autofix tests | CONSOLIDATION-PENDING: CONS-MD-AUTOFIX-TESTS-1 | src/lib/mdlint-autofix.test.ts
+#1303 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#1300 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#1298 | autofix tests | CONSOLIDATION-PENDING: CONS-MD-AUTOFIX-TESTS-1 | src/lib/mdlint-autofix.test.ts
+#1294 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#1293 | autofix tests | CONSOLIDATION-PENDING: CONS-MD-AUTOFIX-TESTS-1 | src/lib/mdlint-autofix.test.ts
+#1291 | autofix tests | CONSOLIDATION-PENDING: CONS-MD-AUTOFIX-TESTS-1 | src/lib/mdlint-autofix.test.ts
+#1279 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#1277 | autofix tests | REVIEW | src/lib/mdlint-autofix-link-whitespace.test.ts, src/lib/mdlint.ts
+#1275 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#1250 | autofix tests | CONSOLIDATION-PENDING: CONS-MD-AUTOFIX-TESTS-1 | src/lib/mdlint-autofix.test.ts
+#1249 | autofix tests | CONSOLIDATION-PENDING: CONS-MD-AUTOFIX-TESTS-1 | src/lib/mdlint-autofix.test.ts
+#1248 | autofix tests | CONSOLIDATION-PENDING: CONS-MD-AUTOFIX-TESTS-1 | src/lib/mdlint-autofix.test.ts
+#1228 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#1223 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts, src/lib/mdlint.ts
+#1222 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#1221 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#1219 | autofix tests | CONSOLIDATION-PENDING: CONS-MD-AUTOFIX-TESTS-1 | src/lib/mdlint-autofix.test.ts
+#1215 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#1213 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#1207 | autofix tests | CONSOLIDATION-PENDING: CONS-MD-AUTOFIX-TESTS-1 | src/lib/mdlint-autofix.test.ts
+#1201 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#1200 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#1198 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#1192 | autofix tests | CONSOLIDATION-PENDING: CONS-MD-AUTOFIX-TESTS-1 | src/lib/mdlint-autofix.test.ts
+#1191 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#1190 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#1186 | autofix tests | CONSOLIDATION-PENDING: CONS-MD-AUTOFIX-TESTS-1 | src/lib/mdlint-autofix.test.ts
+#1185 | autofix tests | CONSOLIDATION-PENDING: CONS-MD-AUTOFIX-TESTS-1 | src/lib/mdlint-autofix.test.ts
+#1183 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#1170 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#1164 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#1153 | autofix tests | CONSOLIDATION-PENDING: CONS-MD-AUTOFIX-TESTS-1 | src/lib/mdlint-autofix.test.ts
+#1151 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#1148 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#1146 | autofix tests | CONSOLIDATION-PENDING: CONS-MD-AUTOFIX-TESTS-1 | src/lib/mdlint-autofix.test.ts
+#1143 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#1136 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#1134 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#1124 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#1123 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#1120 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#1115 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#1114 | autofix tests | CONSOLIDATION-PENDING: CONS-MD-AUTOFIX-TESTS-1 | src/lib/mdlint-autofix.test.ts
+#1112 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#1108 | autofix tests | CONSOLIDATION-PENDING: CONS-MD-AUTOFIX-TESTS-1 | src/lib/mdlint-autofix.test.ts
+#1094 | autofix tests | CONSOLIDATION-PENDING: CONS-MD-AUTOFIX-TESTS-1 | src/lib/mdlint-autofix.test.ts
+#1091 | autofix tests | CONSOLIDATION-PENDING: CONS-MD-AUTOFIX-TESTS-1 | src/lib/mdlint-autofix.test.ts
+#1089 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#1082 | autofix tests | CONSOLIDATION-PENDING: CONS-MD-AUTOFIX-TESTS-1 | src/lib/mdlint-autofix.test.ts
+#1080 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#1066 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#1062 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#1061 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#1042 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#1040 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#1039 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#1034 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#1032 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#1031 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#1028 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#1022 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#1007 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#1003 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#997 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#991 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#990 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#985 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#975 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#967 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#960 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#954 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#951 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#946 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#935 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#930 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#919 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#909 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#907 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#905 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#893 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#886 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#881 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#878 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#863 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#862 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#857 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#831 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#830 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#828 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#826 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#822 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#821 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#813 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#812 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#810 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#805 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#804 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#800 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#798 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#787 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#785 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#783 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#782 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#774 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#773 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#767 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#765 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#764 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#761 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#755 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#751 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#749 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#744 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#722 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#718 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#712 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#709 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#707 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#700 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#681 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#680 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#678 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#674 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#673 | other/mixed | REVIEW | .github/workflows/auto-tag.yml
+#672 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#655 | autofix tests | REVIEW | docs/mdlint-autofix-fixture-index.md, src/lib/mdlint-autofix-fixture-index.test.ts
+#624 | other/mixed | REVIEW | llms.txt, package.json, scripts/llms-txt.test.mjs
+#612 | docs-only | REVIEW | docs/agent-journey-temp-fixtures.md, docs/mdopener-visible-fixture-parent.md
+#582 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#568 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts
+#510 | other src/lib tests | REVIEW | src/lib/mdlint.test.ts
+#415 | other/mixed | REVIEW | src-tauri/bins/mdopener-mcp/tests/integration.rs
+#368 | autofix tests | REVIEW | src/lib/mdlint-autofix.test.ts

@@ -10524,10 +10524,29 @@ fn export_text_keeps_bracketed_prose_and_terminal_punctuation() {
             "Read [the guide] and finish [the review].\n\n[the guide]: /guide\n",
             "Read the guide and finish [the review].",
         ),
+        ("The result: [pending];\n", "The result: [pending];"),
+        ("The result ([pending]).\n", "The result ([pending])."),
+        ("The result [**pending**]!\n", "The result [pending]!"),
+        (
+            "See [the guide](/guide); result: [pending].\n\nNext paragraph.\n",
+            "See the guide; result: [pending].\n\nNext paragraph.",
+        ),
     ] {
         let result = run_export_text_on(markdown);
         assert_eq!(
             result["text"].as_str().unwrap(),
+            expected,
+            "input: {markdown:?}"
+        );
+
+        let ipc = MockIpc::new().on_get(
+            "/content",
+            Ok(json!({ "path": "/docs/test.md", "content": markdown })),
+        );
+        let response = tool_export_text(id(2), &json!({}), &ipc);
+        assert!(response.error.is_none(), "input: {markdown:?}");
+        assert_eq!(
+            content_text(&response)["text"],
             expected,
             "input: {markdown:?}"
         );
