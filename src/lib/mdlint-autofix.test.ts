@@ -13468,6 +13468,66 @@ describe("invalid-link-target autofix: idempotence", () => {
     expect(lintDocument(once, { rules })).toEqual([]);
     expect(applyAllFixes(once, lintDocument(once, { rules }))).toBe(once);
   });
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("applying one captured fix twice repairs identical links one at a time and converges (%j)", (nl) => {
+    const rules = [ruleInvalidLinkTarget];
+    const doc = `See [x]() and [x]()${nl}Tail.${nl}`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual([
+      "invalid-link-target",
+      "invalid-link-target",
+    ]);
+    const fullyFixed = applyAllFixes(doc, violations);
+    expect(fullyFixed).toBe(`See [x](TODO) and [x](TODO)${nl}Tail.${nl}`);
+
+    // One captured fix repairs only the first match. Applying that same fix
+    // a second time searches again and lands on the surviving identical
+    // link, so two applications of one fix equal one pass of every fix.
+    const once = applyFix(doc, violations[0]);
+    expect(once).toBe(`See [x](TODO) and [x]()${nl}Tail.${nl}`);
+    expect(applyFix(once, violations[0])).toBe(fullyFixed);
+    // Replaying the second violation's stale fix converges the same way:
+    // its search-from-offset still finds the moved twin.
+    expect(applyFix(once, violations[1])).toBe(fullyFixed);
+
+    // The converged document is a fixed point: nothing is reported and
+    // every further application — either captured fix, the stale batch or
+    // a fresh lint pass — is a no-op.
+    expect(lintDocument(fullyFixed, { rules })).toEqual([]);
+    expect(applyFix(fullyFixed, violations[0])).toBe(fullyFixed);
+    expect(applyFix(fullyFixed, violations[1])).toBe(fullyFixed);
+    expect(applyAllFixes(fullyFixed, violations)).toBe(fullyFixed);
+    expect(fixPass(fullyFixed)).toBe(fullyFixed);
+  });
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("is a no-op on the second pass when the repaired text already exists in the document (%j)", (nl) => {
+    const rules = [ruleInvalidLinkTarget];
+    const doc = `Done [x](TODO) earlier; fix [x]() now.${nl}`;
+    const violations = lintDocument(doc, { rules });
+
+    // The existing `(TODO)` href is a valid target: only the empty one is
+    // flagged, and fixing it makes the two links byte-identical.
+    expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe("[x]()");
+
+    const once = applyAllFixes(doc, violations);
+    expect(once).toBe(`Done [x](TODO) earlier; fix [x](TODO) now.${nl}`);
+    expect(once.split("[x](TODO)")).toHaveLength(3);
+    // Neither `[x](TODO)` is flagged or touched again, and replaying the
+    // stale fix finds no `[x]()` left to rewrite.
+    expect(lintDocument(once, { rules })).toEqual([]);
+    expect(applyFix(once, violations[0])).toBe(once);
+    expect(fixPass(once)).toBe(once);
+    expect(fixPass(fixPass(doc))).toBe(once);
+  });
 });
 
 describe("invalid-link-target autofix: repeated application", () => {
