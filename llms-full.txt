@@ -1,0 +1,194 @@
+# Ashlr MD
+
+> Open-source Markdown app for macOS, Windows, and Linux. Agents install one command, call a CLI that prints JSON, and drive the live document over MCP.
+
+This file is the agent manual. The same commands live in the README and in docs/EXAMPLES.md. The exhaustive per-tool notes live in docs/AGENTS.md. Tool order comes from `tool_registry()` in `src-tauri/bins/mdopener-mcp/src/lib.rs`.
+
+## What it is
+
+Ashlr MD renders Markdown on macOS, Windows, and Linux. `mdopen` opens a file in the app. `mdopener-mcp` is the MCP server agents launch over stdio. `open_file` is the only tool that starts the app. The server talks to the app on `127.0.0.1` with a token in `~/.mdopener/`.
+
+People use the window to read, edit, and export. Agents use the CLI and the MCP tools.
+
+## Install
+
+macOS or Linux, from a checkout. Needs Rust, Bun, and git. This builds the CLI and the MCP server and skips the desktop app.
+
+```bash
+SKIP_APP_BUILD=1 bash scripts/install.sh
+```
+
+No checkout:
+
+```bash
+SKIP_APP_BUILD=1 bash <(curl -fsSL https://raw.githubusercontent.com/ashlrai/ashlr-md/main/scripts/install.sh)
+```
+
+The script links `mdopen` and `mdopener-mcp` into `/usr/local/bin`, or into `~/.local/bin` when that directory is not writable. If the commands are missing:
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+When `claude` is on `PATH`, the script registers the MCP server. The desktop app is a release download: https://github.com/ashlrai/ashlr-md/blob/main/docs/INSTALL.md
+
+Windows uses the NSIS installer, then the PowerShell commands in docs/EXAMPLES.md. The bash script is not the Windows install.
+
+## JSON commands
+
+These exit without reading MCP stdin. `doctor` and `setup --local` do not download a model and do not write config.
+
+```bash
+mdopener-mcp --version
+mdopener-mcp doctor --json
+mdopener-mcp doctor --fix --json
+mdopener-mcp setup --local --json
+mdopener-mcp --ashlr-handshake --json
+mdopener-mcp --export-tool-schema
+```
+
+| Command | Output |
+|---|---|
+| `doctor --json` | one JSON object, `"kind": "ashlr.doctor"` |
+| `doctor --fix --json` | one JSON object with `mode`, `plan`, and `outcome`. Dry run. Writes nothing |
+| `doctor --fix --apply --json` | the same shape, and it makes the repairs |
+| `setup --local --json` | one JSON object, `"kind": "ashlr.setup-local"`, `downloads` false, `writes` false |
+| `--ashlr-handshake --json` | one JSON object, `"kind": "ashlr.handshake"` |
+| `--export-tool-schema` | tool names and input schemas as JSON |
+
+`mdopener-mcp doctor --apply` without `--fix` exits 2 and writes nothing. Repair rules: https://github.com/ashlrai/ashlr-md/blob/main/docs/doctor-fix.md
+
+## Connect MCP
+
+```bash
+claude mcp add --scope user ashlr-md "$(command -v mdopener-mcp)"
+codex mcp add ashlr-md -- "$(command -v mdopener-mcp)"
+python3 scripts/connect-cursor.py
+```
+
+Restart Claude Code after the first command. Codex picks the server up on its next run. The Cursor script merges `ashlr-md` into `~/.cursor/mcp.json` and writes nothing if that file is not JSON, if `mcpServers` is not an object, or if `ashlr-md` already points at a different program that still exists. Reload MCP in Cursor Settings.
+
+In the desktop app: Preferences, AI agents (MCP), then Connect to Claude Code, Connect to Cursor, or Connect to Codex.
+
+## Open a file
+
+```bash
+mdopen samples/agent-plan.md
+mdopen --edit samples/agent-plan.md
+```
+
+`mdopen` exits 0 when a viewer accepted the file. The window requires the desktop app. The JSON commands above do not.
+
+Deep link, when the app is installed:
+
+```text
+mdopener://open?path=/absolute/path/to/file.md
+mdopener://open?path=/absolute/path/to/file.md&mode=edit
+```
+
+## Tools
+
+`mdopener-mcp --export-tool-schema` is the source for arguments. Order in `tools/list`:
+
+1. `open_file` starts the app. `path` is required. `mode` is `read` or `edit`.
+2. `get_current_content` returns the open document. Error when none is open.
+3. `list_recent` lists recent files. The app must already be running.
+4. `request_review` blocks for a human verdict. Pass `path` or `content`.
+5. `get_user_annotations` reads the latest verdict and task checkboxes. Works from disk when the app is closed.
+6. `edit_document` replaces one exact `find` with `replace`. `save` defaults to false.
+7. `search_vault` searches the watched folder and recents.
+8. `present_document` switches the open doc to a distraction-free read view. It does not start the app.
+9. `list_ai_actions` lists editor AI actions. No app required.
+10. `get_conversation_context` reads a saved chat session.
+11. `save_conversation_message` appends one message to that session.
+12. `diff_documents` diffs two Markdown files on disk.
+13. `stream_edit` previews a find/replace as a diff.
+14. `stream_edit_apply` applies a preview.
+15. `export_text` returns plain text with Markdown syntax stripped.
+16. `export_metadata` returns headings, front matter, and wikilinks.
+17. `edit_canvas` edits a `.canvas` file. It writes by default.
+18. `export` exports the open document. Formats: `pdf`, `docx`, `html`, `epub`. The document must be in Read view. PDF takes no `output_path`.
+19. `replace_document` replaces the whole open document.
+20. `set_content` is the same whole-document replace.
+
+Prefer `edit_document` over `set_content` and `replace_document`.
+
+`open_file` arguments:
+
+```json
+{"path": "samples/agent-plan.md", "mode": "read"}
+```
+
+`edit_document` arguments. `find` must occur once:
+
+```json
+{"find": "## Phase 1: Core", "replace": "## Phase 1: Foundation", "path": "samples/agent-plan.md", "save": false}
+```
+
+`request_review` arguments:
+
+```json
+{"path": "samples/agent-plan.md", "blocking": true}
+```
+
+A blocking call returns `verdict` of `approved`, `changes_requested`, `dismissed`, `timeout`, or `superseded`, or `status` `pending` with a `reviewId` when the wait ends first. Call `request_review` again with that `review_id` to keep waiting.
+
+`export` arguments. Call `open_file` with `"mode": "read"` first. HTML, DOCX, and EPUB can take `output_path` in an existing directory. PDF opens the system dialog.
+
+```json
+{"format": "html", "output_path": "/tmp/agent-plan.html", "overwrite": false}
+```
+
+Prompts you can hand an agent:
+
+```text
+Open samples/agent-plan.md in Ashlr MD with open_file, then show get_current_content.
+```
+
+```text
+Call edit_document on the open document. find must match once. Then request_review and wait for my verdict.
+```
+
+## Local AI
+
+Nothing is sent to a cloud model unless the person opts in.
+
+- macOS 26 or later on Apple Silicon: Apple Foundation Models, after Apple Intelligence is on. No API key.
+- Other machines: Ollama, or a `localInference` block in `~/.ashlr/config.json`.
+- `ANTHROPIC_BASE_URL` defaults to `https://api.anthropic.com`. `https://` to any host is accepted. Plain `http://` is accepted only for `127.0.0.1` and `[::1]`. Refusals send no request and do not repeat the value.
+- `OLLAMA_HOST` for the app defaults to `http://localhost:11434`. A remote host needs `localInference.allowRemote: true` and `https://`. The environment cannot allow a remote host by itself.
+- The MCP sidecar's default, when `OLLAMA_HOST` is unset, is `http://127.0.0.1:11434`. It refuses `http://localhost`.
+- The default local model name is `qwen3.8:27b`. Names containing `abliterat` or `uncensored` are refused. No API key is sent to a `localInference` URL.
+- `"offline": true` on that block refuses cloud calls, including through a loopback gateway.
+
+Full rules: https://github.com/ashlrai/ashlr-md/blob/main/docs/local-ai.md
+
+```bash
+mdopener-mcp doctor --json
+mdopener-mcp setup --local --json
+```
+
+## Phantom
+
+Phantom calls `mdopen` for `phm inbox show <id> --open` and `phm digest --open` when Ashlr MD is installed. The URL scheme is `mdopener://`. Under `phantom exec -- <cmd>`, keys arrive as `phm_` placeholders. Set `ASHLR_MD_ANTHROPIC_KEY_FROM_ENV=1` to read `ANTHROPIC_API_KEY` from the environment. A `phm_` placeholder is honored only when the base URL is the session proxy.
+
+Contract: https://github.com/ashlrai/ashlr-md/blob/main/docs/PHANTOM.md
+
+## Security, short
+
+The IPC server binds to `127.0.0.1`. The token file is `~/.mdopener/ipc-token`. Tools that take a path open Markdown documents that are not dotfiles. `mdopener-mcp doctor --fix` never changes `ipc-token`. Run `chmod 600 ~/.mdopener/ipc-token` yourself when doctor says to.
+
+Threat model: https://github.com/ashlrai/ashlr-md/blob/main/SECURITY.md
+
+## Repo map
+
+| Path | What |
+|---|---|
+| `src/` | React frontend |
+| `src-tauri/src/` | Rust app core |
+| `src-tauri/bins/` | `mdopen`, `mdopener-mcp`, macOS Swift sidecars |
+| `docs/AGENTS.md` | MCP tool contract |
+| `docs/EXAMPLES.md` | pasteable commands |
+| `landing/` | marketing site |
+
+License: MIT. https://github.com/ashlrai/ashlr-md

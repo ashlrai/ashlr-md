@@ -98,8 +98,10 @@ test('.gitattributes scopes merge=union to CHANGELOG paths only', () => {
   const attr = readFileSync(join(REPO, '.gitattributes'), 'utf8');
   const lines = attr.split('\n').filter((l) => l.trim() && !l.startsWith('#'));
   assert.ok(lines.length > 0, 'expected at least one attribute line');
-  for (const line of lines)
-    assert.match(line, /^CHANGELOG\.md\s+merge=union$/, `unexpected attribute: ${line}`);
+  const mergeLines = lines.filter((line) =>
+    line.trim().split(/\s+/).slice(1).some((token) => /^(?:[!-])?merge(?:=|$)/.test(token)),
+  );
+  assert.deepEqual(mergeLines, ['CHANGELOG.md merge=union']);
 });
 
 test('rebase resolves a CHANGELOG.md conflict via merge=union, no helper needed', () => {

@@ -1,4 +1,4 @@
-/* canvas.css — read-only JSON Canvas viewer (CanvasViewer.tsx).
+/* canvas.css — JSON Canvas viewer and editor (CanvasViewer.tsx).
    A pannable/zoomable surface; nodes are absolutely positioned in canvas
    coordinates inside a transformed "world", edges drawn in an overflow-visible
    SVG sharing the same origin. Themed via tokens. */
@@ -204,4 +204,29 @@
   color: var(--text-muted);
   font-family: var(--ui-font);
   font-size: 13px;
+}
+
+.canvas-node__edit { align-self: flex-end; cursor: pointer; }
+.canvas-text-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  flex: 1;
+  min-height: 0;
+}
+.canvas-text-editor textarea {
+  flex: 1;
+  min-height: 0;
+  resize: none;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+}
+.canvas-text-editor button, .canvas-node__edit {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: 3px 8px;
 }

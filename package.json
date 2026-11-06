@@ -1,11 +1,13 @@
 {
   "name": "md-opener",
   "private": true,
-  "version": "0.4.0",
+  "version": "0.7.3",
   "type": "module",
   "scripts": {
     "check:crypto": "node --test scripts/check-crypto.test.mjs && node scripts/check-crypto.mjs",
     "check:doc-links": "node --test scripts/check-doc-links.test.mjs && node scripts/check-doc-links.mjs",
+    "check:version": "node --test scripts/cargo-version-sync.test.mjs scripts/tauri-version-sync.test.mjs",
+    "check:workflow-bash":"node --test scripts/ci/workflow-bash.test.mjs && node scripts/ci/workflow-bash.mjs",
     "resolve-conflicts": "node scripts/resolve-conflicts.mjs",
     "test:conflicts": "node --test scripts/resolve-conflicts.test.mjs",
     "test:select": "node --test scripts/ci/select.test.mjs",
@@ -20,7 +22,8 @@
     "fresh:sync": "node scripts/freshness/sync.mjs",
     "fresh:check": "node scripts/freshness/check.mjs",
     "test:freshness": "node --test scripts/freshness/freshness.test.mjs",
-    "test:dispatch": "node --test scripts/ci/validate-dispatch.test.mjs"
+    "test:dispatch": "node --test scripts/ci/validate-dispatch.test.mjs",
+    "bench:render": "NODE_ENV=production vitest run --config bench/vitest.config.ts"
   },
   "dependencies": {
     "@codemirror/commands": "^6.10.3",
@@ -28,6 +31,8 @@
     "@codemirror/state": "^6.6.0",
     "@codemirror/theme-one-dark": "^6.1.3",
     "@codemirror/view": "^6.43.0",
+    "@lezer/common": "^1.5.4",
+    "@lezer/markdown": "^1.8.1",
     "@milkdown/crepe": "7.21.2",
     "@milkdown/kit": "7.21.2",
     "@milkdown/react": "7.21.2",
@@ -40,7 +45,10 @@
     "dompurify": "^3.4.8",
     "epub-gen-memory": "^1.1.2",
     "github-slugger": "^2.0.0",
+    "hast-util-to-jsx-runtime": "^2.3.6",
+    "hast-util-to-string": "^3.0.1",
     "html-to-docx": "^1.8.0",
+    "html-url-attributes": "^3.0.1",
     "katex": "^0.17.0",
     "mermaid": "^11.15.0",
     "react": "^19.1.0",
@@ -53,7 +61,10 @@
     "remark-frontmatter": "^5.0.0",
     "remark-gfm": "^4.0.1",
     "remark-math": "^6.0.0",
+    "remark-parse": "^11.0.0",
+    "remark-rehype": "^11.1.2",
     "shiki": "^4.2.0",
+    "unified": "^11.0.5",
     "unist-util-visit": "^5.1.0",
     "zustand": "^5.0.14"
   },
@@ -70,5 +81,8 @@
     "typescript": "~5.8.3",
     "vite": "^7.0.4",
     "vitest": "2"
+  },
+  "patchedDependencies": {
+    "@milkdown/ctx@7.21.2": "patches/@milkdown%2Fctx@7.21.2.patch"
   }
 }

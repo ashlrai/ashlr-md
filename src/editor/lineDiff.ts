@@ -209,9 +209,11 @@ function canonical(ops: DiffOp[]): DiffOp[] {
       if (last?.kind === "equal") last.lines = [...last.lines, ...op.lines];
       else out.push({ kind: "equal", lines: [...op.lines] });
     } else if (op.kind === "delete") {
-      del.push(...op.lines);
+      // Coarse replacements can contain more lines than a JS engine's
+      // function argument limit, so do not spread a run into push().
+      for (const line of op.lines) del.push(line);
     } else {
-      ins.push(...op.lines);
+      for (const line of op.lines) ins.push(line);
     }
   }
   flush();

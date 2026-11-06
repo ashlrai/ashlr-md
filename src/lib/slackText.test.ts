@@ -30,12 +30,12 @@ describe("slackMrkdwn", () => {
       ),
     );
     expect(text).toBe(
-      [
+      `${[
         "• one\n    • inner\n• [x] done",
         "3. three\n4. four",
         "> quoted\n>\n> twice",
         "```\nif (a &amp;&amp; b) {}\n```",
-      ].join("\n\n") + "\n",
+      ].join("\n\n")}\n`,
     );
   });
 

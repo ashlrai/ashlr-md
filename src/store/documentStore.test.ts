@@ -611,11 +611,11 @@ describe("documentStore — applyAttributedOp", () => {
     op.agentId = "bot1";
     useDocumentStore.getState().applyAttributedOp(op, "agent");
     const cursors = useDocumentStore.getState().remoteCursors;
-    expect(cursors["bot1"]).toBeDefined();
-    expect(cursors["bot1"].agentId).toBe("bot1");
-    expect(typeof cursors["bot1"].offset).toBe("number");
-    expect(typeof cursors["bot1"].line).toBe("number");
-    expect(typeof cursors["bot1"].col).toBe("number");
+    expect(cursors.bot1).toBeDefined();
+    expect(cursors.bot1.agentId).toBe("bot1");
+    expect(typeof cursors.bot1.offset).toBe("number");
+    expect(typeof cursors.bot1.line).toBe("number");
+    expect(typeof cursors.bot1.col).toBe("number");
   });
 
   it("applyAttributedOp appends to opLog with correct source", () => {
@@ -711,7 +711,7 @@ describe("documentStore — setRemoteCursor", () => {
     useDocumentStore.setState({ content: "line0\nline1\nline2", remoteCursors: {} });
     // Offset 6 is start of "line1" → line 1, col 0
     useDocumentStore.getState().setRemoteCursor("agentBot", 6);
-    const cursor = useDocumentStore.getState().remoteCursors["agentBot"];
+    const cursor = useDocumentStore.getState().remoteCursors.agentBot;
     expect(cursor).toBeDefined();
     expect(cursor.line).toBe(1);
     expect(cursor.col).toBe(0);
@@ -726,7 +726,7 @@ describe("documentStore — setRemoteCursor", () => {
       },
     });
     useDocumentStore.getState().setRemoteCursor("bot", 3);
-    const cursor = useDocumentStore.getState().remoteCursors["bot"];
+    const cursor = useDocumentStore.getState().remoteCursors.bot;
     expect(cursor.offset).toBe(3);
     expect(cursor.col).toBe(3);
   });
@@ -736,8 +736,8 @@ describe("documentStore — setRemoteCursor", () => {
     useDocumentStore.getState().setRemoteCursor("agent1", 2);
     useDocumentStore.getState().setRemoteCursor("agent2", 8);
     const cursors = useDocumentStore.getState().remoteCursors;
-    expect(cursors["agent1"].offset).toBe(2);
-    expect(cursors["agent2"].offset).toBe(8);
+    expect(cursors.agent1.offset).toBe(2);
+    expect(cursors.agent2.offset).toBe(8);
   });
 });
 

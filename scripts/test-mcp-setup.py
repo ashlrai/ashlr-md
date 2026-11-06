@@ -244,7 +244,7 @@ die() { printf '%s\\n' "$*" >&2; exit 77; }
 
 
 class CliLinkTests(unittest.TestCase):
-    """Evaluates only the installer's mdopen-link section; `ln` is mocked to
+    """Evaluates only the installer's CLI link section; `ln` is mocked to
     refuse the first directory, as a root-owned /usr/local/bin does."""
 
     def run_section(self, blocked):
@@ -265,7 +265,8 @@ ln() {
 }
 """
             env = {"PATH": "/usr/bin:/bin", "HOME": directory, "CLI_BIN_DIR": str(cli),
-                   "MDOPEN_BIN": "/synthetic/mdopen", "BLOCKED": str(cli) if blocked else ""}
+                   "MDOPEN_BIN": "/synthetic/mdopen", "MCP_BIN": "/synthetic/mdopener-mcp",
+                   "BLOCKED": str(cli) if blocked else ""}
             result = subprocess.run(
                 ["/bin/bash", "--noprofile", "--norc", "-c", "set -euo pipefail\n" + mocks + section],
                 cwd=directory, env=env, capture_output=True, text=True,
@@ -277,12 +278,16 @@ ln() {
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotIn(f"OK mdopen → {cli}/mdopen", result.stdout)
         self.assertIn(f"LINK {local}/mdopen", result.stdout)
+        self.assertIn(f"LINK {local}/mdopener-mcp", result.stdout)
         self.assertIn(f"OK mdopen → {local}/mdopen", result.stdout)
+        self.assertIn(f"OK mdopener-mcp → {local}/mdopener-mcp", result.stdout)
 
     def test_writable_dir_is_used_without_fallback(self):
         result, cli, local = self.run_section(blocked=False)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn(f"OK mdopen → {cli}/mdopen", result.stdout)
+        self.assertIn(f"LINK {cli}/mdopener-mcp", result.stdout)
+        self.assertIn(f"OK mdopener-mcp → {cli}/mdopener-mcp", result.stdout)
         self.assertNotIn(str(local), result.stdout)
 
 

@@ -49,14 +49,6 @@ select:focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: 2px;
 }
-/* Inputs that already paint an accent border on focus: use a softer ring
-   instead of doubling up. */
-.ai-input:focus-visible,
-.ai-key-input:focus-visible,
-.cmdk-input:focus-visible {
-  outline: none;
-}
-
 /* ---- Reduced motion ----
    A global safety net: when the user asks the OS to minimize motion, calm every
    animation, transition, and smooth scroll across the whole app (overrides any

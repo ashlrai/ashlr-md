@@ -84,6 +84,23 @@ describe("the read view's place in each tab", () => {
       if (tab) s.switchTab(tab.id);
     });
 
+  it("keeps keyboard focus on tabs when their document is rendered", async () => {
+    await open("a.md");
+    await open("b.md");
+    const tabs = host.querySelectorAll<HTMLElement>('[role="tab"]');
+    tabs[0].focus();
+    for (const [from, key, to] of [
+      [0, "ArrowRight", 1],
+      [1, "ArrowLeft", 0],
+    ] as const) {
+      await act(async () => {
+        tabs[from].dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+      });
+      expect(document.activeElement).toBe(tabs[to]);
+      expect(tabs[to].getAttribute("aria-selected")).toBe("true");
+    }
+  });
+
   it("returns to where each tab was read", async () => {
     await open("a.md");
     await scrollTo(400);

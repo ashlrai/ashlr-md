@@ -634,7 +634,66 @@ describe("rule:no-consecutive-blank-lines", () => {
   });
 });
 
+describe("rule:missing-alt-text", () => {
+  it("accepts a described image while reporting an image with empty alt text", () => {
+    const described = "![A red kite above a field](kite.png)";
+    const missing = "![](clouds.png)";
+    const rules = [ruleMissingAltText];
+
+    expect(lintDocument(described, { rules })).toEqual([]);
+
+    const doc = `${described}\n${missing}\n`;
+    const violations = lintDocument(doc, { rules });
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("missing-alt-text");
+    expect(
+      doc.slice(violations[0].range!.from.offset, violations[0].range!.to.offset),
+    ).toBe(missing);
+  });
+});
+
 // ─── 4. lintDocument engine ───────────────────────────────────────────────────
+
+describe("rule:invalid-link-target", () => {
+  it.each([
+    ["empty", ""],
+    ["whitespace-only", " \t "],
+  ])("flags %s link destinations", (_description, destination) => {
+    const link = `[label](${destination})`;
+    const doc = `Before ${link} after`;
+    const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0]).toMatchObject({
+      ruleId: "invalid-link-target",
+      severity: "warning",
+      range: {
+        from: { offset: 7, line: 1, col: 7 },
+        to: { offset: 7 + link.length, line: 1, col: 7 + link.length },
+      },
+    });
+  });
+
+  it("accepts a nonempty destination", () => {
+    expect(
+      lintDocument("Before [label](./guide.md) after", {
+        rules: [ruleInvalidLinkTarget],
+      }),
+    ).toEqual([]);
+  });
+
+  it("reports only the invalid link alongside a valid link with default rules", () => {
+    const doc = "See [documentation](https://example.com/guide) and [draft]().\n";
+    const violations = lintDocument(doc).filter(
+      (v) => v.ruleId === "invalid-link-target",
+    );
+
+    expect(violations).toHaveLength(1);
+    expect(
+      doc.slice(violations[0].range!.from.offset, violations[0].range!.to.offset),
+    ).toBe("[draft]()");
+  });
+});
 
 describe("lintDocument", () => {
   it("returns an empty array for an empty document with no rules", () => {

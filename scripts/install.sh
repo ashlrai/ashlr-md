@@ -17,6 +17,9 @@
 #   # Skip the app build (CLI + MCP only, useful for CI agents):
 #   SKIP_APP_BUILD=1 bash scripts/install.sh
 #
+# Links mdopen and mdopener-mcp into /usr/local/bin, or ~/.local/bin when
+# that directory is not writable.
+#
 # Requirements: Rust (rustup), Bun, git. Full macOS app: Xcode 26 / Swift 6.2+
 # with macOS 26 SDK for the declared Swift sidecars; CLI/MCP-only skips Swift.
 # =============================================================================
@@ -91,7 +94,7 @@ cd "$REPO_ROOT"
 
 # ── 3. Install JS/TS dependencies ─────────────────────────────────────────────
 info "Installing JS dependencies (bun install)…"
-bun install --frozen-lockfile
+bun install --frozen-lockfile --ignore-scripts
 
 # ── 4. Build the sidecar binaries ─────────────────────────────────────────────
 if [[ "$(uname -s)" == "Darwin" && "$SKIP_APP_BUILD" != "1" ]]; then
@@ -156,8 +159,8 @@ else
   APP_BINARY="$DEST_APP/Contents/Resources/mdopener-mcp"
 fi
 
-# ── 6. Symlink mdopen CLI ─────────────────────────────────────────────────────
-info "Symlinking mdopen CLI…"
+# ── 6. Symlink mdopen and mdopener-mcp ────────────────────────────────────────
+info "Symlinking mdopen and mdopener-mcp…"
 # An existing directory the user cannot write (a root-owned /usr/local/bin)
 # passes `mkdir -p`, so writability is checked after it, and a failed link
 # falls through to the next directory instead of being reported as done.
@@ -166,7 +169,9 @@ install_cli_to() {
   mkdir -p "$dir" 2>/dev/null || return 1
   [[ -w "$dir" ]] || return 1
   ln -sf "$MDOPEN_BIN" "$dir/mdopen" || return 1
+  ln -sf "$MCP_BIN" "$dir/mdopener-mcp" || return 1
   success "mdopen → $dir/mdopen"
+  success "mdopener-mcp → $dir/mdopener-mcp"
 }
 
 if ! install_cli_to "$CLI_BIN_DIR"; then
@@ -176,8 +181,9 @@ if ! install_cli_to "$CLI_BIN_DIR"; then
     warn "Add $FALLBACK to your PATH if it isn't already:"
     warn "  echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> ~/.zshrc"
   else
-    warn "Could not install mdopen CLI — run manually:"
+    warn "Could not install mdopen or mdopener-mcp. Run manually:"
     warn "  sudo cp $MDOPEN_BIN /usr/local/bin/mdopen"
+    warn "  sudo cp $MCP_BIN /usr/local/bin/mdopener-mcp"
   fi
 fi
 
@@ -201,24 +207,18 @@ echo ""
 success "Installation complete."
 echo ""
 echo "${BOLD}Next steps:${RESET}"
-echo "  1. Open any Markdown file:  mdopen ~/path/to/file.md"
-echo "  2. Or double-click a .md file in Finder — Ashlr MD is now the default."
+echo "  1. Open a file:   mdopen \"$REPO_ROOT/README.md\""
+echo "  2. JSON check:    mdopener-mcp doctor --json"
+echo "  3. Tool schemas:  mdopener-mcp --export-tool-schema"
 if command -v claude &>/dev/null; then
-  echo "  3. Restart Claude Code — it will now have access to Ashlr MD tools."
+  echo "  4. Restart Claude Code so it loads the ashlr-md server."
 else
-  echo "  3. Install Claude Code (https://claude.ai/download) for one-click MCP setup."
+  echo "  4. Install Claude Code, then run: claude mcp add --scope user ashlr-md \"$APP_BINARY\""
 fi
-echo ""
-echo "  MCP tools available to agents:"
-echo "    open_file         open a file in the app"
-echo "    get_current_content  get the active document's content"
-echo "    set_content       replace the active document's content"
-echo "    list_recent       list recently opened files"
-echo "    export            export to PDF / DOCX / HTML"
 echo ""
 if [ -f "$REPO_ROOT/scripts/phantom-check.sh" ]; then
   bash "$REPO_ROOT/scripts/phantom-check.sh" | sed 's/^/  /'
   echo ""
 fi
-echo "  Docs: https://github.com/ashlrai/ashlr-md/blob/main/docs/AGENTS.md"
+echo "  Docs: https://github.com/ashlrai/ashlr-md/blob/main/llms.txt"
 echo ""

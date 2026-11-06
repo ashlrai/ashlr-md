@@ -36,9 +36,10 @@ export function ThemePicker() {
     THEMES.findIndex((t) => t.id === theme),
   );
 
-  function onKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+  function onKeyDown(e: React.KeyboardEvent<HTMLButtonElement>) {
     const radios = Array.from(
-      e.currentTarget.querySelectorAll<HTMLElement>('[role="radio"]'),
+      e.currentTarget.parentElement?.querySelectorAll<HTMLElement>('[role="radio"]') ??
+        [],
     );
     // Ctrl+End and the like keep their own meaning.
     if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
@@ -52,12 +53,7 @@ export function ThemePicker() {
   }
 
   return (
-    <div
-      className="settings-theme-picker"
-      role="radiogroup"
-      aria-label="Theme"
-      onKeyDown={onKeyDown}
-    >
+    <div className="settings-theme-picker" role="radiogroup" aria-label="Theme">
       {THEMES.map((t, i) => {
         const swatch = THEME_SWATCHES[t.id];
         const active = theme === t.id;
@@ -70,6 +66,7 @@ export function ThemePicker() {
             tabIndex={i === chosen ? 0 : -1}
             className={`settings-theme-btn${active ? " active" : ""}`}
             onClick={() => setTheme(t.id)}
+            onKeyDown={onKeyDown}
             title={`Switch to ${t.label} theme`}
           >
             {/* Mini colour preview */}

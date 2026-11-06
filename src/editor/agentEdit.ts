@@ -166,11 +166,8 @@ export function applySelectedHunks(
   let at = 0;
   for (const h of diff.hunks) {
     for (; at < h.oldStart; at++) out.push(lines[at]);
-    if (accepted.has(h.id)) {
-      out.push(...h.newLines);
-    } else {
-      out.push(...h.oldLines);
-    }
+    // Large rewrites can exceed the engine's function argument limit.
+    for (const line of accepted.has(h.id) ? h.newLines : h.oldLines) out.push(line);
     at = h.oldStart + h.oldLines.length;
   }
   for (; at < lines.length; at++) out.push(lines[at]);
@@ -234,7 +231,7 @@ export function applyHunksTo(
   let at = 0;
   for (const p of placed) {
     for (; at < p.at; at++) out.push(lines[at]);
-    out.push(...p.hunk.newLines);
+    for (const line of p.hunk.newLines) out.push(line);
     at = p.at + p.hunk.oldLines.length;
   }
   for (; at < lines.length; at++) out.push(lines[at]);
@@ -247,8 +244,11 @@ export function applyHunksTo(
  *
  * Fuzz 0 needs every context line to match; each further level drops one
  * line from the outer end of each side. At each level the match nearest to
- * `hint` wins; two equally near is ambiguous and the hunk is not placed. A
- * pure insertion (no removed lines) needs at least one context line to
+ * `hint` wins; two equally near is ambiguous and the hunk is not placed.
+ * A hunk made with context must retain at least one of its context lines:
+ * otherwise a remaining duplicate of its old lines could be a different
+ * passage entirely. Explicit context-zero replacements still use old lines.
+ * A pure insertion (no removed lines) needs at least one context line to
  * match. One with no context at all (a diff made with `context: 0`, or an
  * insertion into an empty base) has nothing to look for, so it goes at
  * `hint`, as `patch` places a zero-context hunk by its line number.
@@ -268,20 +268,21 @@ export function locateHunk(
   for (let fuzz = 0; fuzz <= maxFuzz; fuzz++) {
     const needBefore = Math.max(0, before.length - fuzz);
     const needAfter = Math.max(0, after.length - fuzz);
-    if (oldLines.length === 0 && needBefore === 0 && needAfter === 0) break;
+    if (maxFuzz > 0 && needBefore === 0 && needAfter === 0) break;
 
     let best: number | null = null;
     let bestDist = Number.POSITIVE_INFINITY;
     let tie = false;
+    const wantBefore = before.slice(before.length - needBefore);
+    const wantAfter = after.slice(0, needAfter);
     for (let at = Math.max(0, floor); at <= lastStart; at++) {
+      // Past the hint, later candidates can neither beat nor tie this match.
+      if (at > hint && at - hint > bestDist) break;
       if (!matchesAt(lines, oldLines, at)) continue;
-      if (
-        !matchesAt(lines, before.slice(before.length - needBefore), at - needBefore)
-      ) {
-        continue;
-      }
-      if (!matchesAt(lines, after.slice(0, needAfter), at + oldLines.length)) continue;
+      if (!matchesAt(lines, wantBefore, at - needBefore)) continue;
+      if (!matchesAt(lines, wantAfter, at + oldLines.length)) continue;
       const dist = Math.abs(at - hint);
+      if (dist === 0) return at;
       if (dist < bestDist) {
         best = at;
         bestDist = dist;
@@ -430,10 +431,8 @@ export function renderUnifiedDiff(
     for (; at < end; at++, oldCount++, newCount++) bodyLine(" ", a[at], body);
 
     const newStart = start + (shift.get(first.id) ?? 0);
-    out.push(
-      `@@ -${rangeOf(start, oldCount)} +${rangeOf(newStart, newCount)} @@`,
-      ...body,
-    );
+    out.push(`@@ -${rangeOf(start, oldCount)} +${rangeOf(newStart, newCount)} @@`);
+    for (const line of body) out.push(line);
   }
   return `${out.join("\n")}\n`;
 }

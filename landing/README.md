@@ -5,6 +5,11 @@ A self-contained, dependency-free marketing page (`index.html`). Editorial
 warm neutrals with a sharp blue accent, a live theme-cycling app mockup, and
 scroll-reveal animations. No build step.
 
+The release link is generated from the verified public
+receipt by `node scripts/freshness/sync.mjs` from the repository root; see
+[`scripts/freshness/README.md`](../scripts/freshness/README.md). It does not
+use an unreleased source version.
+
 ## Preview locally
 
 ```bash
@@ -24,3 +29,4 @@ It's a single static file; host it anywhere:
 ## Notes
 
 - Fonts load from Google Fonts; for a fully offline page, self-host them.
+- [llms.txt](./llms.txt) and [llms-full.txt](./llms-full.txt) are the agent index and the one-file manual. They match the copies at the repository root.

@@ -95,6 +95,19 @@ describe("the theme radio group", () => {
     expect(radios().map((r) => r.tabIndex)).toEqual([0, -1, -1]);
   });
 
+  it("handles Home/End on the radios without making the group a Tab stop", () => {
+    expect(host.querySelector<HTMLElement>('[role="radiogroup"]')?.tabIndex).toBe(-1);
+    radios()[0].focus();
+    press(radios()[0], "End");
+    expect(useSettingsStore.getState().theme).toBe("midnight");
+    expect(document.activeElement).toBe(radios()[2]);
+    press(radios()[2], "ArrowUp");
+    expect(useSettingsStore.getState().theme).toBe("sepia");
+    press(radios()[1], "Home");
+    expect(document.activeElement).toBe(radios()[0]);
+    expect(radios().map((r) => r.tabIndex)).toEqual([0, -1, -1]);
+  });
+
   it("moves to and chooses a theme with the arrow keys, wrapping", () => {
     radios()[0].focus();
     press(radios()[0], "ArrowRight");
