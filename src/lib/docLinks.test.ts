@@ -78,6 +78,43 @@ describe("document link extraction", () => {
       expect.objectContaining({ type: "link", url: "beta.md" }),
     ]);
   });
+
+  it("keeps the target and label of a link containing spaces", () => {
+    const processor = unified().use(remarkParse).use(remarkWikilinks);
+    const tree = processor.runSync(
+      processor.parse(
+        "[My Label](<../My Note.md#Part 2>) and [[My Note#Part 2|My Label]].\n",
+      ),
+    );
+    const links: Array<{
+      type: string;
+      url?: string;
+      children?: unknown;
+      data?: unknown;
+    }> = [];
+    visit(tree, (node) => {
+      if (["link", "wikilink"].includes(node.type)) links.push(node as never);
+    });
+    expect(links).toHaveLength(2);
+    expect(links[0]).toMatchObject({
+      type: "link",
+      url: "../My Note.md#Part 2",
+      children: [{ type: "text", value: "My Label" }],
+    });
+    // The target survives untouched, and the label is kept as the display text.
+    expect(links[1]).toMatchObject({
+      type: "wikilink",
+      data: { hProperties: { dataWikitarget: "My Note#Part 2" } },
+    });
+    expect(JSON.stringify(links[1])).toContain("My Label");
+    // The Markdown link's raw target resolves to the same document and heading.
+    expect(
+      linkTarget(encodeURI(links[0].url as string), "/vault/sub/a.md"),
+    ).toMatchObject({
+      kind: "document",
+      path: "/vault/My Note.md",
+    });
+  });
 });
 
 describe("linkTarget", () => {
