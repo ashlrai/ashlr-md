@@ -23229,3 +23229,41 @@ describe("invalid-link autofix idempotence: built-in rule set fixpoint", () => {
     expect(fixAll(twice)).toBe(twice);
   });
 });
+
+describe("invalid-link autofix in a list item: placeholder and marker in the complete fixed text", () => {
+  const rules = [ruleInvalidLinkTarget];
+
+  it.each([
+    ["-", "", "\n"],
+    ["*", "#", "\r\n"],
+    ["+", "?", "\n"],
+    ["1.", "  ", "\r\n"],
+    ["  -", "", "\n"],
+  ])("puts the TODO placeholder in and keeps the %j marker in the complete fixed text (invalid href %j, line ending %j)", (marker, href, nl) => {
+    const doc = [
+      "Intro, [kept](./a.md) stays.",
+      "",
+      `${marker} Read [the guide](${href}) today.`,
+      `${marker} See [ok](./ok.md) too.`,
+      "",
+    ].join(nl);
+    const expected = [
+      "Intro, [kept](./a.md) stays.",
+      "",
+      `${marker} Read [the guide](TODO) today.`,
+      `${marker} See [ok](./ok.md) too.`,
+      "",
+    ].join(nl);
+
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+    const fixed = applyAllFixes(doc, violations);
+    // The complete fixed text still opens the item with its list marker and
+    // carries the TODO placeholder where the invalid href was.
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain(`${marker} Read [the guide](TODO) today.`);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
