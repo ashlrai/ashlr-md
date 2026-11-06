@@ -12,6 +12,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
 Released 2026-06-06. [Release notes and downloads](https://github.com/ashlrai/ashlr-md/releases/tag/v0.4.0).
 <!-- fresh:end -->
 
+## [0.7.3] - 2026-11-06
+
+### Fixed
+- Use HTTPS for official Ubuntu package sources during Linux CI dependency installation, preserving the configured mirrors and package verification.
+
 ## [0.7.2] - 2026-11-05
 
 ### Fixed
@@ -3750,7 +3755,8 @@ callouts), WYSIWYG + source editing, PDF/DOCX/HTML export, local-first tiered
 AI, agent hand-off (`mdopen` CLI · `mdopener://` · MCP server), the macOS `.md`
 default handler, and smart agent-output rendering.
 
-[0.7.2]: https://github.com/ashlrai/ashlr-md/compare/v0.7.1...HEAD
+[0.7.3]: https://github.com/ashlrai/ashlr-md/compare/v0.7.2...HEAD
+[0.7.2]: https://github.com/ashlrai/ashlr-md/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/ashlrai/ashlr-md/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/ashlrai/ashlr-md/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/ashlrai/ashlr-md/releases/tag/v0.6.0
