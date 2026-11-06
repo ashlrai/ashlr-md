@@ -23366,6 +23366,65 @@ describe("autofix: undescribed image with surrounding punctuation", () => {
   });
 });
 
+describe("autofix: undescribed image with surrounding inline emphasis", () => {
+  it.each([
+    ["asterisk emphasis", "*", "*"],
+    ["underscore emphasis", "_", "_"],
+    ["asterisk strong", "**", "**"],
+    ["underscore strong", "__", "__"],
+    ["asterisk strong emphasis", "***", "***"],
+    ["mixed strong emphasis", "**_", "_**"],
+    ["strikethrough", "~~", "~~"],
+  ])("adds the placeholder inside %s and keeps every marker", (_name, open, close) => {
+    const rules = [ruleMissingAltText];
+    const source = 'images/chart.png?size=2#top "Chart"';
+    const doc = `See ${open}![](${source})${close} next.\n`;
+    const expected = `See ${open}![TODO: describe image](${source})${close} next.\n`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    // The range covers exactly the image: the emphasis markers around it are
+    // not part of the violation and stay untouched.
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(`![](${source})`);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain(`${open}![TODO: describe image](${source})${close}`);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("fixes each undescribed image inside an emphasized phrase and keeps the words, markers and described neighbour (%j line endings)", (nl) => {
+    const rules = [ruleMissingAltText];
+    const line =
+      "*Chart ![](a.png) 2026* and _a ![described](b.svg) note_, " +
+      "then **![ ](c.png) tail**.";
+    const expected =
+      "*Chart ![TODO: describe image](a.png) 2026* and _a ![described](b.svg) note_, " +
+      "then **![TODO: describe image](c.png) tail**.";
+    const doc = `Intro.${nl}${nl}${line}${nl}`;
+    const violations = lintDocument(doc, { rules });
+
+    // The described image inside emphasis is not flagged.
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+      "missing-alt-text",
+      "missing-alt-text",
+    ]);
+    expect(
+      violations.map(({ range }) => doc.slice(range!.from.offset, range!.to.offset)),
+    ).toEqual(["![](a.png)", "![ ](c.png)"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(`Intro.${nl}${nl}${expected}${nl}`);
+    expect(fixed.match(/TODO: describe image/g)).toHaveLength(2);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+});
+
 // ─── Invalid-link autofix idempotence: generated documents ───────────────────
 
 describe("invalid-link autofix idempotence: generated documents", () => {
