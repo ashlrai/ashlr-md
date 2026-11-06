@@ -1608,6 +1608,132 @@ describe("autofix: undescribed image inside a list item", () => {
       "- Example:\n\n  ```md\n  ![](x.png)\n  ```\n- ![TODO: describe image](real.png)\n",
     );
   });
+
+  it.each([
+    ["-", "\n"],
+    ["*", "\r\n"],
+    ["+", "\n"],
+    ["0.", "\n"],
+    ["3)", "\r\n"],
+    ["- [ ]", "\n"],
+  ])("keeps the %j marker when the item holding the image opens the document (line ending %j)", (marker, nl) => {
+    const doc = `${marker} See ![](img/first.png "First") now.${nl}${marker} Next item.${nl}`;
+    const expected = `${marker} See ![TODO: describe image](img/first.png "First") now.${nl}${marker} Next item.${nl}`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const { from, to } = violations[0].range!;
+    // The flagged span is the image alone: the marker on the first line of
+    // the file is outside it, so no fix can drop it.
+    expect(doc.slice(from.offset, to.offset)).toBe('![](img/first.png "First")');
+    expect(doc.slice(0, from.offset)).toBe(`${marker} See `);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+
+  it.each([
+    ["unordered", "-"],
+    ["ordered", "12."],
+    ["task", "- [x]"],
+  ])("describes two undescribed images in one %s item and keeps the marker", (_kind, marker) => {
+    for (const nl of ["\n", "\r\n"]) {
+      const doc = `${marker} One ![](a.png) and two ![](b.png "B") done.${nl}${marker} Next.${nl}`;
+      const expected = `${marker} One ![TODO: describe image](a.png) and two ![TODO: describe image](b.png "B") done.${nl}${marker} Next.${nl}`;
+      const rules = [ruleMissingAltText];
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+        "missing-alt-text",
+        "missing-alt-text",
+      ]);
+      expect(applyAllFixes(doc, violations)).toBe(expected);
+      expect(applyAllFixes(doc, [...violations].reverse())).toBe(expected);
+      expect(lintDocument(expected, { rules })).toEqual([]);
+    }
+  });
+
+  it.each([
+    ["-", "\n"],
+    ["1.", "\r\n"],
+    ["- [ ]", "\n"],
+  ])("fixes only the real image in a %j item whose code span shows an image example (line ending %j)", (marker, nl) => {
+    const doc = `${marker} \`![](decoy.png)\` is code, but ![](real.png) is not.${nl}${marker} Next.${nl}`;
+    const expected = `${marker} \`![](decoy.png)\` is code, but ![TODO: describe image](real.png) is not.${nl}${marker} Next.${nl}`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const { from, to } = violations[0].range!;
+    // The masked code span keeps its offsets, so the range covers the real
+    // image only and the fix cannot disturb the example or the marker.
+    expect(doc.slice(from.offset, to.offset)).toBe("![](real.png)");
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain("`![](decoy.png)`");
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
+    ["asterisks", "*", "- "],
+    ["underscores", "_", "- "],
+    ["double asterisks", "**", "12. "],
+    ["strikethrough", "~~", "- [ ] "],
+  ])("inserts the placeholder inside a %s-wrapped image and keeps the marker and emphasis", (_kind, em, marker) => {
+    for (const nl of ["\n", "\r\n"]) {
+      const doc = `${marker}See ${em}![](img/e.png)${em} done.${nl}`;
+      const expected = `${marker}See ${em}![TODO: describe image](img/e.png)${em} done.${nl}`;
+      const rules = [ruleMissingAltText];
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+      const { from, to } = violations[0].range!;
+      expect(doc.slice(from.offset, to.offset)).toBe("![](img/e.png)");
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+    }
+  });
+
+  it.each([
+    ["four spaces", "    "],
+    ["a tab", "\t"],
+  ])("leaves an indented-code line that only looks like a list item alone (%s)", (_kind, indent) => {
+    for (const nl of ["\n", "\r\n"]) {
+      const doc = `Intro.${nl}${nl}${indent}- ![](a.png)${nl}`;
+      const rules = [ruleMissingAltText];
+      // The indented `- ` line is indented code, not a list item: the image
+      // inside is code, so nothing is flagged and no fix can drop a "marker".
+      const violations = lintDocument(doc, { rules });
+      expect(violations).toEqual([]);
+      expect(applyAllFixes(doc, violations)).toBe(doc);
+    }
+  });
+
+  it("fixes the real item image while indented code in a loose item keeps its image syntax", () => {
+    for (const nl of ["\n", "\r\n"]) {
+      const doc = ["- Item", "", "      ![](code.png)", "", "- ![](real.png)", ""].join(
+        nl,
+      );
+      const rules = [ruleMissingAltText];
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+      const { from, to } = violations[0].range!;
+      expect(doc.slice(from.offset, to.offset)).toBe("![](real.png)");
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(
+        doc.replace("![](real.png)", "![TODO: describe image](real.png)"),
+      );
+      expect(fixed).toContain("      ![](code.png)");
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+    }
+  });
 });
 
 // ─── 2. Rule: invalid-link-target ────────────────────────────────────────────
