@@ -5,6 +5,7 @@ import io
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tempfile
@@ -65,6 +66,127 @@ class Tests(unittest.TestCase):
             dangling=root/'dangling'; dangling.symlink_to(root/'absent')
             for path in (link/'missing',dangling):
                 with self.assertRaises(ValueError): w.safe_path(path)
+
+    def test_ui_routes_are_exact_bounded_and_do_not_follow_redirects(self):
+        response=MagicMock(); response.__enter__.return_value=response; response.status=200; response.read.return_value=b'{"value":null}'
+        opener=MagicMock(); opener.open.return_value=response
+        with patch.object(w.urllib.request,'build_opener',return_value=opener) as build:
+            w.ui_webdriver('safe-session')
+            request=opener.open.call_args.args[0]
+            self.assertEqual(request.full_url,'http://127.0.0.1:4444/session/safe-session/elements')
+            self.assertEqual(json.loads(request.data),{'using':'css selector','value':w.OPEN_SELECTOR})
+            self.assertEqual(request.method,'POST'); self.assertEqual(opener.open.call_args.kwargs,{'timeout':10})
+            handlers=build.call_args.args; self.assertEqual(handlers[0].proxies,{})
+            self.assertIsNone(handlers[1].redirect_request(None,None,None,None,None,None))
+            w.ui_webdriver('safe-session','f.123-d_0')
+            self.assertTrue(opener.open.call_args.args[0].full_url.endswith('/element/f.123-d_0/click'))
+            for session,element in [('bad/route','good'),('safe','../other'),('safe','.'),('safe','..'),('safe','a?b'),('safe','é'),('safe','a'*257)]:
+                opener.open.reset_mock()
+                with self.assertRaises(ValueError): w.ui_webdriver(session,element)
+                opener.open.assert_not_called()
+            response.read.return_value=b'x'*65537
+            with self.assertRaises(ValueError): w.ui_webdriver('safe')
+
+    def test_uia_preflight_is_token_free_and_sanitizes_errors(self):
+        with canonical_tempdir() as t:
+            with patch.dict(os.environ,{'SYSTEMROOT':t},clear=True), patch.object(w.subprocess,'run',return_value=MagicMock(stdout='qa-uia-available\n',stderr='')) as run:
+                w.check_uia(); self.assertEqual(run.call_args.kwargs['timeout'],45)
+                self.assertNotIn('GH_TOKEN',run.call_args.kwargs['env'])
+                self.assertEqual(run.call_args.args[0][-2:],['-Mode','Preflight'])
+            with patch.dict(os.environ,{'SYSTEMROOT':t,'GH_TOKEN':'secret'},clear=True), patch.object(w.subprocess,'run') as run:
+                with self.assertRaises(ValueError): w.check_uia()
+                run.assert_not_called()
+            error=subprocess.CalledProcessError(1,'secret',output='secret',stderr='secret')
+            with patch.dict(os.environ,{'SYSTEMROOT':t},clear=True), patch.object(w.subprocess,'run',side_effect=error):
+                with self.assertRaisesRegex(ValueError,'UIA preflight failed'): w.check_uia()
+        workflow=(SCRIPT.parents[1]/'.github/workflows/native-qa-windows.yml').read_text()
+        self.assertLess(workflow.index('--check-uia'),workflow.index('Prepare and verify original artifacts'))
+
+    def test_real_open_requires_unique_owned_app_and_button_before_spawn(self):
+        with canonical_tempdir() as t:
+            work=Path(t); fixture=work/'native-smoke.md'; fixture.touch()
+            for rows,elements in [([],[]),([1,2],[]),([1],[]),([1],[{w.ELEMENT_KEY:'one'},{w.ELEMENT_KEY:'two'}]),([1],[{w.ELEMENT_KEY:'../bad'}])]:
+                with patch.object(w,'owned_app_processes',return_value=rows), patch.object(w,'ui_webdriver',return_value=elements), patch.object(w.subprocess,'Popen') as spawn:
+                    with self.assertRaises(ValueError): w.real_open_file('session',work/'app',fixture,work)
+                    spawn.assert_not_called()
+
+    def test_real_open_helper_readiness_identity_click_and_cleanup(self):
+        with canonical_tempdir() as t:
+            work=Path(t); fixture=work/'native-smoke.md'; fixture.touch(); app=work/'app'
+            for changed in [False,True]:
+                proc=MagicMock(); proc.poll.return_value=None; proc.returncode=0; proc.communicate.return_value=('qa-uia-open-invoked\n','')
+                def spawn(*args,**kwargs):
+                    self.assertNotIn('GH_TOKEN',kwargs['env']); self.assertEqual(kwargs['env']['QA_UIA_FIXTURE'],str(fixture))
+                    (work/'uia-ready').touch(); return proc
+                with patch.object(w,'owned_app_processes',side_effect=[[123],[] if changed else [123]]), patch.object(w,'ui_webdriver',return_value=[{w.ELEMENT_KEY:'one'}]) as wd, patch.object(w,'uia_environment',return_value={}), patch.object(w,'uia_command',return_value=['fixed']), patch.object(w.subprocess,'Popen',side_effect=spawn):
+                    if changed:
+                        with self.assertRaises(ValueError): w.real_open_file('session',app,fixture,work)
+                        self.assertEqual(wd.call_count,1)
+                    else:
+                        w.real_open_file('session',app,fixture,work); self.assertEqual(wd.call_args.args,('session','one'))
+                    proc.kill.assert_called_once(); self.assertGreaterEqual(proc.communicate.call_count,1)
+                (work/'uia-ready').unlink()
+
+    def test_real_open_timeout_kills_helper_without_disclosing_output(self):
+        with canonical_tempdir() as t:
+            work=Path(t); fixture=work/'native-smoke.md'; fixture.touch()
+            proc=MagicMock(); proc.poll.return_value=None
+            proc.communicate.side_effect=[subprocess.TimeoutExpired('secret-command',60,output='secret-output'),('','')]
+            def spawn(*args,**kwargs): (work/'uia-ready').touch(); return proc
+            with patch.object(w,'owned_app_processes',return_value=[123]), patch.object(w,'ui_webdriver',return_value=[{w.ELEMENT_KEY:'one'}]), patch.object(w,'uia_environment',return_value={}), patch.object(w,'uia_command',return_value=['fixed']), patch.object(w.subprocess,'Popen',side_effect=spawn):
+                with self.assertRaisesRegex(ValueError,'native Open dialog timeout'): w.real_open_file('session',work/'app',fixture,work)
+                proc.kill.assert_called_once(); self.assertEqual(proc.communicate.call_count,2)
+
+    def test_dialog_observation_schema_bounds_and_private_fields_rejected(self):
+        valid={'stage':'wait','reason':'not-found','count':1,'overflow':False,'windows':[{'class':'#32770','pattern':True,'modal':False,'enabled':True}]}
+        encode=lambda value: 'qa-uia-windows:'+json.dumps(value)
+        self.assertEqual(w.dialog_observation(encode(valid)),valid)
+        import copy
+        variants=[]
+        for key,value in [('title','private'),('stage','private'),('reason','private'),('count',9),('count',True),('overflow',1),('windows',[{}]*9)]:
+            item=copy.deepcopy(valid); item[key]=value; variants.append(item)
+        for key,value in [('title','private'),('class','a'*65),('class','secret\ntext'),('pattern',1),('modal','private'),('enabled',None)]:
+            item=copy.deepcopy(valid); item['windows'][0][key]=value; variants.append(item)
+        for item in variants:
+            with self.assertRaises(ValueError): w.dialog_observation(encode(item))
+        for text in ['',encode(valid)+'\n'+encode(valid),'qa-uia-windows:'+'x'*4097]:
+            with self.assertRaises(ValueError): w.dialog_observation(text)
+        script=(SCRIPT.parent/'native-qa-open-dialog.ps1').read_text()
+        self.assertIn("$window.Current.ProcessId -ne $targetPid",script)
+        self.assertIn("$dialogReason='not-found'",script)
+        self.assertIn("$dialogReason = 'provider-error'",script)
+        self.assertNotIn('$window.Current.Name',script)
+        self.assertNotIn('$window.Current.AutomationId',script)
+
+    def test_ui_script_is_scoped_and_uses_only_real_control_patterns(self):
+        script=(SCRIPT.parent/'native-qa-open-dialog.ps1').read_text()
+        self.assertIn('RootElement.FindAll([Windows.Automation.TreeScope]::Children, $condition)',script)
+        self.assertNotIn('RootElement.FindAll([Windows.Automation.TreeScope]::Descendants',script)
+        for guard in ['$candidates.Count -ne 1','$buttons.Count -ne 1','$value.Current.IsReadOnly','$value.Current.Value -cne $fixture',"ClassName -ceq '#32770'",'$dialog.Current.ProcessId -ne $targetPid']:
+            self.assertIn(guard,script)
+        self.assertNotIn('$window.GetCurrentPattern',script)
+        self.assertNotIn('$pattern.Current.IsModal',script)
+        self.assertIn("ClassName -ceq '#32770' -and $window.Current.IsEnabled",script)
+        self.assertIn('$value.SetValue($fixture)',script); self.assertIn('$invoke.Invoke()',script)
+        for forbidden in ['SendKeys','SendInput','ExecutionPolicy','__TAURI','Get-CimInstance']:
+            self.assertNotIn(forbidden,script)
+        self.assertIn('qa-uia-detail:',script)
+        self.assertIn('$fixedViolations -contains $_.Exception.Message',script)
+        emitted=set(re.findall(r"'([a-z-]+)'",re.search(r'\$detailReasons = @\(([^)]*)\)',script).group(1)))
+        self.assertEqual(emitted,w.UIA_DETAIL_KINDS)
+        self.assertIn("'CLI startup fixture result:'",SCRIPT.read_text())
+        self.assertIn('CLI startup remains failed.',SCRIPT.read_text())
+
+    def test_uia_failure_label_uses_only_fixed_markers(self):
+        for stderr,expected in [('qa-uia-failed:filename\nqa-uia-detail:readonly\n',('filename','readonly')),
+                                ('qa-uia-detail:dialog-unavailable\nqa-uia-failed:dialog\n',('dialog','dialog-unavailable')),
+                                ('qa-uia-failed:dialog\n',('dialog',None)),
+                                ('qa-uia-detail:pid\n',(None,'pid')),
+                                ('',(None,None)),
+                                ('qa-uia-detail:secret-provider-text\nqa-uia-failed:confirm\n',('confirm',None)),
+                                ('qa-uia-detail:PID\nqa-uia-failed:inputs\n',('inputs',None)),
+                                ('qa-uia-detail:'+'x'*40+'\nqa-uia-failed:inputs\n',('inputs',None))]:
+            self.assertEqual(w.uia_failure(stderr),expected)
 
     @unittest.skipUnless(os.name=='nt','requires actual Windows temporary paths')
     def test_windows_path_spelling_diagnostic_and_strict_production_root(self):

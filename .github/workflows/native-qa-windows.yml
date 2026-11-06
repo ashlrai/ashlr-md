@@ -23,6 +23,11 @@ jobs:
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
         with:
           toolchain: '1.99.1'
+      - name: Actual PowerShell dialog-selection regression
+        timeout-minutes: 1
+        run: |
+          & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -File scripts/test-native-qa-open-dialog.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Synthetic Windows harness and descendant cleanup checks
         run: python scripts/test-native-qa-windows.py
       - name: Check installed WebView2 and Edge driver compatibility
@@ -33,6 +38,9 @@ jobs:
         id: process_query
         timeout-minutes: 1
         run: python scripts/native-qa-windows.py --check-process-query
+      - name: Check built-in Windows UI Automation availability
+        timeout-minutes: 1
+        run: python scripts/native-qa-windows.py --check-uia
       - name: Install pinned driver and build locked signature verifier
         run: |
           cargo install tauri-driver --version 2.1.0 --locked

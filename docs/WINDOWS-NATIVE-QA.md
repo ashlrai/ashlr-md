@@ -109,3 +109,74 @@ are printed. Raw arguments, process environment and unrelated processes are neve
 logged. A missing or ambiguous observation is reported as unavailable, not proof
 that the app received its file. The exact startup content oracle remains unchanged;
 no second launch, UI bypass or application IPC injection substitutes for it.
+
+## Distinct real Open-file UI scenario
+
+Run 41404877693 passed installation, original PE identity, native window launch,
+uninstall and staging cleanup, but the startup fixture was not opened. The optional
+CIM query timed out, so delivery of the CLI argument remains unproven. This failure
+must not be relabeled as a successful CLI startup test.
+
+The bounded additional scenario uses the original app's visible **Open a file**
+button (`src/components/Welcome.tsx` at original 721b) through standard WebDriver
+Element Click. Its original `src/lib/openFile.ts` handler opens the real Tauri native
+Markdown picker. No script invokes an app API or changes the document store.
+Built-in .NET UI Automation then selects only the verified owned app PID's unique
+enabled `#32770` dialog (modality is observed, not required) among immediate desktop children, not desktop descendants.
+Within that dialog it requires the unique enabled filename Edit control identified
+by automation ID 1148 (or its ComboBox parent), writable ValuePattern and exact path
+readback, followed by the unique enabled Button ID 1 and InvokePattern. These
+native control IDs/patterns are expectations to qualify, not already observed proof;
+missing or ambiguous controls fail closed without another input technique.
+
+Assembly availability is checked token-free before artifact preparation. No tool,
+service, UIAccess permission, Developer Mode, input-injection fallback or execution
+policy change is added. The helper receives only the owned PID/app and canonical
+synthetic fixture/ready paths. Its complete subprocess lifetime is bounded at 60
+seconds, including startup, with a 30-second readiness ceiling and 25-second dialog
+polling window. The unchanged 300-second worker ceiling still applies to the whole
+scenario; timeouts kill the helper, and existing owned-Job cleanup/uninstall remains.
+No private desktop text, full tree, raw argv or provider error is logged.
+
+After real UI selection, the unchanged exact heading/Unicode DOM oracle and fixture
+integrity assertion must pass. Logs and the temporary `scenario-results.json`
+separately distinguish failed CLI startup from a passed real-Open UI scenario. A job
+that passes this added scenario does not establish CLI correctness or release readiness.
+
+References: [WebDriver Element Click](https://www.w3.org/TR/webdriver/#element-click),
+[Microsoft UIA file dialogs](https://learn.microsoft.com/en-us/windows/apps/dev-tools/winapp-cli/ui-automation#file-dialog-interaction),
+[ValuePattern](https://learn.microsoft.com/en-us/dotnet/api/system.windows.automation.valuepattern.setvalue),
+[InvokePattern](https://learn.microsoft.com/en-us/dotnet/framework/ui-automation/invoke-a-control-using-ui-automation).
+
+### One bounded dialog-identity observation
+
+Run 41407111469 passed UIA assembly preflight, but the real Open attempt stopped
+in the dialog-identification phase before filename or confirmation. That phase
+alone does not distinguish a missing picker from a provider exception. One bounded
+read-only diagnostic reports at most eight exact-owned-PID direct desktop windows:
+class (64 restricted ASCII characters), enabled flag, WindowPattern availability
+and modal boolean. It never records titles, text, paths, handles or other processes.
+Fixed query/inspect/select/wait stages and provider-error/not-found/ambiguous/
+count-overflow/ownership reasons distinguish provider limitations from absence.
+A transient provider exception inside one poll retries within the unchanged
+25-second deadline instead of ending the poll early; the fixed count-overflow,
+ownership and ambiguity violations still abort immediately. Every failure also
+emits one allowlisted `qa-uia-detail:` throw-reason marker, so input, filename
+and confirmation phases report which fixed check failed; provider exception
+text never matches the allowlist and is never printed. Malformed or oversized
+observations are not printed. Existing dialog identity, filename and
+confirmation predicates are unchanged; observation cannot authorize
+input. If this attempt establishes no supported reliable dialog identity, retain
+the failed CLI and blocked UI qualification instead of repeatedly relaxing selectors.
+
+The first bounded observation (41408781729) exposed a separate diagnostic bug:
+PowerShell's case-insensitive automatic `$Matches` variable collided with the
+helper's candidate-array name. Scalar regex class validation overwrote that array,
+so a non-dialog `TauriWindow` could be selected as a string and fail strict property
+access. An actual standalone PowerShell 7.6.9 reproduction confirmed this behavior;
+renaming the candidate collection avoids it. The durable PowerShell regression
+executes the real helper's selection block with synthetic provider stand-ins,
+covering ordinary windows, one enabled owned dialog (modality observed, not required), disabled and ambiguous cases.
+It runs under built-in Windows PowerShell before artifact preparation. This tests
+language semantics, not native UIA compatibility. The earlier pre-diagnostic picker
+failure remains unexplained; only one corrected bounded observation is justified.
