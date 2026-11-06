@@ -32,6 +32,7 @@ import {
   ruleMissingAltText,
   ruleNoTrailingSpaces,
   ruleOrphanedHeading,
+  ruleWikilinkTargetsExist,
 } from "./mdlint";
 
 describe("invalid-link autofix across separate lines", () => {
@@ -13182,6 +13183,132 @@ describe("invalid-link-target autofix: deferred inside an image fix", () => {
     const done = fixPass(solo);
     expect(done).toBe("x ![TODO: describe image](TODO) y\n");
     expect(fixPass(done)).toBe(done);
+  });
+});
+
+describe("invalid-link autofix idempotence beside an unresolvable wikilink", () => {
+  const rules = [ruleWikilinkTargetsExist, ruleInvalidLinkTarget];
+  const knownTargets = new Set(["Present"]);
+  const lint = (text: string) => lintDocument(text, { rules, knownTargets });
+  const pass = (text: string) => applyAllFixes(text, lint(text));
+
+  beforeEach(() => {
+    clearLintHistory();
+  });
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("a second pass leaves the first result unchanged while unfixable error violations persist (%j)", (nl) => {
+    // The wikilinks have no fix, so they outlive every pass; the invalid
+    // links around them converge in one.
+    const doc = [
+      "[[Ghost]] then [a]() and [b](#).",
+      "Mid [c]() [[Also Gone]] [d](?) end.",
+      "Known [[Present]] and [ok](./ok.md) stay.",
+      "",
+    ].join(nl);
+    const first = lint(doc);
+
+    expect(first.map((v) => v.ruleId)).toEqual([
+      "wikilink-targets-exist",
+      "invalid-link-target",
+      "invalid-link-target",
+      "invalid-link-target",
+      "wikilink-targets-exist",
+      "invalid-link-target",
+    ]);
+    const firstWiki = first.filter((v) => v.ruleId === "wikilink-targets-exist");
+    expect(firstWiki.every((v) => v.severity === "error" && v.fix === null)).toBe(true);
+
+    // Fix All repairs the four links and records one history entry each;
+    // the unfixable wikilinks are skipped silently.
+    const once = fixAllViolations(doc, first);
+    expect(once).toBe(
+      [
+        "[[Ghost]] then [a](TODO) and [b](TODO).",
+        "Mid [c](TODO) [[Also Gone]] [d](TODO) end.",
+        "Known [[Present]] and [ok](./ok.md) stay.",
+        "",
+      ].join(nl),
+    );
+    expect(getLintHistory()).toHaveLength(4);
+
+    // The second lint reports the two wikilinks again and nothing else. The
+    // first sits at its original offset — nothing before it changed — while
+    // the second moved 11 columns (the "()", "(#)" and "()" hrefs ahead of
+    // it grew to "TODO" by +4, +3 and +4).
+    const second = lint(once);
+    expect(second.map((v) => v.ruleId)).toEqual([
+      "wikilink-targets-exist",
+      "wikilink-targets-exist",
+    ]);
+    expect(second[0].range!.from.offset).toBe(firstWiki[0].range!.from.offset);
+    expect(second[1].range!.from.offset).toBe(firstWiki[1].range!.from.offset + 11);
+    expect(once.slice(second[1].range!.from.offset, second[1].range!.to.offset)).toBe(
+      "[[Also Gone]]",
+    );
+
+    // The second autofix pass changes nothing — the only remaining
+    // violations cannot be fixed — and Fix All records no new history.
+    const history = [...getLintHistory()];
+    expect(fixAllViolations(once, second)).toBe(once);
+    expect(applyAllFixes(once, second)).toBe(once);
+    expect(getLintHistory()).toEqual(history);
+
+    // Replaying the stale first-pass set is a no-op too: each link fix finds
+    // its match already repaired and the wikilinks carry no fix.
+    expect(applyAllFixes(once, first)).toBe(once);
+    expect(applyFix(once, second[0])).toBe(once);
+    // The whole pipeline squared lands on the same fixed point.
+    expect(pass(pass(doc))).toBe(once);
+    expect(pass(once)).toBe(once);
+  });
+
+  it.each([
+    [
+      "between identical links",
+      4,
+      "[x]() keeps [[Ghost]] and [x]() company.",
+      "[x](TODO) keeps [[Ghost]] and [x](TODO) company.",
+    ],
+    [
+      "after identical links",
+      8,
+      "[x]() and [x]() then [[Ghost]].",
+      "[x](TODO) and [x](TODO) then [[Ghost]].",
+    ],
+    [
+      "before identical links",
+      0,
+      "[[Ghost]]: [x]() and [x]().",
+      "[[Ghost]]: [x](TODO) and [x](TODO).",
+    ],
+  ])("a wikilink %s keeps reporting at its shifted offset while the second pass stays a no-op (shift %i)", (_name, shift, line, repaired) => {
+    for (const nl of ["\n", "\r\n"]) {
+      const doc = `${line}${nl}`;
+      const first = lint(doc);
+      const wikis = first.filter((v) => v.ruleId === "wikilink-targets-exist");
+
+      expect(first).toHaveLength(3);
+      expect(wikis).toHaveLength(1);
+      expect(doc.slice(wikis[0].range!.from.offset, wikis[0].range!.to.offset)).toBe(
+        "[[Ghost]]",
+      );
+
+      const once = applyAllFixes(doc, first);
+      expect(once).toBe(`${repaired}${nl}`);
+
+      // The wikilink violation comes back at its moved offset — it shifted by
+      // exactly the "()" → "TODO" growth of the links ahead of it — and the
+      // second pass leaves the first result byte-for-byte unchanged.
+      const second = lint(once);
+      expect(second.map((v) => v.ruleId)).toEqual(["wikilink-targets-exist"]);
+      expect(second[0].range!.from.offset).toBe(wikis[0].range!.from.offset + shift);
+      expect(applyAllFixes(once, second)).toBe(once);
+      expect(applyAllFixes(once, first)).toBe(once);
+      expect(pass(pass(doc))).toBe(once);
+    }
   });
 });
 
