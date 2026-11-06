@@ -186,7 +186,7 @@ Threat model: https://github.com/ashlrai/ashlr-md/blob/main/SECURITY.md
 |---|---|
 | `src/` | React frontend |
 | `src-tauri/src/` | Rust app core |
-| `src-tauri/bins/` | `mdopen`, `mdopener-mcp`, Swift sidecar |
+| `src-tauri/bins/` | `mdopen`, `mdopener-mcp`, macOS Swift sidecars |
 | `docs/AGENTS.md` | MCP tool contract |
 | `docs/EXAMPLES.md` | pasteable commands |
 | `landing/` | marketing site |
