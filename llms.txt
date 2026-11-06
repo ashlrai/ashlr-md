@@ -43,3 +43,42 @@ python3 scripts/connect-cursor.py
 - [Security](https://github.com/ashlrai/ashlr-md/blob/main/SECURITY.md): threat model
 - [Obsidian](https://github.com/ashlrai/ashlr-md/blob/main/docs/OBSIDIAN.md): vault notes, wikilinks, and the Open in Ashlr MD plugin
 - [Contributing](https://github.com/ashlrai/ashlr-md/blob/main/CONTRIBUTING.md): how to send a change
+
+## Product and plans
+
+- [README](README.md): project overview and agent setup.
+- [Vision](docs/VISION.md): the product goal.
+- [Roadmap](ROADMAP.md): planned work and the build loop.
+- [Changelog](CHANGELOG.md): user-visible changes.
+- [Install guide](docs/INSTALL.md): installation and command-line setup.
+
+## Agent integration
+
+- [Agent guide](docs/AGENTS.md): the MCP tool contract and CLI.
+- [Phantom integration](docs/PHANTOM.md): how Phantom opens Markdown.
+- [MCP discovery metadata](docs/mcp-registry.md): server registry metadata.
+- [Agent contribution rules](AGENTS.md): repository instructions for agents.
+
+## Editor and app integrations
+
+- [Obsidian compatibility](docs/OBSIDIAN.md): supported vault features.
+- [VS Code extension](integrations/vscode/README.md): open Markdown from VS Code.
+- [Obsidian plugin](integrations/obsidian/README.md): open notes from Obsidian.
+- [Raycast extension](integrations/raycast/README.md): open recent Markdown files.
+
+## Contributing and security
+
+- [Contributing](CONTRIBUTING.md): development and checks.
+- [Security policy](SECURITY.md): vulnerability reporting and threat model.
+- [Release process](docs/RELEASING.md): release runbook.
+- [Post-quantum readiness](docs/PQ-READINESS.md): cryptography inventory and migration considerations.
+
+## Samples
+
+- [Showcase](samples/showcase.md): supported Markdown features.
+- [Agent plan sample](samples/agent-plan.md): an example agent plan.
+
+## More resources
+
+- [Landing page readme](landing/README.md): landing page development.
+- [Historical Linux probe](docs/NATIVE-QA-PROPOSAL.md): a bounded historical qualification proposal.
