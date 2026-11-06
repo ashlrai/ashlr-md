@@ -33,3 +33,9 @@ yarn.lock
 # Merge-queue Codecov output
 coverage/
 junit.xml
+
+# Private local release-assembly output
+/.release-staging/
+
+# Python bytecode caches
+__pycache__/

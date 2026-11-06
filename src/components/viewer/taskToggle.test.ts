@@ -125,6 +125,20 @@ describe("task checkboxes in the read view", () => {
     expect(content()).toBe("-\n  [x] next line\n-\t[ ] tabbed\n");
   });
 
+  it("toggles the correct source line in cached chunks after a line insertion", async () => {
+    const prefix = Array.from({ length: 120 }, (_, n) => `Paragraph ${n}.\n\n`).join(
+      "",
+    );
+    await open(`${prefix}- [ ] first\n- [ ] second\n`);
+    await click(1);
+    expect(content()).toBe(`${prefix}- [ ] first\n- [x] second\n`);
+    await act(async () => {
+      useDocumentStore.setState({ content: `Inserted\n\n${content()}` });
+    });
+    await click(0);
+    expect(content()).toBe(`Inserted\n\n${prefix}- [x] first\n- [x] second\n`);
+  });
+
   it("leaves raw HTML checkboxes and embedded text alone", async () => {
     const doc = '- [ ] real\n\n<input type="checkbox" data-task-line="1">\n';
     await open(doc);
@@ -140,5 +154,70 @@ describe("task checkboxes in the read view", () => {
     expect(boxes()[0].disabled).toBe(true);
     await click(0);
     expect(content()).toBe(doc);
+  });
+
+  it("does not apply a stale rendered task to an agent-updated document", async () => {
+    const rendered = "# Plan\n\n- [ ] original\n";
+    await act(async () => {
+      useDocumentStore.setState({
+        path: "/notes/plan.md",
+        content: rendered,
+        diskContent: rendered,
+      });
+      root.render(createElement(Renderer, { content: rendered }));
+    });
+    const updated = "# Plan\n\nAgent inserted text\n\n- [ ] original\n";
+    await act(async () => useDocumentStore.setState({ content: updated }));
+    expect(boxes()[0].disabled).toBe(true);
+    await click(0);
+    expect(content()).toBe(updated);
+    expect(invoke).not.toHaveBeenCalledWith("write_markdown_file", expect.anything());
+    await act(async () => root.render(createElement(Renderer, { content: updated })));
+    await click(0);
+    expect(content()).toBe(updated.replace("- [ ] original", "- [x] original"));
+  });
+
+  it("rebinds cached task output when switching documents and undoing an edit", async () => {
+    function Current() {
+      return createElement(Renderer, { content: useDocumentStore((s) => s.content) });
+    }
+    const first = "# Plan\n\n- [ ] first\n";
+    const second = "# Plan\n\nDifferent prose\n\n- [ ] second\n";
+    await act(async () => {
+      useDocumentStore.setState({
+        path: "/notes/first.md",
+        content: first,
+        diskContent: first,
+      });
+      root.render(createElement(Current));
+    });
+    await click(0);
+    await act(async () =>
+      useDocumentStore.setState({
+        path: "/notes/second.md",
+        content: second,
+        diskContent: second,
+      }),
+    );
+    await click(0);
+    expect(content()).toBe(second.replace("- [ ] second", "- [x] second"));
+    expect(invoke).toHaveBeenLastCalledWith("write_markdown_file", {
+      path: "/notes/second.md",
+      content: content(),
+    });
+    await act(async () =>
+      useDocumentStore.setState({
+        path: "/notes/first.md",
+        content: first,
+        diskContent: first,
+      }),
+    );
+    expect(boxes()[0].checked).toBe(false);
+    await click(0);
+    expect(content()).toBe(first.replace("- [ ] first", "- [x] first"));
+    expect(invoke).toHaveBeenLastCalledWith("write_markdown_file", {
+      path: "/notes/first.md",
+      content: content(),
+    });
   });
 });

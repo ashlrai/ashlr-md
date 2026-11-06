@@ -1,26 +1,101 @@
 name: Release
 
 # Triggers on any tag that starts with "v" (e.g. v0.1.0, v1.2.3-beta.1).
+# Also runs on workflow_dispatch (auto-tag.yml fallback and the manual path):
+#   gh workflow run release.yml -R ashlrai/ashlr-md -f version=X.Y.Z
+# The tag vX.Y.Z must already exist; the build checks out that tag's commit,
+# never the dispatch ref.
 on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build (X.Y.Z); tag vX.Y.Z must already exist"
+        required: true
+        type: string
 
 # Only one release can be in-flight at a time for a given tag.
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ inputs.version && format('v{0}', inputs.version) || github.ref_name }}
   cancel-in-progress: false
 
 permissions:
   contents: read
 
 jobs:
-  full-suite-evidence:
-    # Release gate: the full suite (macOS and Windows included) must have
-    # passed in a manual workflow_dispatch run of CI on this exact sha.
-    name: Full suite green on release sha
+  prepare:
+    # Resolve the tag to the commit that is built and gated. A tag push uses
+    # its own tag; a dispatch names the tag through the version input, which
+    # must be strict X.Y.Z and must already exist as vX.Y.Z.
+    name: Resolve release tag
     runs-on: ubuntu-latest
     timeout-minutes: 3
+    permissions:
+      contents: read
+    outputs:
+      tag: ${{ steps.resolve.outputs.tag }}
+      sha: ${{ steps.resolve.outputs.sha }}
+    steps:
+      - name: Resolve tag to commit
+        id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+          REF_NAME: ${{ github.ref_name }}
+          EVENT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = workflow_dispatch ]; then
+            [[ "$INPUT_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::version must match X.Y.Z"; exit 1; }
+            tag="v${INPUT_VERSION}"
+          else
+            tag="$REF_NAME"
+          fi
+          sha="$(gh api "repos/${REPO}/commits/refs/tags/${tag}" --jq '.sha')" || { echo "::error::tag ${tag} does not exist"; exit 1; }
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::could not resolve ${tag}"; exit 1; }
+          if [ "$EVENT" = push ] && [ "$sha" != "$EVENT_SHA" ]; then
+            echo "::error::tag ${tag} resolves to ${sha}, not the pushed ${EVENT_SHA}"; exit 1
+          fi
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "sha=${sha}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ steps.resolve.outputs.sha }}
+          persist-credentials: false
+
+      - name: Require version carriers to equal the tag
+        env:
+          TAG: ${{ steps.resolve.outputs.tag }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, tomllib
+          want = os.environ["TAG"].removeprefix("v")
+          got = {
+              "package.json": json.load(open("package.json"))["version"],
+              "src-tauri/tauri.conf.json": json.load(open("src-tauri/tauri.conf.json"))["version"],
+              "src-tauri/Cargo.toml": tomllib.load(open("src-tauri/Cargo.toml", "rb"))["package"]["version"],
+          }
+          bad = {k: v for k, v in got.items() if v != want}
+          if bad:
+              raise SystemExit(f"::error::version does not match tag {want}: {bad}")
+          print("version carriers match", want)
+          PY
+
+  full-suite-evidence:
+    # Release gate: the Linux and macOS full suites must have
+    # passed in a CI run on this exact sha: either a manual workflow_dispatch
+    # run, or the post-merge push-to-main run, which executes the same
+    # linux-full and macos-full suites.
+    name: Full suite green on release sha
+    needs: [prepare]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       actions: read
     steps:
@@ -28,16 +103,28 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
-          SHA: ${{ github.sha }}
+          SHA: ${{ needs.prepare.outputs.sha }}
           CI_WORKFLOW: ci.yml
         run: |
           set -euo pipefail
-          n="$(gh api "repos/${REPO}/actions/workflows/${CI_WORKFLOW}/runs?event=workflow_dispatch&head_sha=${SHA}&status=success&per_page=1" --jq '.total_count')"
-          if [ "${n:-0}" -lt 1 ]; then
-            echo "::error::No successful workflow_dispatch run of ${CI_WORKFLOW} on ${SHA}. Run 'gh workflow run ${CI_WORKFLOW} --ref <this ref>', wait for green, then release."
-            exit 1
-          fi
-          echo "full suite green on ${SHA} (${n} run(s))"
+          # The tag can arrive before post-merge CI completes (v0.7.0 did).
+          # Keep the same exact-SHA success requirement, waiting at most 15 min.
+          # API errors and malformed evidence fail immediately, never as zero.
+          for attempt in {0..30}; do
+            for event in workflow_dispatch push; do
+              c="$(gh api "repos/${REPO}/actions/workflows/${CI_WORKFLOW}/runs?event=${event}&head_sha=${SHA}&status=success&per_page=1" --jq '.total_count')"
+              [[ "$c" =~ ^(0|[1-9][0-9]*)$ ]] || { echo "::error::Invalid CI run count"; exit 1; }
+              if [ "$c" != 0 ]; then
+                echo "full suite green on ${SHA} (${c} ${event} run(s))"
+                exit 0
+              fi
+            done
+            if [ "$attempt" -eq 30 ]; then break; fi
+            echo "Waiting for successful exact-SHA full CI (${attempt}/30)"
+            sleep 30
+          done
+          echo "::error::No successful workflow_dispatch or push run of ${CI_WORKFLOW} on ${SHA} after 15 minutes. Run 'gh workflow run ${CI_WORKFLOW} --ref <this ref>' and inspect CI before retrying."
+          exit 1
 
   # ---------------------------------------------------------------------------
   # Build matrix: macOS (aarch64 + x86_64), Linux (x86_64), Windows (x86_64).
@@ -53,15 +140,14 @@ jobs:
   #        tauri.macos.conf.json   → mdopen, mdopener-mcp, mdopener-afm, mdopener-setdefault
   #        tauri.linux.conf.json   → mdopen, mdopener-mcp
   #        tauri.windows.conf.json → mdopen.exe, mdopener-mcp.exe
-  #   3. Uploads artifacts to the same GitHub Release draft.
-  #      tauri-action appends per-platform entries to the updater latest.json
-  #      so the final release contains a unified multi-platform update manifest.
+  #   3. Uploads per-platform workflow artifacts for manual assembly.
+  #      No GitHub Release or updater manifest is created by this workflow.
   #
   # Apple signing/notarization is gated behind HAS_APPLE_SIGNING so the
   # macOS job still succeeds on forks without certificates.
   # ---------------------------------------------------------------------------
   release:
-    needs: [full-suite-evidence]
+    needs: [prepare, full-suite-evidence]
     name: Build & release (${{ matrix.platform }})
     permissions:
       contents: write   # Required to create / update the GitHub Release
@@ -73,7 +159,7 @@ jobs:
           # ------------------------------------------------------------------
           # macOS arm64 (primary shipping target, Apple Silicon)
           # ------------------------------------------------------------------
-          - platform: macos-14
+          - platform: macos-15
             rust-target: aarch64-apple-darwin
             tauri-args: "--target aarch64-apple-darwin"
             build-sidecars: "bash scripts/build-sidecars.sh"
@@ -82,7 +168,7 @@ jobs:
           # ------------------------------------------------------------------
           # macOS x86_64 (Intel Macs)
           # ------------------------------------------------------------------
-          - platform: macos-13
+          - platform: macos-15-intel
             rust-target: x86_64-apple-darwin
             tauri-args: "--target x86_64-apple-darwin"
             build-sidecars: "bash scripts/build-sidecars.sh"
@@ -120,26 +206,20 @@ jobs:
 
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          persist-credentials: false
 
       # ---- Toolchain setup -------------------------------------------------
 
       # Select the latest available Xcode on macOS runners.
       # -----------------------------------------------------------------------
-      # WHY: The mdopener-afm Swift sidecar requires Xcode 26 / Swift 6.2+
-      # (macOS 26 SDK) to compile. setup-xcode@v1 with xcode-version: latest
-      # picks the newest Xcode installed on the runner image. GitHub-hosted
-      # macos-14 / macos-13 images lag Xcode releases by several weeks, so
-      # "latest" may resolve to Xcode 16.x until Apple releases Xcode 26 GM
-      # and GitHub updates their runner images.
-      #
-      # KNOWN RISK: If the runner image does not yet carry Xcode 26 (Swift 6.2+),
-      # the mdopener-afm sidecar build step inside scripts/build-sidecars.sh
-      # will fail or produce a binary missing macOS 26 SDK APIs. Monitor:
-      #   https://github.com/actions/runner-images/releases
-      # Once Xcode 26 is available on hosted runners, pin here:
-      #   xcode-version: "26.0"
-      # All other bundle artifacts (Rust sidecars, app bundle, DMG) are unaffected
-      # by this risk — only the Swift AFM sidecar depends on the Xcode version.
+      # mdopener-afm requires Xcode 26 / Swift 6.2+ and the macOS 26 SDK.
+      # Native macos-15 (ARM) and macos-15-intel images provide Xcode 26;
+      # "latest" avoids their older default Xcode. Keep each host native:
+      # build-sidecars.sh builds Rust and Swift helpers for the host architecture.
+      # Check each build's selected Xcode and sidecar output; resource
+      # reconciliation below preserves the existing best-effort Swift behavior.
       # -----------------------------------------------------------------------
       - name: Select latest Xcode (macOS only)
         if: matrix.os == 'macOS'
@@ -275,15 +355,14 @@ jobs:
 
       # ---- Tauri build + GitHub Release ------------------------------------
       # tauri-action auto-detects the platform config overlay.
-      # All matrix legs target the same tagName / releaseName so tauri-action
-      # updates the same GitHub Release draft and appends platform-specific
-      # entries to the updater latest.json on each run.
+      # No tagName or releaseId is supplied; tauri-action does not create
+      # a Release or updater manifest in this build-only invocation.
 
-      # Build only — we do NOT publish from CI. The ashlrai org disables write
-      # for the workflow GITHUB_TOKEN, so the release is assembled and published
+      # Build only — we do NOT publish from CI. The release is assembled and published
       # with a maintainer's credentials from the per-platform artifacts uploaded
       # below. Omitting tagName makes tauri-action build without touching the
-      # release API. Updater signing still runs so each bundle has its .sig.
+      # release API. Updater signing runs for eligible updater artifacts;
+      # assembly must still verify the actual inventory and signatures.
       - name: Build Tauri app
         id: tauri
         uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0

@@ -210,6 +210,8 @@ export const ruleFrontmatterRequired: LintRule = {
     "Every document should start with a YAML frontmatter block: a --- line, closed by --- or ...",
   severity: "warning",
   check({ doc }): LintViolation[] {
+    // An empty draft has no content to annotate with frontmatter yet.
+    if (doc.trim() === "") return [];
     // The front matter rule of markdownLines (outline.ts, as mdopener-mcp
     // reads it): a first `---` line closed by a later `---` or `...` line.
     // A regex used to require `---`, so a block closed by `...` was flagged,
@@ -291,12 +293,12 @@ export const ruleNoBareUrls: LintRule = {
       const to = from + url.length;
       violations.push({
         ruleId: "no-bare-urls",
-        message: `Bare URL: ${url.length > 60 ? url.slice(0, 57) + "…" : url}`,
+        message: `Bare URL: ${url.length > 60 ? `${url.slice(0, 57)}…` : url}`,
         severity: "warning",
         range: range(doc, from, to),
         fix: (d) => {
           // Replace this specific occurrence by offset
-          return d.slice(0, from) + `[${url}](${url})` + d.slice(to);
+          return `${d.slice(0, from)}[${url}](${url})${d.slice(to)}`;
         },
       });
     }
@@ -404,6 +406,8 @@ export const ruleNoTrailingSpaces: LintRule = {
   description: "Lines should not end with trailing whitespace.",
   severity: "info",
   check({ doc, lines }): LintViolation[] {
+    // Preserve blank drafts exactly, including intentional whitespace.
+    if (doc.trim() === "") return [];
     const violations: LintViolation[] = [];
     let offset = 0;
     // Code keeps its spaces: the fix used to take them off code lines.
@@ -587,15 +591,34 @@ export const ruleInvalidLinkTarget: LintRule = {
       if (/^\s*$/.test(href) || href === "#" || href === "?") {
         const from = m.index;
         const to = from + m[0].length;
-        const hrefEnd = to - 1;
-        const hrefStart = hrefEnd - href.length;
-        const text = m[1] || "link";
+        // Keep the captured label for autofix; the fallback is display-only.
+        const text = m[1];
+        const originalMatch = m[0];
         violations.push({
           ruleId: "invalid-link-target",
-          message: `Invalid link target: [${text.slice(0, 30)}](${href || "empty"})`,
+          message: `Invalid link target: [${(text || "link").slice(0, 30)}](${href || "empty"})`,
           severity: "warning",
           range: range(doc, from, to),
-          fix: (d) => d.slice(0, hrefStart) + "TODO" + d.slice(hrefEnd),
+          fix: (d) => {
+            // Search the masked text (same offsets as `d`) so a stale fix
+            // applied a second time cannot rewrite an identical link inside
+            // code, front matter or HTML the rule skipped.
+            const masked = stripCodeBlocks(d);
+            let idx = masked.indexOf(originalMatch, from);
+            if (idx !== from) {
+              // Earlier fixes can shrink the document and move this link
+              // before its recorded offset. Prefer the nearest live match,
+              // retaining the mask so code samples cannot become targets.
+              const prev = masked.lastIndexOf(originalMatch, from);
+              if (idx === -1 || (prev !== -1 && from - prev <= idx - from)) {
+                idx = prev;
+              }
+            }
+            if (idx === -1) return d;
+            return (
+              d.slice(0, idx) + `[${text}](TODO)` + d.slice(idx + originalMatch.length)
+            );
+          },
         });
       }
     }
@@ -629,7 +652,7 @@ export const ruleMissingAltText: LintRule = {
         const src = srcMatch ? srcMatch[1] : "";
         violations.push({
           ruleId: "missing-alt-text",
-          message: `Image is missing alt text: ${src.length > 40 ? src.slice(0, 37) + "…" : src}`,
+          message: `Image is missing alt text: ${src.length > 40 ? `${src.slice(0, 37)}…` : src}`,
           severity: "warning",
           range: range(doc, from, to),
           fix: (d) => {
@@ -713,19 +736,37 @@ export function lintDocument(doc: string, opts: LintOptions = {}): LintViolation
  * so fixes don't invalidate each other's offsets.
  */
 export function applyAllFixes(doc: string, violations: LintViolation[]): string {
-  // Only violations with a fix function, sorted by descending offset
+  const fixable = violations.filter((v) => v.fix !== null);
+  // A fix whose whole range sits inside another fixable's range edits text the
+  // wider fix replaces wholesale; applying both splices the wider fix at
+  // offsets the narrower one already shifted (`![](?)`, reported by
+  // missing-alt-text and invalid-link-target, used to come out
+  // `![TODO: describe image](?)DO)`). The wider fix wins in a batch; the
+  // narrower fix still applies on its own or on a later lint pass.
+  const independent = fixable.filter(
+    (v) =>
+      !v.range ||
+      !fixable.some(
+        (other) =>
+          other !== v &&
+          other.range !== null &&
+          other.range.from.offset <= v.range!.from.offset &&
+          other.range.to.offset >= v.range!.to.offset &&
+          (other.range.from.offset < v.range!.from.offset ||
+            other.range.to.offset > v.range!.to.offset),
+      ),
+  );
+  // Sorted by descending offset
   // (document-level violations last, then highest offset first).
-  const fixable = violations
-    .filter((v) => v.fix !== null)
-    .sort((a, b) => {
-      if (!a.range && !b.range) return 0;
-      if (!a.range) return 1; // doc-level fixes after positional
-      if (!b.range) return -1;
-      return b.range.from.offset - a.range.from.offset; // descending
-    });
+  const ordered = independent.sort((a, b) => {
+    if (!a.range && !b.range) return 0;
+    if (!a.range) return 1; // doc-level fixes after positional
+    if (!b.range) return -1;
+    return b.range.from.offset - a.range.from.offset; // descending
+  });
 
   let result = doc;
-  for (const v of fixable) {
+  for (const v of ordered) {
     result = v.fix!(result);
   }
   return result;

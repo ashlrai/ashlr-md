@@ -69,11 +69,15 @@ export type TableEdit =
  * Preserve existing escapes: parsed cells contain Markdown source, not plain text.
  */
 function padCell(value: string): string {
-  const content = value
-    .replace(/\r\n|\r|\n/g, "<br>")
-    .replace(/(\\*)\|/g, (match, slashes: string) =>
-      slashes.length % 2 === 0 ? `\\${match}` : match,
-    );
+  let content = "";
+  let slashes = 0;
+  // Scan once: an unanchored backslash-run regex retries at every backslash
+  // when no pipe follows. Only pipes after an even run need another escape.
+  for (const char of value.replace(/\r\n|\r|\n/g, "<br>")) {
+    if (char === "|" && slashes % 2 === 0) content += "\\";
+    content += char;
+    slashes = char === "\\" ? slashes + 1 : 0;
+  }
   return ` ${content} `;
 }
 

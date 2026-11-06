@@ -11,6 +11,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import "../styles/outline.css";
 import { anchorElement } from "../lib/docLinks";
 import { formatShortcut } from "../lib/keymap";
+import { listArrowFocus } from "../lib/listArrowFocus";
 import { smoothScrollBehavior } from "../lib/motion";
 import {
   filterHeadings,
@@ -228,7 +229,12 @@ export function Outline() {
       ) : filteredHeadings.length === 0 ? (
         <p role="status">No headings match your filter.</p>
       ) : (
-        <ul className="outline-list" ref={listRef}>
+        <ul
+          className="outline-list"
+          ref={listRef}
+          aria-label="Headings"
+          onKeyDown={listArrowFocus}
+        >
           {filteredHeadings.map((h) => {
             const isActive = h.slug === activeSlug;
             return (

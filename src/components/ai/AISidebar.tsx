@@ -21,8 +21,10 @@ import type { AIProvider } from "../../ai/types";
 import type { DocType } from "../../lib/docClassifier";
 import { formatShortcut, isActionEnter } from "../../lib/keymap";
 import { type LibraryCitation, retrieveLibraryContext } from "../../lib/libraryContext";
+import { listArrowFocus } from "../../lib/listArrowFocus";
 import { smoothScrollBehavior } from "../../lib/motion";
 import { recordAbort, recordFailure, recordSuccess } from "../../lib/telemetry";
+import { useFocusOnOpen, useReturnFocus } from "../../lib/useReturnFocus";
 import type { ChatMessage } from "../../store/aiStore";
 import { useAIStore } from "../../store/aiStore";
 import { useDocumentStore } from "../../store/documentStore";
@@ -252,6 +254,7 @@ function SetupNudge({
         <input
           className="ai-key-input"
           type="password"
+          aria-label="Anthropic API key"
           placeholder="sk-ant-…"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
@@ -309,6 +312,12 @@ function CloseIcon() {
 // AISidebar
 // ---------------------------------------------------------------------------
 
+const SIDEBAR_FOCUS = [
+  ".ai-input:not(:disabled)",
+  ".ai-stop-btn",
+  ".ai-recheck-btn",
+] as const;
+
 export function AISidebar() {
   const open = useAIStore((s) => s.open);
   const toggle = useAIStore((s) => s.toggle);
@@ -335,8 +344,9 @@ export function AISidebar() {
   const currentDocType = useUiStore((s) => s.currentDocType);
 
   const [input, setInput] = useState("");
+  const [quickAction, setQuickAction] = useState(DOC_ACTIONS[0].id);
   const [resolvedProvider, setResolvedProvider] = useState<AIProvider | null>(null);
-  const [detecting, setDetecting] = useState(false);
+  const [detecting, setDetecting] = useState(true);
   // A "Check again" on the setup panel found no provider.
   const [recheckMissed, setRecheckMissed] = useState(false);
   // retryState: holds the pending retry context when a generation fails.
@@ -352,8 +362,9 @@ export function AISidebar() {
   const lastErrorRef = useRef<AIErrorInfo | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
-  const restoreFocusRef = useRef<HTMLElement | null>(null);
+  const panelRef = useRef<HTMLElement>(null);
+  useReturnFocus(open, panelRef);
+  useFocusOnOpen(open && !detecting, panelRef, SIDEBAR_FOCUS);
 
   const isNoop = providerId === NOOP_PROVIDER_ID;
 
@@ -416,24 +427,6 @@ export function AISidebar() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: smoothScrollBehavior() });
   }, [messages]);
-
-  // Focus input when sidebar opens; restore focus to the trigger (the AI toggle
-  // button) when it closes so keyboard users aren't stranded.
-  useEffect(() => {
-    if (!open || isNoop) return;
-    restoreFocusRef.current = document.activeElement as HTMLElement | null;
-    const t = setTimeout(() => inputRef.current?.focus(), 250);
-    // Restore in cleanup so focus is returned both on close (open → false) AND
-    // on unmount while still open (e.g. the tab is closed) — otherwise keyboard
-    // focus is stranded on <body>.
-    return () => {
-      clearTimeout(t);
-      if (restoreFocusRef.current?.isConnected) {
-        restoreFocusRef.current.focus?.();
-        restoreFocusRef.current = null;
-      }
-    };
-  }, [open, isNoop]);
 
   // Build system context from current document (truncated to MAX_CONTEXT_CHARS).
   function buildSystemContext(): string {
@@ -698,8 +691,10 @@ export function AISidebar() {
 
   return (
     <aside
+      ref={panelRef}
       className={`ai-sidebar${open ? " ai-sidebar--open" : ""}`}
       aria-label="AI assistant"
+      inert={!open}
     >
       {/* Header */}
       <div className="ai-sidebar__header">
@@ -725,13 +720,21 @@ export function AISidebar() {
           used to repeat its label, so an empty document's greyed-out buttons
           gave no reason. They show only once a provider is set up. */}
       {!isNoop && provider && (
-        <section className="ai-quick-actions" aria-label="Quick actions">
+        <section
+          className="ai-quick-actions"
+          role="toolbar"
+          aria-label="Quick actions"
+          aria-orientation="horizontal"
+          onKeyDown={(e) => listArrowFocus(e, true)}
+        >
           {DOC_ACTIONS.map((a) => (
             <button
               key={a.id}
               type="button"
               className="ai-quick-btn"
               disabled={!!quickActionBlock}
+              tabIndex={a.id === quickAction ? 0 : -1}
+              onFocus={() => setQuickAction(a.id)}
               onClick={() => runDocAction(a.id)}
               title={quickActionBlock ? `${a.label}: ${quickActionBlock}` : a.label}
             >
@@ -768,7 +771,12 @@ export function AISidebar() {
       ) : (
         <>
           {/* Messages */}
-          <div className="ai-messages" role="log" aria-live="polite">
+          <div
+            className="ai-messages"
+            role="log"
+            aria-label="Conversation"
+            aria-live="polite"
+          >
             {messages.length === 0 && (
               <>
                 <div
@@ -871,7 +879,6 @@ export function AISidebar() {
           {/* Input row */}
           <div className="ai-input-row">
             <textarea
-              ref={inputRef}
               className="ai-input"
               placeholder="Ask about your document… (Enter to send, Shift+Enter for newline)"
               value={input}

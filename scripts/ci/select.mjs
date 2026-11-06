@@ -95,13 +95,12 @@ export function main(argv = process.argv.slice(2), env = process.env) {
     const p = plan(event, files);
     emit({ ...p, jsBase: mergeBase });
     process.stderr.write(`select: mode=${p.mode} js=${p.js} rust=${p.rust} rust_args=${p.rustArgs} files=${files?.length ?? 'n/a'}\n`);
-    return 0;
   } catch (err) {
     // Selection errors fall back to the full suite and never fail the job.
     process.stderr.write(`select: error, falling back to full suite: ${err.message}\n`);
     emit({ ...FULL });
-    return 0;
   }
+  return 0;
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

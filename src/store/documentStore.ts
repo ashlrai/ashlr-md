@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { create } from "zustand";
+import { useAgentEditStore } from "../editor/agentEditMode";
 import {
   apply,
   type CursorPosition,
@@ -234,6 +235,9 @@ interface DocumentState {
    */
   openPath: (path: string, opts?: OpenOptions) => Promise<string | null>;
   setContent: (content: string) => void;
+  /** Replace text from outside the editor and remount it on that text.
+   * Callers must flush pending edits before computing the replacement. */
+  replaceContent: (content: string) => void;
   /**
    * Apply a remote OT operation atomically.
    * Returns `true` if the op was applied successfully, `false` if it failed
@@ -698,6 +702,23 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       };
     }),
 
+  replaceContent: (content) =>
+    set((s) => {
+      if (content === s.content) return s;
+      const next = {
+        ...s,
+        content,
+        isDirty: content !== s.diskContent,
+        reloadNonce: s.reloadNonce + 1,
+      };
+      return {
+        content: next.content,
+        isDirty: next.isDirty,
+        reloadNonce: next.reloadNonce,
+        tabs: syncActiveTab(next),
+      };
+    }),
+
   applyOp: (op) => {
     const s = get();
     try {
@@ -986,6 +1007,17 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
         content,
       });
       const version = typeof written === "string" ? written : null;
+      // Save As establishes a new file identity, unlike following a rename.
+      // Do not transfer earlier consent/history to that new document. Read the
+      // live tab by id so a closed/reopened old path is not accidentally reset.
+      const savedTab = get().tabs.find((tab) => tab.id === activeId);
+      if (!savedTab || savedTab.path !== dest) {
+        if (savedTab) useAgentEditStore.getState().forgetDoc(savedTab.path);
+        useAgentEditStore.getState().forgetDoc(dest);
+      }
+      // An alias can name an open destination under a different path. Its
+      // contents were just overwritten, even if the source tab has closed.
+      for (const tab of open) useAgentEditStore.getState().forgetDoc(tab.path);
       const fileName = baseName(dest);
       set((s) => {
         const saved = {
@@ -1020,7 +1052,9 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       const key = file ? fileKey(file) : destPath;
       // The other tabs on this file held the text just replaced: closed,
       // so one tab holds it (unless the user switched to one meanwhile).
-      const stale = new Set([...open, ...others(key)].map((t) => t.id));
+      const replacedTabs = [...open, ...others(key)];
+      for (const tab of replacedTabs) useAgentEditStore.getState().forgetDoc(tab.path);
+      const stale = new Set(replacedTabs.map((t) => t.id));
       // The old file's spellings go; the new one's canonical spelling, as
       // it is on disk, stays (the key is lower-cased where case is ignored).
       const aliases = (t: Tab) =>
@@ -1084,13 +1118,18 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
   },
 
   followRename: async (from, to) => {
+    // Changing the path remounts the editor: preserve its unreported typing.
+    flushPendingEdits();
     const s = get();
     if (s.path !== from || !to || to === from) return;
     // A tab open on the new path already holds that file: this one is left
     // as it is (it reads as gone), so the two never save over each other.
-    if (s.tabs.some((t) => t.id !== s.activeId && t.path === to)) return;
+    if (s.tabs.some((t) => t.id !== s.activeId && tabHoldsPath(t, to))) return;
     const oldName = s.fileName;
     const fileName = baseName(to);
+    // This tab follows the same document, not any old occupant of `to`.
+    useAgentEditStore.getState().forgetDoc(to);
+    useAgentEditStore.getState().renameDoc(from, to);
     const next = { ...s, path: to, fileName };
     set({
       path: to,
@@ -1217,6 +1256,8 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       });
     } else {
       // No local edits — adopt the new content and remount editors.
+      // Prior proposals and undo entries describe the replaced document state.
+      if (s.path) useAgentEditStore.getState().forgetDoc(s.path);
       const next = {
         ...s,
         content: disk,
@@ -1243,6 +1284,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       set({ externalChange: false, tabs: syncActiveTab(next) });
       return;
     }
+    if (s.path) useAgentEditStore.getState().forgetDoc(s.path);
     const next = {
       ...s,
       content: s.pendingDisk,
@@ -1301,6 +1343,8 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
     if (activeId != null) {
       get().closeTab(activeId);
     } else {
+      const path = get().path;
+      if (path) useAgentEditStore.getState().forgetDoc(path);
       set({ ...EMPTY_TOP, reloadNonce: get().reloadNonce });
     }
   },
@@ -1362,6 +1406,9 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       const cur = get();
       const i = cur.tabs.findIndex((t) => t.id === id);
       if (i === -1) return;
+      // Only a completed close invalidates consent/history. Use the live
+      // tab path: it may have been renamed while the confirmation was open.
+      useAgentEditStore.getState().forgetDoc(cur.tabs[i].path);
       const remaining = cur.tabs.filter((t) => t.id !== id);
 
       if (remaining.length === 0) {
