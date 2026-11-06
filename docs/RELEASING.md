@@ -149,6 +149,16 @@ gh workflow run release-assemble.yml --repo ashlrai/ashlr-md --ref main \
   -f publication_date=YYYY-MM-DDTHH:MM:SSZ
 ```
 
+For dependency diagnosis, the same main-only workflow accepts `apt_plan_only=true`.
+This separate read-only job skips assembly and compares the fixed ten Linux CI
+prerequisites with and without recommended packages. It updates metadata and runs
+two simulations; it never installs packages or creates release staging. Keep the
+existing required assembly tuple in the dispatch for context; it is unused in
+probe mode. The output reports package counts and archive-byte estimates from
+exact local APT metadata, not network transfer, cache hits or an install-duration
+prediction. Missing or ambiguous evidence stops the measurement. A lower estimate
+alone does not establish that a future full CI pass meets its unchanged deadline.
+
 Record the actual assembly run ID and require success. The uploaded
 `ashlr-md-assembly-RUN_ID-ATTEMPT` staging contains four updater payloads,
 their original signatures, `latest.json` and `provenance.json`. The latter

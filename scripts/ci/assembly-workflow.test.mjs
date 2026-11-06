@@ -19,6 +19,7 @@ function readOnlyContract(text) {
   assert.doesNotMatch(text, /if:\s*always\(\)/);
   assert.doesNotMatch(text, /gh release|npm publish|git (?:push|tag)/);
   assert.match(text, /ref: \$\{\{ github\.sha \}\}/);
+  assert.doesNotMatch(text, /ref: \$\{\{\s*inputs\./, 'every checkout must remain trusted policy, including when another job checks out policy too');
   const runs = extractRuns(text);
   assert.ok(runs.length >= 4);
   for (const step of runs) assert.doesNotMatch(step.run, /\$\{\{\s*inputs\./, 'inputs must enter through quoted environment values');
@@ -54,4 +55,34 @@ test('download step passes hostile inputs as literal arguments, never shell code
       '--run-id', '123', '--run-attempt', '1']);
     assert.throws(() => readFileSync(join(directory, 'SHOULD_NOT_EXIST')));
   } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+
+test('dependency probe is an isolated simulation with no assembly authority', () => {
+  const normal = workflow.slice(workflow.indexOf('  assemble:'), workflow.indexOf('  apt-plan:'));
+  const probe = workflow.slice(workflow.indexOf('  apt-plan:'));
+  assert.match(normal, /!inputs\.apt_plan_only/);
+  for (const guard of ["github.event_name == 'workflow_dispatch'", 'inputs.apt_plan_only',
+    "github.repository == 'ashlrai/ashlr-md'", "github.ref == 'refs/heads/main'", 'github.ref_protected',
+    "github.workflow_ref == 'ashlrai/ashlr-md/.github/workflows/release-assemble.yml@refs/heads/main'"]) assert.ok(probe.includes(guard), guard);
+  assert.match(probe, /runs-on: ubuntu-22\.04/); assert.match(probe, /timeout-minutes: 8/);
+  assert.doesNotMatch(probe, /prepare-release-assembly|assemble-updater|\.release-staging|RELEASE_RUN_ID|GH_TOKEN/);
+  const runs = extractRuns(probe);
+  assert.equal(runs.length, 3);
+  const metadata = runs.find(step => step.name === 'Refresh package metadata only').run;
+  assert.match(metadata, /sudo apt-get .* update/); assert.doesNotMatch(metadata, /\binstall\b/);
+  const simulate = runs.find(step => step.name === 'Simulate both fixed dependency plans without installing').run;
+  assert.match(simulate, /python3 scripts\/apt-dependency-plan\.py > "\$RUNNER_TEMP\/md-apt-plan\.json"/);
+  assert.doesNotMatch(simulate, /apt-get|\$\{\{.*inputs/);
+});
+
+test('dependency probe retains exactly the ten explicit full-CI prerequisites', () => {
+  const helper = readFileSync(new URL('../apt-dependency-plan.py', import.meta.url), 'utf8');
+  const ci = readFileSync(new URL('../../.github/workflows/ci.yml', import.meta.url), 'utf8');
+  const install = extractRuns(ci).find(step => step.name === 'Install Linux system dependencies').run;
+  const required = install.slice(install.indexOf('install -y') + 'install -y'.length).replaceAll('\\', '').trim().split(/\s+/).sort();
+  const declaration = helper.slice(helper.indexOf('PACKAGES = ('), helper.indexOf('MAX_OUTPUT ='));
+  const declared = [...declaration.matchAll(/'([^']+)'/g)].map(match => match[1]).sort();
+  assert.equal(declared.length, 10); assert.deepEqual(declared, required);
+  assert.match(helper, /'\/usr\/bin\/apt-get', '--simulate'/);
 });
