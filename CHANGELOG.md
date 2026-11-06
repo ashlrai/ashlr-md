@@ -12,6 +12,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
 Released 2026-06-06. [Release notes and downloads](https://github.com/ashlrai/ashlr-md/releases/tag/v0.4.0).
 <!-- fresh:end -->
 
+## [0.7.2] - 2026-11-05
+
+### Fixed
+- Keep integration planning text consistent with the existing punctuation contract, and run that regression before the full suite.
+- Add a read-only Linux assembly workflow that preserves exact original build ZIPs, source/run/attempt binding, four-platform signature checks and verified staging for maintainer publication.
+
 ## [0.7.1] - 2026-11-05
 
 ### Fixed

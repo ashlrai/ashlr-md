@@ -132,6 +132,41 @@ runtime support.
 
 ## 4. Assembling & Publishing the GitHub Release
 
+### Isolated read-only Linux assembly
+
+When the local maintainer host is not Linux, use `release-assemble.yml` on
+canonical `main`. This workflow assembles staging only. It has read access to
+source and original build artifacts, no release-write permission, no OIDC and
+no signing key. It never creates tags or publishes a GitHub Release.
+
+After the exact tagged source has successful manual full CI and its original
+push release build has completed successfully on attempt 1, dispatch:
+
+```sh
+gh workflow run release-assemble.yml --repo ashlrai/ashlr-md --ref main \
+  -f release_tag=vX.Y.Z -f source_sha=REVIEWED_FULL_SHA \
+  -f release_run_id=ORIGINAL_BUILD_RUN_ID -f release_run_attempt=1 \
+  -f publication_date=YYYY-MM-DDTHH:MM:SSZ
+```
+
+Record the actual assembly run ID and require success. The uploaded
+`ashlr-md-assembly-RUN_ID-ATTEMPT` staging contains four updater payloads,
+their original signatures, `latest.json` and `provenance.json`. The latter
+binds the exact source, original build run/attempt, artifact IDs/digests,
+manual CI and selected asset hashes. The workflow downloads original ZIPs
+without repacking, preserves the existing strict live provenance checks,
+uses the reviewed pinned inspection tools and verifies all signatures and
+platform payloads before exposing staging. A failed or skipped check uploads
+nothing. Re-running this read-only assembly never re-runs the original build
+or publishes anything.
+
+The native installers described below still require separate byte-preserving
+staging and independent acceptance. A staging artifact is not publication.
+Download it by its exact artifact ID, recheck its recorded source/build tuple
+and every staged hash/signature, then follow the maintainer publication steps
+below. Keep the resulting public receipt separate from this assembly proof.
+
+
 Because `release.yml` only uploads artifacts (see §2), a maintainer must
 assemble and independently validate the release before publishing. Do not publish
 if required evidence is missing. The local helper is a candidate, not yet
