@@ -20093,6 +20093,40 @@ describe("undescribed image followed by a newline and ordinary prose", () => {
   });
 });
 
+describe("autofix: undescribed image on a line preceding unrelated prose", () => {
+  it.each([
+    "\n",
+    "\r\n",
+  ])("inserts the placeholder and leaves the following prose line byte-identical (%j line endings)", (nl) => {
+    const rules = [ruleMissingAltText];
+    const image = '![](images/chart.png?v=2#top "Chart")';
+    const repaired = '![TODO: describe image](images/chart.png?v=2#top "Chart")';
+    // Brackets, a code span and a described image make the prose "unrelated"
+    // to the violation: none of it may be touched by the fix.
+    const prose = "Unrelated prose — [1] notes, `code` and ![Logo](logo.svg) stay.";
+    const doc = `Intro.${nl}${nl}${image}${nl}${prose}${nl}`;
+    const expected = `Intro.${nl}${nl}${repaired}${nl}${prose}${nl}`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual(["missing-alt-text"]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(image);
+
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // The line the image precedes is byte-for-byte unchanged.
+    expect(fixed.split(nl).at(-2)).toBe(prose);
+    expect(fixed.slice(fixed.indexOf(repaired) + repaired.length)).toBe(
+      `${nl}${prose}${nl}`,
+    );
+    // Exactly one placeholder was inserted; the described image is intact.
+    expect(fixed.match(/TODO: describe image/g)).toHaveLength(1);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+});
+
 describe("whitespace-only image description that spans a line break", () => {
   it.each([
     ["LF", "\n"],
