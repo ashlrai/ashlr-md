@@ -1183,6 +1183,19 @@ describe("autofix: undescribed image on a CRLF-delimited line", () => {
 });
 
 describe("autofix: undescribed image inside a list item", () => {
+  it("preserves the list marker and source when fixing an image after Unicode text", () => {
+    const doc = "- Café: ![](images/café.png?size=2#top)\n- Next item\n";
+    const expected =
+      "- Café: ![TODO: describe image](images/café.png?size=2#top)\n- Next item\n";
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+
   it.each([
     ["unordered dash", "- ", "\n"],
     ["unordered star, nested", "  * ", "\n"],
