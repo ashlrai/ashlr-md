@@ -6598,6 +6598,28 @@ fn export_text_preserves_adjacent_bracketed_words_in_prose() {
 }
 
 #[test]
+fn export_text_preserves_consecutive_bracketed_fragments_and_intervening_prose() {
+    for (markdown, expected) in [
+        (
+            "Before [first fragment] and the words between [second fragment] after.\n",
+            "Before [first fragment] and the words between [second fragment] after.",
+        ),
+        (
+            "[draft], followed by a revision: [final].\n",
+            "[draft], followed by a revision: [final].",
+        ),
+        (
+            "[first] intervening prose\ncontinues before [second].\n",
+            "[first] intervening prose\ncontinues before [second].",
+        ),
+    ] {
+        let result = run_export_text_on(markdown);
+        assert_eq!(result["text"].as_str().unwrap(), expected, "{markdown:?}");
+        assert_eq!(strip_markdown(markdown), expected, "{markdown:?}");
+    }
+}
+
+#[test]
 fn export_text_keeps_prose_brackets_beside_formatted_links() {
     for (markdown, expected) in [
         (
@@ -7035,6 +7057,118 @@ fn export_text_keeps_repeated_unmatched_bracket_pairs_in_order() {
     assert_eq!(
         strip_markdown("[a][b] [a][b]\n\n[a]: /a\n"),
         "[a][b] [a][b]"
+    );
+}
+
+/// A blank line ends the paragraph and every inline read inside it, so a
+/// bracketed phrase in one paragraph can never be the link text, the label
+/// or the tail of a phrase in the next. Each paragraph keeps its own
+/// brackets — mid-sentence and at its edges, a phrase that is the whole
+/// paragraph, a phrase repeated once per paragraph, beside links that do
+/// resolve, around a definition sitting between the paragraphs, inside
+/// other blocks, and over wide or CRLF breaks. Unmatched brackets cannot
+/// reach across the break either: a `[` left open in one paragraph and a
+/// `]` opening the next stay literal on both sides.
+#[test]
+fn export_text_keeps_bracketed_prose_across_separate_paragraphs() {
+    for (markdown, expected) in [
+        // A phrase mid-sentence in each paragraph.
+        (
+            "The [draft] opens here.\n\nThe [review] ends there.\n",
+            "The [draft] opens here.\n\nThe [review] ends there.",
+        ),
+        // At the edges: opening the first paragraph, closing the second.
+        (
+            "[alpha] starts the first.\n\nThe second ends [omega].\n",
+            "[alpha] starts the first.\n\nThe second ends [omega].",
+        ),
+        // A paragraph that is only a bracketed phrase, prose around it.
+        (
+            "Intro paragraph.\n\n[whole note]\n\nOutro paragraph.\n",
+            "Intro paragraph.\n\n[whole note]\n\nOutro paragraph.",
+        ),
+        // The same phrase once per paragraph stays once per paragraph.
+        (
+            "Note [sic] once.\n\nNote [sic] twice.\n\nNote [sic] thrice.\n",
+            "Note [sic] once.\n\nNote [sic] twice.\n\nNote [sic] thrice.",
+        ),
+        // Citation-shaped pairs in both paragraphs of a short paper.
+        (
+            "Results [1] and [2] hold.\n\nSee also (cf. [3]) below.\n",
+            "Results [1] and [2] hold.\n\nSee also (cf. [3]) below.",
+        ),
+        // A wide gap still reads as one paragraph break.
+        (
+            "[first] up.\n\n\n\n[second] down.\n",
+            "[first] up.\n\n[second] down.",
+        ),
+        // CRLF endings, the blank line between paragraphs included.
+        (
+            "[first] up.\r\n\r\n[second] down.\r\n",
+            "[first] up.\n\n[second] down.",
+        ),
+        // Real links in both paragraphs resolve; the prose pairs stay.
+        (
+            "See [the guide](/g) and [sic].\n\nSee [the docs](/d) and [TODO].\n",
+            "See the guide and [sic].\n\nSee the docs and [TODO].",
+        ),
+        // A defined label resolves in its paragraph; the undefined pair in
+        // the next paragraph keeps its brackets.
+        (
+            "Defined [r] resolves.\n\nUndefined [u] stays.\n\n[r]: /r\n",
+            "Defined r resolves.\n\nUndefined [u] stays.",
+        ),
+        // A definition between the paragraphs is dropped yet still labels a
+        // later pair; the unresolved pair before it keeps its brackets.
+        (
+            "Intro [a] text.\n\n[x]: /x\n\nOutro [b] and [x].\n",
+            "Intro [a] text.\n\nOutro [b] and x.",
+        ),
+        // `[a]` over the break from `[b]` is two literal phrases, never one
+        // link whose text is the first and label the second.
+        ("[a]\n\n[b]\n", "[a]\n\n[b]"),
+        // A pair split by the break is no pair: both sides stay literal.
+        ("[text\n\nmore]\n", "[text\n\nmore]"),
+        (
+            "Ends with [open.\n\nStarts [closed] fine.\n",
+            "Ends with [open.\n\nStarts [closed] fine.",
+        ),
+        // In a list item, a quote and a plain paragraph alike.
+        (
+            "- item [a] done\n\n> quote [b] said\n\nplain [c] text\n",
+            "item [a] done\n\nquote [b] said\n\nplain [c] text",
+        ),
+        // Non-ASCII phrases in each paragraph.
+        (
+            "[café] première.\n\n[要確認] seconde.\n",
+            "[café] première.\n\n[要確認] seconde.",
+        ),
+    ] {
+        let result = run_export_text_on(markdown);
+        let text = result["text"].as_str().unwrap();
+        assert_eq!(text, expected, "{markdown:?}");
+        // The break between the paragraphs survives, and every bracket
+        // that was paired stays paired (a deliberately unpaired `[` aside).
+        assert!(
+            text.contains("\n\n"),
+            "paragraph break lost in {text:?} for {markdown:?}"
+        );
+        if expected.matches('[').count() == expected.matches(']').count() {
+            assert_eq!(
+                text.matches('[').count(),
+                text.matches(']').count(),
+                "unbalanced brackets in {text:?} for {markdown:?}"
+            );
+        }
+        assert_eq!(
+            result["char_count"].as_u64().unwrap() as usize,
+            expected.chars().count(),
+            "{markdown:?}"
+        );
+    }
+    assert_eq!(
+        strip_markdown("[first]\n\n[second]\n"),
+        "[first]\n\n[second]"
     );
 }
 
@@ -10390,10 +10524,29 @@ fn export_text_keeps_bracketed_prose_and_terminal_punctuation() {
             "Read [the guide] and finish [the review].\n\n[the guide]: /guide\n",
             "Read the guide and finish [the review].",
         ),
+        ("The result: [pending];\n", "The result: [pending];"),
+        ("The result ([pending]).\n", "The result ([pending])."),
+        ("The result [**pending**]!\n", "The result [pending]!"),
+        (
+            "See [the guide](/guide); result: [pending].\n\nNext paragraph.\n",
+            "See the guide; result: [pending].\n\nNext paragraph.",
+        ),
     ] {
         let result = run_export_text_on(markdown);
         assert_eq!(
             result["text"].as_str().unwrap(),
+            expected,
+            "input: {markdown:?}"
+        );
+
+        let ipc = MockIpc::new().on_get(
+            "/content",
+            Ok(json!({ "path": "/docs/test.md", "content": markdown })),
+        );
+        let response = tool_export_text(id(2), &json!({}), &ipc);
+        assert!(response.error.is_none(), "input: {markdown:?}");
+        assert_eq!(
+            content_text(&response)["text"],
             expected,
             "input: {markdown:?}"
         );
