@@ -18,6 +18,45 @@ describe("computeDocStats", () => {
     expect(computeDocStats(`${prefix}${prose}${suffix}`).words).toBe(5);
   });
 
+  it.each([
+    ["two blank lines between paragraphs", "one two\n\n\nthree four five"],
+    ["many blank lines between paragraphs", "one two\n\n\n\n\n\nthree four five"],
+    ["blank lines holding spaces and tabs", "one two\n  \n\t\n \t \nthree four five"],
+    ["CRLF blank lines", "one two\r\n\r\n\r\nthree four five"],
+    [
+      "blank lines around the whole document",
+      "\n\n\none two three\n\n\nfour five\n\n\n",
+    ],
+  ])("does not change the word count with %s", (_description, content) => {
+    expect(computeDocStats(content).words).toBe(5);
+  });
+
+  it("returns the same stats however many blank lines separate prose", () => {
+    const stats = computeDocStats("one two\n\n\n\nthree four five");
+    expect(stats).toEqual(computeDocStats("one two\nthree four five"));
+    expect(stats).toEqual(computeDocStats("one two three four five"));
+  });
+
+  it("does not change the reading time with consecutive blank lines", () => {
+    const words = Array.from({ length: 440 }, () => "word").join(" ");
+    const first = Array.from({ length: 220 }, () => "word").join(" ");
+    const split = `${first}\n\n\n\n\n${first}`;
+    expect(computeDocStats(split)).toEqual({ words: 440, minutes: 2 });
+    expect(computeDocStats(split)).toEqual(computeDocStats(words));
+  });
+
+  it("counts no words for blank lines inside indented code", () => {
+    // CommonMark reads blank lines between indented lines as part of the
+    // code block, not as gaps ending it; they add no words either way.
+    expect(computeDocStats("para\n\n    code one\n\n\n    code two\n\nend").words).toBe(
+      2,
+    );
+  });
+
+  it("counts a blockquote's prose once across its blank lines", () => {
+    expect(computeDocStats("> quoted one\n>\n>\n> quoted two").words).toBe(4);
+  });
+
   it("counts accented words separated by Unicode whitespace", () => {
     expect(
       computeDocStats("café\u00a0mañana\u2003naïve\nre\u0301sume\u0301").words,
@@ -31,6 +70,14 @@ describe("computeDocStats", () => {
   it("excludes YAML frontmatter from the count", () => {
     const md = "---\ntitle: My Post\nauthor: Jane Doe\n---\n\nHello world here";
     expect(computeDocStats(md).words).toBe(3);
+  });
+
+  it.each([
+    "---",
+    "...",
+  ])("excludes CRLF frontmatter closed by %s from the count", (closer) => {
+    const md = `---\r\ntitle: My Post\r\nauthor: Jane Doe\r\n${closer}\r\n\r\nHello world here\r\n`;
+    expect(computeDocStats(md)).toEqual({ words: 3, minutes: 1 });
   });
 
   it("excludes fenced code blocks", () => {
@@ -47,9 +94,28 @@ describe("computeDocStats", () => {
     expect(computeDocStats(fence).words).toBe(0);
   });
 
+  it("excludes tilde-fenced code blocks and counts surrounding prose", () => {
+    const fence = "~~~js\nconst message = 'hello world';\nconsole.log(message);\n~~~";
+    expect(computeDocStats(`words before\n\n${fence}\n\nwords after here`).words).toBe(
+      5,
+    );
+    expect(computeDocStats(fence).words).toBe(0);
+    // A backtick fence inside a tilde fence is code; only a tilde fence closes it.
+    expect(computeDocStats("~~~\n```\nx y\n```\n~~~\nz").words).toBe(1);
+  });
+
   it("excludes inline code", () => {
     // "run" + "now"; the inline-code span is removed entirely.
     expect(computeDocStats("run `npm install foo bar` now").words).toBe(2);
+  });
+
+  it.each([
+    ["backtick fence", "```js\nconst a = 1 + 2 + 3;\nconsole.log(a);\n```"],
+    ["tilde fence", "~~~py\nprint('hello world')\n~~~"],
+    ["unclosed fence", "```\nsome code words here\nmore code"],
+    ["fence with trailing newline", "```sh\nnpm install foo bar\n```\n"],
+  ])("reports zero words and zero minutes for a code-only document (%s)", (_d, md) => {
+    expect(computeDocStats(md)).toEqual({ words: 0, minutes: 0 });
   });
 
   it("returns zero words and zero minutes for empty content", () => {
@@ -74,6 +140,16 @@ describe("computeDocStats", () => {
   it("estimates reading time at ~220 wpm", () => {
     const words = Array.from({ length: 660 }, () => "word").join(" ");
     expect(computeDocStats(words).minutes).toBe(3);
+  });
+
+  it.each([
+    // A whole minute of words is a one-minute read; one word past it rounds
+    // up to two.
+    [220, 1],
+    [221, 2],
+  ])("reports %i plain words as a %i-minute read", (count, minutes) => {
+    const doc = Array.from({ length: count }, () => "word").join(" ");
+    expect(computeDocStats(doc)).toEqual({ words: count, minutes });
   });
 
   it("reads code blocks and containers by the page's line rule", () => {
