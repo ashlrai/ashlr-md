@@ -1,12 +1,11 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
-  applyFix,
   applyAllFixes,
+  applyFix,
   lintDocument,
   ruleInvalidLinkTarget,
   ruleMissingAltText,
 } from "./mdlint";
-
 
 describe("autofix: invalid link and undescribed image on separate lines", () => {
   const LINK_LINE = "Read [the guide]() for details.";
