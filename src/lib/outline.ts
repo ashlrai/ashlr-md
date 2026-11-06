@@ -1974,7 +1974,7 @@ export function markdownLines(markdown: string): MarkdownLine[] {
 export function listItem(
   l: MarkdownLine | undefined,
 ): { ordered: boolean; text: string } | null {
-  if (!l || l.kind !== "text" || !l.first || l.content.trim() === "") return null;
+  if (l?.kind !== "text" || !l.first || l.content.trim() === "") return null;
   const text = l.line === 1 ? withoutBom(l.text) : l.text;
   const raw = text.endsWith("\r") ? text.slice(0, -1) : text;
   const expanded = expandTabs(raw);

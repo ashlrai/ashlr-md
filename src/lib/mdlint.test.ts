@@ -634,43 +634,64 @@ describe("rule:no-consecutive-blank-lines", () => {
   });
 });
 
+describe("rule:missing-alt-text", () => {
+  it("accepts a described image while reporting an image with empty alt text", () => {
+    const described = "![A red kite above a field](kite.png)";
+    const missing = "![](clouds.png)";
+    const rules = [ruleMissingAltText];
+
+    expect(lintDocument(described, { rules })).toEqual([]);
+
+    const doc = `${described}\n${missing}\n`;
+    const violations = lintDocument(doc, { rules });
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("missing-alt-text");
+    expect(
+      doc.slice(violations[0].range!.from.offset, violations[0].range!.to.offset),
+    ).toBe(missing);
+  });
+});
+
 // ─── 4. lintDocument engine ───────────────────────────────────────────────────
 
-describe("rule:missing-alt-text", () => {
-  it.each(["", " ", "\t"])("flags an image with empty alt text %j", (alt) => {
-    const image = `![${alt}](chart.png)`;
-    const doc = `# Report\n\nSee ${image} for details.\n`;
-    const violations = lintDocument(doc, { rules: [ruleMissingAltText] });
+describe("rule:invalid-link-target", () => {
+  it.each([
+    ["empty", ""],
+    ["whitespace-only", " \t "],
+  ])("flags %s link destinations", (_description, destination) => {
+    const link = `[label](${destination})`;
+    const doc = `Before ${link} after`;
+    const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
 
     expect(violations).toHaveLength(1);
     expect(violations[0]).toMatchObject({
-      ruleId: "missing-alt-text",
+      ruleId: "invalid-link-target",
       severity: "warning",
-      message: "Image is missing alt text: chart.png",
       range: {
-        from: { offset: doc.indexOf(image), line: 3, col: 4 },
-        to: {
-          offset: doc.indexOf(image) + image.length,
-          line: 3,
-          col: 4 + image.length,
-        },
+        from: { offset: 7, line: 1, col: 7 },
+        to: { offset: 7 + link.length, line: 1, col: 7 + link.length },
       },
     });
   });
 
-  it("accepts an image with descriptive alt text", () => {
-    const doc = "![Quarterly revenue chart](chart.png)\n";
-    expect(lintDocument(doc, { rules: [ruleMissingAltText] })).toEqual([]);
+  it("accepts a nonempty destination", () => {
+    expect(
+      lintDocument("Before [label](./guide.md) after", {
+        rules: [ruleInvalidLinkTarget],
+      }),
+    ).toEqual([]);
   });
 
-  it("detects only the image missing alt text with the default rules", () => {
-    const doc = "![Quarterly revenue chart](chart.png) and ![](logo.png)\n";
-    const violations = lintDocument(doc).filter((v) => v.ruleId === "missing-alt-text");
+  it("reports only the invalid link alongside a valid link with default rules", () => {
+    const doc = "See [documentation](https://example.com/guide) and [draft]().\n";
+    const violations = lintDocument(doc).filter(
+      (v) => v.ruleId === "invalid-link-target",
+    );
 
     expect(violations).toHaveLength(1);
     expect(
       doc.slice(violations[0].range!.from.offset, violations[0].range!.to.offset),
-    ).toBe("![](logo.png)");
+    ).toBe("[draft]()");
   });
 });
 

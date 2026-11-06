@@ -17,6 +17,8 @@ For focused before-and-after examples, see
 [surrounding text in autofixes](mdlint-autofix-surrounding-text.md).
 For a single input with both fixes, see the
 [combined link and image example](mdlint-combined-fix-example.md).
+For exactly what to replace in each generated placeholder, see
+[placeholder follow-up](mdlint-placeholder-followup.md).
 For an image-specific review workflow, see the
 [image alt-text review checklist](mdlint-image-review-checklist.md).
 
