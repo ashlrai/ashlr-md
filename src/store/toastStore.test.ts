@@ -68,6 +68,29 @@ describe("toastStore", () => {
     expect(useToastStore.getState().toasts.map((toast) => toast.id)).toEqual([firstId]);
   });
 
+  it("dismissing a nonexistent toast is a no-op: no throw, toasts and timers unchanged", () => {
+    const firstId = useToastStore.getState().push({ message: "first", timeout: 0 });
+    const lastId = useToastStore.getState().push({ message: "last", timeout: 1000 });
+    const before = useToastStore.getState().toasts;
+    const unknownId = Math.max(firstId, lastId) + 1000;
+
+    expect(() => useToastStore.getState().dismiss(unknownId)).not.toThrow();
+    expect(() => useToastStore.getState().dismiss(-1)).not.toThrow();
+    expect(() => useToastStore.getState().dismiss(Number.NaN)).not.toThrow();
+
+    expect(useToastStore.getState().toasts).toEqual(before);
+    expect(useToastStore.getState().toasts.map((t) => t.id)).toEqual([firstId, lastId]);
+    // The surviving toast's pending auto-dismiss timer is untouched.
+    expect(vi.getTimerCount()).toBe(1);
+    vi.advanceTimersByTime(1000);
+    expect(useToastStore.getState().toasts.map((t) => t.id)).toEqual([firstId]);
+  });
+
+  it("dismiss on an empty queue does not throw", () => {
+    expect(() => useToastStore.getState().dismiss(12345)).not.toThrow();
+    expect(useToastStore.getState().toasts).toEqual([]);
+  });
+
   it("dismiss preserves the other queued toast and its timeout", () => {
     const dismissedId = useToastStore
       .getState()
