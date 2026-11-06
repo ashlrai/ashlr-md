@@ -35,6 +35,23 @@ import {
   ruleWikilinkTargetsExist,
 } from "./mdlint";
 
+describe("autofix preserves [sic] in prose", () => {
+  it.each(["\n", "\r\n"])("preserves the brackets and surrounding prose (%j)", (nl) => {
+    const rules = [ruleInvalidLinkTarget];
+    const prose = 'The report says "the result was consistant [sic] throughout".';
+    const doc = `${prose}${nl}See [source]() for details.${nl}`;
+    const expected = `${prose}${nl}See [source](TODO) for details.${nl}`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+});
+
 describe("invalid-link autofix across separate lines", () => {
   it("repairs both repeated links while preserving mixed line breaks and prose", () => {
     const rules = [ruleInvalidLinkTarget];
