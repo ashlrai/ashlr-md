@@ -434,7 +434,7 @@ export function tableRowKeymap(): Extension {
         // (splitRow): an escaped pipe (`\\|`) is cell text. Every `|` used
         // to split a cell, so the new row had one more for each.
         const cells = splitRow(line);
-        const newRow = "\n| " + cells.map(() => " ").join(" | ") + " |";
+        const newRow = `\n| ${cells.map(() => " ").join(" | ")} |`;
 
         view.dispatch({
           changes: { from: pos, to: pos, insert: newRow },

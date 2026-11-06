@@ -11,6 +11,7 @@
 import { act, createElement, Fragment } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import localAiDoc from "../../docs/local-ai.md?raw";
 import readme from "../../README.md?raw";
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -78,10 +79,12 @@ describe("the no-provider wording", () => {
     expect(linux).not.toContain("Apple");
   });
 
-  it("README's quick start does not promise keyless AI everywhere", () => {
-    const step = readme.split("\n").find((l) => l.startsWith("3. "));
-    expect(step, "README.md has no quick start step 3").toBeDefined();
-    expect(step).not.toMatch(/^3\. [^.]*\. No account, no API key\.$/);
+  it("README links platform-specific AI setup instead of promising keyless AI everywhere", () => {
+    expect(readme).toContain("[docs/local-ai.md](./docs/local-ai.md)");
+    const setup =
+      localAiDoc.split("## On this machine, with no key\n")[1]?.split("\n## ")[0] ?? "";
+    expect(setup, "local-ai.md needs the linked platform setup contract").not.toBe("");
+    expect(readme).not.toContain("No account, no API key");
     for (const needed of [
       "Apple Silicon",
       "macOS 26",
@@ -90,10 +93,10 @@ describe("the no-provider wording", () => {
       "Windows and Linux",
       "Ollama",
       "Anthropic API key",
+      "A cloud model runs only after",
+      "opt into a hosted endpoint",
     ]) {
-      expect(step, `README.md quick start step 3 should mention ${needed}`).toContain(
-        needed,
-      );
+      expect(setup, `linked local AI setup should mention ${needed}`).toContain(needed);
     }
   });
 });

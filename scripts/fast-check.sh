@@ -22,6 +22,7 @@ step() {
 
 step typecheck bun run typecheck
 step lint bun run lint
+step 'workflow bash' bun run check:workflow-bash
 
 changed_node_tests() {
   # Include committed, staged, unstaged, and untracked changes. NUL delimiters

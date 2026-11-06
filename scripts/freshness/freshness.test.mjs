@@ -55,8 +55,9 @@ test('a dated future source build does not publish it or change runtime version'
   const directory = await fixture(t);
   const read = (path) => readFile(resolve(directory, path), 'utf8');
   const cli = (name) => spawnSync(process.execPath, [resolve(directory, `scripts/freshness/${name}.mjs`)], { encoding: 'utf8', cwd: tmpdir() });
-  assert.equal(cli('check').status, 1);
-  assert.match(cli('check').stderr, /Freshness drift/);
+  // Each node subprocess pays ~1.5 s of startup; exercise the CLI contract on
+  // the first check/sync/check round and verify later transitions in-process.
+  { const result = cli('check'); assert.equal(result.status, 1); assert.match(result.stderr, /Freshness drift/); }
   { const result = cli('sync'); assert.equal(result.status, 0, result.stderr); }
   assert.equal(cli('check').status, 0);
   assert.deepEqual(await run(directory, true), []);
@@ -69,8 +70,8 @@ test('a dated future source build does not publish it or change runtime version'
   const changelog = await read('CHANGELOG.md');
   await writeFile(resolve(directory, 'CHANGELOG.md'), changelog.replace('## [0.4.0]', '## [0.5.0] - 2026-11-01\n\nCandidate.\n\n## [0.4.0]'));
   assert.deepEqual(await sources(directory), { sourceVersion: '0.5.0', publishedVersion: '0.4.0', publishedDate: '2026-06-06' });
-  { const result = cli('sync'); assert.equal(result.status, 0, result.stderr); }
-  assert.equal(cli('check').status, 0);
+  await run(directory);
+  assert.deepEqual(await run(directory, true), []);
   assert.match(await read('README.md'), /release-0\.4\.0/);
   assert.match(await read('CHANGELOG.md'), /Desktop app \| 0\.4\.0/);
   const html = await read('landing/index.html');
@@ -85,8 +86,8 @@ test('a dated future source build does not publish it or change runtime version'
 
   // Only an explicit receipt change advances public claims.
   await writeFile(resolve(directory, 'scripts/freshness/published.json'), '{"version":"0.5.0"}\n');
-  { const result = cli('sync'); assert.equal(result.status, 0, result.stderr); }
-  assert.equal(cli('check').status, 0);
+  await run(directory);
+  assert.deepEqual(await run(directory, true), []);
   assert.match(await read('landing/index.html'), /releases\/tag\/v0\.5\.0/);
   assert.match(await read('README.md'), /release-0\.5\.0/);
 });

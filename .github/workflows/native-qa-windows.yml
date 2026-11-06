@@ -1,0 +1,66 @@
+name: Original MD 0.5 Windows install and native probe
+# Specifically approved manual original-artifact Windows QA; no release promotion.
+on:
+  workflow_dispatch:
+permissions: {}
+concurrency:
+  group: original-md050-windows-probe
+  cancel-in-progress: false
+jobs:
+  windows-original:
+    runs-on: windows-2022
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.14.10'
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
+        with:
+          toolchain: '1.99.1'
+      - name: Actual PowerShell dialog-selection regression
+        timeout-minutes: 1
+        run: |
+          & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -File scripts/test-native-qa-open-dialog.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Synthetic Windows harness and descendant cleanup checks
+        run: python scripts/test-native-qa-windows.py
+      - name: Check installed WebView2 and Edge driver compatibility
+        id: driver
+        timeout-minutes: 2
+        run: python scripts/native-qa-windows.py --check-driver
+      - name: Check optional process argv diagnostic availability
+        id: process_query
+        timeout-minutes: 1
+        run: python scripts/native-qa-windows.py --check-process-query
+      - name: Check built-in Windows UI Automation availability
+        timeout-minutes: 1
+        run: python scripts/native-qa-windows.py --check-uia
+      - name: Install pinned driver and build locked signature verifier
+        run: |
+          cargo install tauri-driver --version 2.1.0 --locked
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo build --locked --release --manifest-path scripts/release-signature-check/Cargo.toml
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Prepare and verify original artifacts
+        id: prepare
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/native-qa-windows.py --prepare
+      - name: Install probe and uninstall without artifact token
+        env:
+          ARGV_QUERY_READY: ${{ steps.process_query.outputs.ready }}
+          STAGE_PATH: ${{ steps.prepare.outputs.stage }}
+        run: python scripts/native-qa-windows.py --probe
+      - name: Uninstall if needed and remove owned staging
+        if: always()
+        env:
+          STAGE_PATH: ${{ steps.prepare.outputs.stage }}
+          DRIVER_STAGE_PATH: ${{ steps.driver.outputs.driver_stage }}
+        run: python scripts/native-qa-windows.py --cleanup
+      # No cache/upload, new credentials, runtime download, or security-setting changes.
