@@ -431,6 +431,7 @@ describe("autofix: whitespace-only image description", () => {
     ["vertical tab and form feed", "\v\f"],
     ["a non-breaking space", "\u00a0"],
     ["an ideographic space", "\u3000"],
+    ["a byte order mark", "\ufeff"],
     ["a line break inside the brackets", " \n "],
     ["a CRLF and mixed whitespace inside the brackets", " \t\r\n\u00a0 "],
   ])("replaces %s with the placeholder and preserves the destination", (_kind, blank) => {
