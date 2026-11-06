@@ -24504,3 +24504,193 @@ describe("invalid-link autofix: whitespace-only href in a table cell", () => {
     expect(lintDocument(expected, { rules })).toEqual([]);
   });
 });
+
+// ─── Valid link: byte-for-byte preservation ──────────────────────────────────
+
+describe("autofix: valid-link byte-for-byte preservation", () => {
+  const kept = '[kept](./docs/kept.md?p=1#top "Keep")';
+  const offsetsOf = (text: string, needle: string) => {
+    const found: number[] = [];
+    let at = text.indexOf(needle);
+    while (at !== -1) {
+      found.push(at);
+      at = text.indexOf(needle, at + 1);
+    }
+    return found;
+  };
+
+  beforeEach(() => {
+    clearLintHistory();
+  });
+
+  it.each([
+    ["a relative link", "[docs](./docs/guide.md)"],
+    ["an https link with a title", '[site](https://example.com/a?b=1#c "Site")'],
+    ["a Unicode label and an encoded path", "[café](./docs/caf%C3%A9.md)"],
+    ["an anchor with a query inside", "[jump](#s?x=1)"],
+    ["an angle-bracket destination", "[spaced](<./my docs/a b.md>)"],
+    ["a custom scheme", "[app](obsidian://open?vault=v&file=f)"],
+  ])("returns the document byte-for-byte when %s is the whole content", (_name, link) => {
+    for (const nl of ["\n", "\r\n"]) {
+      const doc = `---${nl}title: T${nl}---${nl}${nl}# T${nl}${nl}Intro ${link} outro.${nl}`;
+      const violations = lintDocument(doc);
+
+      expect(violations).toEqual([]);
+      expect(applyAllFixes(doc, violations)).toBe(doc);
+      expect(fixAllViolations(doc, violations)).toBe(doc);
+      expect(getLintHistory()).toEqual([]);
+    }
+  });
+
+  it.each([
+    "#?",
+    "?#",
+    "#!?",
+    "#f?x",
+    "?x#y",
+    "# ",
+    " ? ",
+  ])("leaves a link whose href merely contains the invalid characters (%j) untouched", (href) => {
+    // The rule invalidates only the lone "#" and "?" hrefs and blank ones;
+    // every href below is a valid destination the fix must never rewrite.
+    const rules = [ruleInvalidLinkTarget];
+    for (const nl of ["\n", "\r\n"]) {
+      const doc = `See [x](${href}) then [bad]() done.${nl}`;
+      const expected = `See [x](${href}) then [bad](TODO) done.${nl}`;
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+      const { from, to } = violations[0].range!;
+      expect(doc.slice(from.offset, to.offset)).toBe("[bad]()");
+
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      // The valid link kept its bytes at its original offset.
+      expect(fixed.indexOf(`[x](${href})`)).toBe(doc.indexOf(`[x](${href})`));
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+      expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+    }
+  });
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("leaves the link identical inside a heading shortened to depth 3 (%j line endings)", (nl) => {
+    const doc = `---${nl}title: T${nl}---${nl}${nl}#### See ${kept} now${nl}${nl}Body.${nl}`;
+    const expected = `---${nl}title: T${nl}---${nl}${nl}### See ${kept} now${nl}${nl}Body.${nl}`;
+    const violations = lintDocument(doc);
+
+    // Only the heading's "#" run is a violation; the link inside it never is.
+    expect(violations.map((v) => v.ruleId)).toEqual(["max-heading-depth"]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe("####");
+
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // The link lost no byte; it moved one column left with the removed "#".
+    expect(fixed.indexOf(kept)).toBe(doc.indexOf(kept) - 1);
+    expect(lintDocument(fixed)).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed))).toBe(fixed);
+  });
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("leaves every masked copy identical while repairing the live invalid link (%j line endings)", (nl) => {
+    // Link syntax inside front matter, a fence, indented code, an HTML block,
+    // inline math and a code span is masked: it is never a violation, and a
+    // fix applied by offset must not disturb its bytes either.
+    const doc = [
+      "---",
+      "title: T",
+      `see: "${kept}"`,
+      "---",
+      "",
+      "```md",
+      kept,
+      "```",
+      "",
+      `    ${kept}`,
+      "",
+      "<div>",
+      kept,
+      "</div>",
+      "",
+      `Math $${kept}$ and code \`${kept}\` inline.`,
+      "",
+      "Fix [broken]() here.",
+      "",
+    ].join(nl);
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe("[broken]()");
+
+    expect(applyFix(doc, violations[0])).toBe(
+      doc.replace("[broken]()", "[broken](TODO)"),
+    );
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(doc.replace("[broken]()", "[broken](TODO)"));
+    // Six masked copies went in; all six kept their exact bytes at their exact
+    // offsets — the repair grew the document after them, so nothing shifted.
+    expect(offsetsOf(doc, kept)).toHaveLength(6);
+    expect(offsetsOf(fixed, kept)).toEqual(offsetsOf(doc, kept));
+    // The full default rule set agrees: only the live link is a violation.
+    expect(applyAllFixes(doc, lintDocument(doc))).toBe(fixed);
+    expect(lintDocument(fixed)).toEqual([]);
+  });
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("keeps its line identical while the blank runs around it collapse (%j line endings)", (nl) => {
+    const line = `See ${kept} here.`;
+    const doc = [
+      "---",
+      "title: T",
+      "---",
+      "",
+      "# T",
+      "",
+      "",
+      line,
+      "",
+      "",
+      "Tail.",
+    ].join(nl);
+    const expected = ["---", "title: T", "---", "", "# T", "", line, "", "Tail."].join(
+      nl,
+    );
+    const violations = lintDocument(doc);
+
+    expect(violations.map((v) => v.ruleId)).toEqual([
+      "no-consecutive-blank-lines",
+      "no-consecutive-blank-lines",
+    ]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.split(nl)).toContain(line);
+    expect(lintDocument(fixed)).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed))).toBe(fixed);
+  });
+
+  it("survives fixAllViolations, which records only the real fix in history", () => {
+    const doc = `---\ntitle: T\n---\n\n${kept} opens the guide.\n\nMiddle paragraph.\n\nFix [broken]() at the end.\n`;
+    const fixed = fixAllViolations(doc, lintDocument(doc));
+
+    expect(fixed).toBe(
+      `---\ntitle: T\n---\n\n${kept} opens the guide.\n\nMiddle paragraph.\n\nFix [broken](TODO) at the end.\n`,
+    );
+    expect(fixed.indexOf(kept)).toBe(doc.indexOf(kept));
+    expect(getLintHistory().map((entry) => entry.ruleId)).toEqual([
+      "invalid-link-target",
+    ]);
+    // The recorded snippet windows the repaired link, not the valid one.
+    expect(getLintHistory()[0].docSnippet).toContain("[broken]()");
+    expect(getLintHistory()[0].docSnippet).not.toContain("kept");
+  });
+});
