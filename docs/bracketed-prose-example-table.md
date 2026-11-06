@@ -2,7 +2,7 @@
 
 These fixtures come from [`integration.rs`](../src-tauri/bins/mdopener-mcp/tests/integration.rs). Each row maps the exact input to the expected plain-text output for the named test and operation. The table includes the bracket-specific export, reference, checkbox, escape, and heading cases; the separate [bracket preservation guide](integration-bracket-preservation.md) presents selected examples.
 
-Inputs and outputs are JSON strings: `\n` is a newline, `\t` is a tab, and `\\` is a literal backslash. This preserves trailing and blank lines. `export_text (trimmed)` matches the heading test’s trimmed text result. Reference definitions are part of the input and do not appear in the output.
+Inputs and outputs are JSON strings: `\n` is a newline, `\t` is a tab, and `\\` is a literal backslash, and `\u2014` is an em dash. This preserves trailing and blank lines. `export_text (trimmed)` matches the heading test’s trimmed text result. Reference definitions are part of the input and do not appear in the output.
 
 | Integration test | Operation | Markdown input | Expected text |
 | --- | --- | --- | --- |
@@ -70,7 +70,7 @@ Inputs and outputs are JSON strings: `\n` is a newline, `\t` is a tab, and `\\` 
 | `export_text_keeps_bracketed_prose_at_paragraph_end_with_closing_marks` | `export_text` | ` "Confirmed [sic],\n" ` | ` "Confirmed [sic]," ` |
 | `export_text_keeps_bracketed_prose_at_paragraph_end_with_closing_marks` | `export_text` | ` "(as noted [1])\n" ` | ` "(as noted [1])" ` |
 | `export_text_keeps_bracketed_prose_at_paragraph_end_with_closing_marks` | `export_text` | ` "She said \"verbatim [sic]\"\n" ` | ` "She said \"verbatim [sic]\"" ` |
-| `export_text_keeps_bracketed_prose_at_paragraph_end_with_closing_marks` | `export_text` | ` "Ends [a]—\n" ` | ` "Ends [a]—" ` |
+| `export_text_keeps_bracketed_prose_at_paragraph_end_with_closing_marks` | `export_text` | ` "Ends [a]\u2014\n" ` | ` "Ends [a]\u2014" ` |
 | `export_text_keeps_bracketed_prose_at_paragraph_end_with_closing_marks` | `export_text` | ` "確認 [要確認]。\n" ` | ` "確認 [要確認]。" ` |
 | `export_text_keeps_bracketed_prose_at_paragraph_end_with_closing_marks` | `export_text` | ` "[sic].\n" ` | ` "[sic]." ` |
 | `export_text_keeps_bracketed_prose_at_paragraph_end_with_closing_marks` | `export_text` | ` "Ends [needs\nreview].\n" ` | ` "Ends [needs\nreview]." ` |

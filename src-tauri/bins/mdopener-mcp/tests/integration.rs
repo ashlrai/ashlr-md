@@ -6462,6 +6462,47 @@ fn export_text_preserves_bracketed_prose_across_consecutive_lines() {
     }
 }
 
+/// Two bracketed phrases on separate lines keep both brackets in the
+/// rendered text whatever block they sit in: a heading and its body, a
+/// setext heading, a table, emphasis, a code span beside them, CRLF endings,
+/// and a defined label elsewhere that must not swallow either phrase.
+#[test]
+fn export_text_keeps_two_bracketed_phrases_on_separate_lines_in_each_block() {
+    let cases = [
+        ("# [Draft]\n[Reviewed]\n", "[Draft]\n[Reviewed]"),
+        ("[Draft]\n=====\n[Reviewed]\n", "[Draft]\n[Reviewed]"),
+        (
+            "**[bold note]**\n*[italic note]*\n",
+            "[bold note]\n[italic note]",
+        ),
+        (
+            "`code` [first]\n[second] `code`\n",
+            "code [first]\n[second] code",
+        ),
+        ("[first]\r\n[second]\r\n", "[first]\n[second]"),
+        ("[first]\n\n\n[second]\n", "[first]\n\n[second]"),
+        (
+            "[first]\n[second]\n\n[other]: https://example.com\n",
+            "[first]\n[second]",
+        ),
+        ("1. [first]\n2. [second]\n", "[first]\n[second]"),
+    ];
+    for (markdown, expected) in cases {
+        let result = run_export_text_on(markdown);
+        let text = result["text"].as_str().unwrap();
+        for phrase in ["[first]", "[second]"] {
+            if markdown.contains(phrase) {
+                assert!(
+                    text.contains(phrase),
+                    "{phrase} lost in {text:?} for {markdown:?}"
+                );
+            }
+        }
+        let squeezed = |s: &str| s.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert_eq!(squeezed(text), squeezed(expected), "{markdown:?}");
+    }
+}
+
 #[test]
 fn export_text_keeps_bracketed_phrase_order_across_consecutive_lines() {
     let phrases = ["[one]", "[two words]", "[3]", "[four (4)]", "[five]"];
@@ -6557,6 +6598,28 @@ fn export_text_preserves_adjacent_bracketed_words_in_prose() {
 }
 
 #[test]
+fn export_text_preserves_consecutive_bracketed_fragments_and_intervening_prose() {
+    for (markdown, expected) in [
+        (
+            "Before [first fragment] and the words between [second fragment] after.\n",
+            "Before [first fragment] and the words between [second fragment] after.",
+        ),
+        (
+            "[draft], followed by a revision: [final].\n",
+            "[draft], followed by a revision: [final].",
+        ),
+        (
+            "[first] intervening prose\ncontinues before [second].\n",
+            "[first] intervening prose\ncontinues before [second].",
+        ),
+    ] {
+        let result = run_export_text_on(markdown);
+        assert_eq!(result["text"].as_str().unwrap(), expected, "{markdown:?}");
+        assert_eq!(strip_markdown(markdown), expected, "{markdown:?}");
+    }
+}
+
+#[test]
 fn export_text_keeps_prose_brackets_beside_formatted_links() {
     for (markdown, expected) in [
         (
@@ -6626,6 +6689,74 @@ fn export_text_keeps_adjacent_bracket_pairs_beside_defined_labels_and_code() {
         let result = run_export_text_on(markdown);
         let text = result["text"].as_str().unwrap().trim();
         assert_eq!(text, expected, "{markdown:?}");
+    }
+}
+
+/// Bracketed prose beside inline code keeps both: code spans are read before
+/// brackets, so a `[` or `]` inside one cannot open or close a phrase, one
+/// inside a phrase is code content, and only a real link loses its brackets.
+/// An unclosed backtick run is literal text, as CommonMark reads it.
+#[test]
+fn export_text_keeps_bracketed_prose_beside_inline_code() {
+    for (markdown, expected) in [
+        // Beside it, in either order, with or without a space.
+        ("[note] `x = 1` after.\n", "[note] x = 1 after."),
+        ("`x = 1` [note] after.\n", "x = 1 [note] after."),
+        ("[note]`x`[done]\n", "[note]x[done]"),
+        ("[a] `x` [b]\n", "[a] x [b]"),
+        // A code span inside the brackets reads its content between them.
+        ("[a `x` b]\n", "[a x b]"),
+        ("[`x` b]\n", "[x b]"),
+        ("[a `x`]\n", "[a x]"),
+        ("[x `a` y `b` z]\n", "[x a y b z]"),
+        ("[needs\n`x` review]\n", "[needs\nx review]"),
+        // A bracket inside a code span cannot close or open a phrase.
+        ("[a `]` b]\n", "[a ] b]"),
+        ("`a [` [b]\n", "a [ [b]"),
+        ("`a ]` [b]\n", "a ] [b]"),
+        // Link- and wikilink-looking code content stays as written.
+        ("`[k](v)` [note]\n", "[k](v) [note]"),
+        ("`[[wiki]]` [note]\n", "[[wiki]] [note]"),
+        ("[note] `f(x)` and `g[y]`\n", "[note] f(x) and g[y]"),
+        ("`unclosed [note]`\n", "unclosed [note]"),
+        // Only a real link loses its brackets, code in its text included.
+        ("[a `]` b](/u)\n", "a ] b"),
+        ("[a `[x](y)` b](u) [prose]\n", "a [x](y) b [prose]"),
+        ("[`t`](u) [prose]\n", "t [prose]"),
+        // A code span between `]` and `(` keeps the phrase prose.
+        ("[t] `x`(u)\n", "[t] x(u)"),
+        ("[t]`x`(u)\n", "[t]x(u)"),
+        // A defined label resolves; the other phrase keeps its brackets.
+        ("[alpha] `c` [beta]\n\n[beta]: /b\n", "[alpha] c beta"),
+        // A run never closed is literal text, in or beside a phrase.
+        ("[note] `unclosed\n", "[note] `unclosed"),
+        ("[a `x b]\n", "[a `x b]"),
+        // Runs of two or more, and adjacent runs that close separately.
+        ("[n] ``a`b`` [m]\n", "[n] a`b [m]"),
+        ("`` `x` `` [n]\n", "`x` [n]"),
+        ("a `b`c`d` [e]\n", "a bcd [e]"),
+        // In a heading, a quote, a list item and a table cell.
+        ("# [h] `c`\n", "[h] c"),
+        ("> [q] `c`\n", "[q] c"),
+        ("- [i] `c`\n", "[i] c"),
+        ("| a |\n|---|\n| [t] `c` |\n", "a\n[t] c"),
+        // Escaped brackets are text, and math masks like code does.
+        ("\\[a\\] `x`\n", "[a] x"),
+        ("[note] $x^2$ end\n", "[note] x^2 end"),
+    ] {
+        let result = run_export_text_on(markdown);
+        let text = result["text"].as_str().unwrap();
+        assert_eq!(text, expected, "{markdown:?}");
+        assert_eq!(
+            result["char_count"].as_u64().unwrap() as usize,
+            expected.chars().count(),
+            "{markdown:?}"
+        );
+        assert_eq!(
+            result["word_count"].as_u64().unwrap() as usize,
+            count_words(expected),
+            "{markdown:?}"
+        );
     }
 }
 
@@ -6762,6 +6893,283 @@ fn export_text_keeps_bracketed_prose_in_a_blockquote() {
             "{markdown:?}"
         );
     }
+}
+
+/// The same bracketed phrase on line after line is not one link whose
+/// label is the next line's phrase: with no label defined, every line
+/// keeps its own pair of brackets and the line break between repeats,
+/// however many times the phrase repeats.
+#[test]
+fn export_text_keeps_repeated_bracketed_prose_across_lines() {
+    for (markdown, expected) in [
+        // A phrase verbatim on two and three consecutive lines.
+        ("[repeat]\n[repeat]\n", "[repeat]\n[repeat]"),
+        (
+            "[fix me]\n[fix me]\n[fix me]\n",
+            "[fix me]\n[fix me]\n[fix me]",
+        ),
+        // A line of two pairs, itself repeated line after line.
+        (
+            "[a] [a]\n[a] [a]\n[a] [a]\n[a] [a]\n",
+            "[a] [a]\n[a] [a]\n[a] [a]\n[a] [a]",
+        ),
+        // The same phrase and the same prose around it, line after line.
+        (
+            "note [TODO] done\nnote [TODO] done\nnote [TODO] done\n",
+            "note [TODO] done\nnote [TODO] done\nnote [TODO] done",
+        ),
+        // Two phrases alternating repeat their pairs in order.
+        (
+            "[alpha]\n[beta]\n[alpha]\n[beta]\n",
+            "[alpha]\n[beta]\n[alpha]\n[beta]",
+        ),
+        // A repeat across paragraph breaks keeps the blank lines too.
+        ("[same]\n\n[same]\n\n[same]\n", "[same]\n\n[same]\n\n[same]"),
+        // CRLF boundaries read as `\n`; every pair still holds.
+        ("[keep]\r\n[keep]\r\n[keep]\r\n", "[keep]\n[keep]\n[keep]"),
+        // A label defined elsewhere in the document is no label for these.
+        ("[same]\n[same]\n\n[other]: /x\n", "[same]\n[same]"),
+    ] {
+        let result = run_export_text_on(markdown);
+        let text = result["text"].as_str().unwrap();
+        assert_eq!(text, expected, "{markdown:?}");
+        // Every bracket pairs off, and each repeat stays on its own line.
+        assert_eq!(
+            text.matches('[').count(),
+            text.matches(']').count(),
+            "unbalanced brackets in {text:?} for {markdown:?}"
+        );
+        assert_eq!(
+            text.lines().count(),
+            expected.lines().count(),
+            "line boundary lost in {text:?} for {markdown:?}"
+        );
+        assert_eq!(
+            result["char_count"].as_u64().unwrap() as usize,
+            expected.chars().count(),
+            "{markdown:?}"
+        );
+    }
+    assert_eq!(
+        strip_markdown("[once]\n[once]\n[once]\n"),
+        "[once]\n[once]\n[once]"
+    );
+}
+
+/// A `[x]` pair that is no link — no `(url)` after it and no `[x]: /url`
+/// in the document — is prose, so its brackets stay. Repeated, each failed
+/// reference read must hand off cleanly: `[a][b]` tries `b` as the label,
+/// falls short, and the next `[` starts a new pair rather than being eaten
+/// as the first's label or dropped with it. Every pair of a repeat keeps
+/// its brackets, in order: adjacent `[x][x]` and `[a][b]` runs, collapsed
+/// `[a][]`, an empty-text `[][b]`, a three-pair chain, repeats across lines
+/// and paragraphs, beside pairs that do match, and when the text's own
+/// label is defined (`[a]: /a` does not make `[a][b]` a link — `b` is the
+/// label, and it is undefined).
+#[test]
+fn export_text_keeps_repeated_unmatched_bracket_pairs_in_order() {
+    for (markdown, expected) in [
+        // The same unmatched pair, adjacent and spaced.
+        ("[x][x][x]\n", "[x][x][x]"),
+        ("[x] [x] [x] [x]\n", "[x] [x] [x] [x]"),
+        // A `[a][b]` full-reference look-alike: `b` is never defined.
+        ("[a][b] [a][b] [a][b]\n", "[a][b] [a][b] [a][b]"),
+        ("[a][b][a][b]\n", "[a][b][a][b]"),
+        // Collapsed `[a][]` and empty-text `[][b]` repeats.
+        ("[a][] [a][] [a][]\n", "[a][] [a][] [a][]"),
+        ("[][b] [][b]\n", "[][b] [][b]"),
+        // Three-pair chains: each failed read hands on the next pair.
+        ("[a][b][c] [a][b][c]\n", "[a][b][c] [a][b][c]"),
+        // Repeats on consecutive lines, across paragraph breaks, and over
+        // CRLF endings.
+        ("[a][b]\n[a][b]\n[a][b]\n", "[a][b]\n[a][b]\n[a][b]"),
+        ("[x][]\n\n[x][]\n\n[x][]\n", "[x][]\n\n[x][]\n\n[x][]"),
+        ("[a][b]\r\n[a][b]\r\n", "[a][b]\n[a][b]"),
+        // Unmatched repeats around an inline link and a defined reference:
+        // only the pairs that match lose their brackets.
+        (
+            "[a][b] [inline](/u) [a][b] [ref][r] [a][b]\n\n[r]: /r\n",
+            "[a][b] inline [a][b] ref [a][b]",
+        ),
+        // `[a]: /a` is a shortcut label only — inside `[a][b]`, `b` is the
+        // label, so the pair stays unmatched and literal both times.
+        ("[a][b] [a][b]\n\n[a]: /a\n", "[a][b] [a][b]"),
+        // A label defined elsewhere is no label for these pairs.
+        ("[z][z] [z][z]\n\n[other]: /o\n", "[z][z] [z][z]"),
+        // In a heading, a list item and a quote; non-ASCII pairs too.
+        (
+            "# [a][b] [a][b]\n\n- [a][] [a][]\n\n> [][b] [][b]\n",
+            "[a][b] [a][b]\n\n[a][] [a][]\n\n[][b] [][b]",
+        ),
+        (
+            "[café][naïve] [café][naïve] [要確認][要確認]\n",
+            "[café][naïve] [café][naïve] [要確認][要確認]",
+        ),
+    ] {
+        let result = run_export_text_on(markdown);
+        let text = result["text"].as_str().unwrap();
+        assert_eq!(text, expected, "{markdown:?}");
+        // Every bracket pair of the expected text shows, in the same order.
+        let pairs = |s: &str| -> Vec<String> {
+            let mut pairs = vec![];
+            let mut depth = 0usize;
+            let mut start = 0;
+            for (i, c) in s.char_indices() {
+                match c {
+                    '[' => {
+                        if depth == 0 {
+                            start = i;
+                        }
+                        depth += 1;
+                    }
+                    ']' if depth > 0 => {
+                        depth -= 1;
+                        if depth == 0 {
+                            pairs.push(s[start..=i].to_string());
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            pairs
+        };
+        assert_eq!(
+            pairs(text),
+            pairs(expected),
+            "bracket pairs dropped or reordered in {text:?} for {markdown:?}"
+        );
+        assert_eq!(
+            text.matches('[').count(),
+            text.matches(']').count(),
+            "unbalanced brackets in {text:?} for {markdown:?}"
+        );
+        assert_eq!(
+            result["char_count"].as_u64().unwrap() as usize,
+            expected.chars().count(),
+            "{markdown:?}"
+        );
+        assert_eq!(
+            result["word_count"].as_u64().unwrap() as usize,
+            count_words(expected),
+            "{markdown:?}"
+        );
+    }
+    assert_eq!(
+        strip_markdown("[a][b] [a][b]\n\n[a]: /a\n"),
+        "[a][b] [a][b]"
+    );
+}
+
+/// A blank line ends the paragraph and every inline read inside it, so a
+/// bracketed phrase in one paragraph can never be the link text, the label
+/// or the tail of a phrase in the next. Each paragraph keeps its own
+/// brackets — mid-sentence and at its edges, a phrase that is the whole
+/// paragraph, a phrase repeated once per paragraph, beside links that do
+/// resolve, around a definition sitting between the paragraphs, inside
+/// other blocks, and over wide or CRLF breaks. Unmatched brackets cannot
+/// reach across the break either: a `[` left open in one paragraph and a
+/// `]` opening the next stay literal on both sides.
+#[test]
+fn export_text_keeps_bracketed_prose_across_separate_paragraphs() {
+    for (markdown, expected) in [
+        // A phrase mid-sentence in each paragraph.
+        (
+            "The [draft] opens here.\n\nThe [review] ends there.\n",
+            "The [draft] opens here.\n\nThe [review] ends there.",
+        ),
+        // At the edges: opening the first paragraph, closing the second.
+        (
+            "[alpha] starts the first.\n\nThe second ends [omega].\n",
+            "[alpha] starts the first.\n\nThe second ends [omega].",
+        ),
+        // A paragraph that is only a bracketed phrase, prose around it.
+        (
+            "Intro paragraph.\n\n[whole note]\n\nOutro paragraph.\n",
+            "Intro paragraph.\n\n[whole note]\n\nOutro paragraph.",
+        ),
+        // The same phrase once per paragraph stays once per paragraph.
+        (
+            "Note [sic] once.\n\nNote [sic] twice.\n\nNote [sic] thrice.\n",
+            "Note [sic] once.\n\nNote [sic] twice.\n\nNote [sic] thrice.",
+        ),
+        // Citation-shaped pairs in both paragraphs of a short paper.
+        (
+            "Results [1] and [2] hold.\n\nSee also (cf. [3]) below.\n",
+            "Results [1] and [2] hold.\n\nSee also (cf. [3]) below.",
+        ),
+        // A wide gap still reads as one paragraph break.
+        (
+            "[first] up.\n\n\n\n[second] down.\n",
+            "[first] up.\n\n[second] down.",
+        ),
+        // CRLF endings, the blank line between paragraphs included.
+        (
+            "[first] up.\r\n\r\n[second] down.\r\n",
+            "[first] up.\n\n[second] down.",
+        ),
+        // Real links in both paragraphs resolve; the prose pairs stay.
+        (
+            "See [the guide](/g) and [sic].\n\nSee [the docs](/d) and [TODO].\n",
+            "See the guide and [sic].\n\nSee the docs and [TODO].",
+        ),
+        // A defined label resolves in its paragraph; the undefined pair in
+        // the next paragraph keeps its brackets.
+        (
+            "Defined [r] resolves.\n\nUndefined [u] stays.\n\n[r]: /r\n",
+            "Defined r resolves.\n\nUndefined [u] stays.",
+        ),
+        // A definition between the paragraphs is dropped yet still labels a
+        // later pair; the unresolved pair before it keeps its brackets.
+        (
+            "Intro [a] text.\n\n[x]: /x\n\nOutro [b] and [x].\n",
+            "Intro [a] text.\n\nOutro [b] and x.",
+        ),
+        // `[a]` over the break from `[b]` is two literal phrases, never one
+        // link whose text is the first and label the second.
+        ("[a]\n\n[b]\n", "[a]\n\n[b]"),
+        // A pair split by the break is no pair: both sides stay literal.
+        ("[text\n\nmore]\n", "[text\n\nmore]"),
+        (
+            "Ends with [open.\n\nStarts [closed] fine.\n",
+            "Ends with [open.\n\nStarts [closed] fine.",
+        ),
+        // In a list item, a quote and a plain paragraph alike.
+        (
+            "- item [a] done\n\n> quote [b] said\n\nplain [c] text\n",
+            "item [a] done\n\nquote [b] said\n\nplain [c] text",
+        ),
+        // Non-ASCII phrases in each paragraph.
+        (
+            "[café] première.\n\n[要確認] seconde.\n",
+            "[café] première.\n\n[要確認] seconde.",
+        ),
+    ] {
+        let result = run_export_text_on(markdown);
+        let text = result["text"].as_str().unwrap();
+        assert_eq!(text, expected, "{markdown:?}");
+        // The break between the paragraphs survives, and every bracket
+        // that was paired stays paired (a deliberately unpaired `[` aside).
+        assert!(
+            text.contains("\n\n"),
+            "paragraph break lost in {text:?} for {markdown:?}"
+        );
+        if expected.matches('[').count() == expected.matches(']').count() {
+            assert_eq!(
+                text.matches('[').count(),
+                text.matches(']').count(),
+                "unbalanced brackets in {text:?} for {markdown:?}"
+            );
+        }
+        assert_eq!(
+            result["char_count"].as_u64().unwrap() as usize,
+            expected.chars().count(),
+            "{markdown:?}"
+        );
+    }
+    assert_eq!(
+        strip_markdown("[first]\n\n[second]\n"),
+        "[first]\n\n[second]"
+    );
 }
 
 /// `char_count` said only "character counts", leaving an agent to guess
@@ -10116,10 +10524,29 @@ fn export_text_keeps_bracketed_prose_and_terminal_punctuation() {
             "Read [the guide] and finish [the review].\n\n[the guide]: /guide\n",
             "Read the guide and finish [the review].",
         ),
+        ("The result: [pending];\n", "The result: [pending];"),
+        ("The result ([pending]).\n", "The result ([pending])."),
+        ("The result [**pending**]!\n", "The result [pending]!"),
+        (
+            "See [the guide](/guide); result: [pending].\n\nNext paragraph.\n",
+            "See the guide; result: [pending].\n\nNext paragraph.",
+        ),
     ] {
         let result = run_export_text_on(markdown);
         assert_eq!(
             result["text"].as_str().unwrap(),
+            expected,
+            "input: {markdown:?}"
+        );
+
+        let ipc = MockIpc::new().on_get(
+            "/content",
+            Ok(json!({ "path": "/docs/test.md", "content": markdown })),
+        );
+        let response = tool_export_text(id(2), &json!({}), &ipc);
+        assert!(response.error.is_none(), "input: {markdown:?}");
+        assert_eq!(
+            content_text(&response)["text"],
             expected,
             "input: {markdown:?}"
         );
@@ -10512,6 +10939,44 @@ fn export_text_keeps_bracketed_prose_at_paragraph_end_before_other_blocks() {
     let response = tool_export_text(id(2), &json!({}), &ipc);
     assert!(response.error.is_none());
     assert_eq!(content_text(&response)["text"].as_str().unwrap(), expected);
+}
+
+/// Bracketed prose closing a paragraph keeps both brackets inside a list
+/// item, a task item or a table cell, and when the brackets nest, trail a
+/// colon, hold an emoji, sit inside inline HTML or are escaped.
+#[test]
+fn export_text_keeps_bracketed_prose_closing_a_paragraph_in_containers_and_odd_shapes() {
+    for (markdown, expected) in [
+        (
+            "- item ends [sic]\n- second [b]\n",
+            "item ends [sic]\nsecond [b]",
+        ),
+        ("1. first [a]\n2. second [b]\n", "first [a]\nsecond [b]"),
+        (
+            "- [ ] task [sic]\n- [x] done [ok]\n",
+            "task [sic]\ndone [ok]",
+        ),
+        (
+            "| h | h2 |\n|---|---|\n| cell [a] | x [b] |\n",
+            "h\th2\ncell [a]\tx [b]",
+        ),
+        ("Nested [a [b]]\n", "Nested [a [b]]"),
+        ("Ends with colon [sic]:\n", "Ends with colon [sic]:"),
+        ("Ends with emoji [🙂]\n", "Ends with emoji [🙂]"),
+        ("<span>Tail [a]</span>\n", "Tail [a]"),
+        ("Escaped \\[a\\] and [b]\n", "Escaped [a] and [b]"),
+        ("Ends [ ]\n", "Ends [ ]"),
+        ("Ends [[]]\n", "Ends [[]]"),
+    ] {
+        let result = run_export_text_on(markdown);
+        let text = result["text"].as_str().unwrap();
+        assert_eq!(text, expected, "{markdown:?}");
+        assert_eq!(
+            result["char_count"].as_u64().unwrap() as usize,
+            expected.chars().count(),
+            "{markdown:?}"
+        );
+    }
 }
 
 /// A line after a paragraph that looks like a `[label]:` reference
@@ -17781,6 +18246,26 @@ fn bracketed_prose_survives_set_content_and_get_content() {
 }
 
 #[test]
+fn unicode_bracketed_prose_survives_set_content_and_get_content() {
+    let prose = "Before [café] [e\u{301}] [日本語] [مرحبا] [👩🏽‍💻].\n\
+        ［全角］ 【注記】 and [𠮷野家] after.\n";
+    let ipc = MockIpc::new()
+        .on_post("/content", Ok(json!({ "ok": true })))
+        .on_get(
+            "/content",
+            Ok(json!({ "path": "/tmp/話.md", "content": prose })),
+        );
+
+    let set = tool_set_content(id(1), &json!({ "content": prose }), &ipc);
+    assert!(set.error.is_none() && !is_error(&set));
+    assert_eq!(posted_body(&ipc, "/content")["content"], prose);
+
+    let get = tool_get_content(id(2), &ipc);
+    assert!(get.error.is_none() && !is_error(&get));
+    assert_eq!(content_text(&get)["content"], prose);
+}
+
+#[test]
 fn bracketed_prose_survives_edit_document_find_and_replace() {
     let ipc = MockIpc::new().on_post("/edit", Ok(json!({ "ok": true, "replacements": 1 })));
     let find = "see (cf. [3]).";
@@ -18165,4 +18650,171 @@ fn export_text_keeps_unicode_bracketed_prose_in_containers_and_beside_markup() {
         );
         assert_eq!(text.matches('[').count(), text.matches(']').count());
     }
+}
+
+/// Bracketed prose at the beginning of a paragraph keeps both brackets and
+/// the prose after them in the shapes the start-of-a-paragraph test leaves
+/// out: the paragraph's continuation line indented four columns (indented
+/// code cannot interrupt one), a footnote definition's own text opening on
+/// brackets, a paragraph that begins one inside two containers at once, a
+/// heading, fence, quote or rule that interrupts it, a `#` with no space
+/// that cannot, a hard break after the opener, a tab-indented line that
+/// reads as code instead, brackets raw inside an HTML block, an inner pair
+/// that resolves while the unmatched outer pair stays literal, a quote
+/// restarting on brackets after its blank line, an image and a footnote
+/// reference beside the opener, punctuation hard against it, a pipe and an
+/// escaped `]` inside it, strikethrough inside it, an empty `()` that is
+/// no link tail, and a multi-line definition that is read first. A defined
+/// label still resolves per paragraph: `[x]` keeps its brackets while
+/// `[y]` becomes a link.
+#[test]
+fn export_text_keeps_bracketed_prose_at_the_beginning_of_a_paragraph() {
+    let cases = [
+        // A line indented four columns goes on with the paragraph (indented
+        // code cannot interrupt one), so its text is read, not its indent.
+        (
+            "[note] first\n    indented continuation\n",
+            "[note] first\nindented continuation",
+        ),
+        // A footnote definition's text is a paragraph of its own; brackets
+        // opening it keep both brackets and the prose after them.
+        (
+            "[^1]: [note] begins the footnote text.\n",
+            "[1] [note] begins the footnote text.",
+        ),
+        // The paragraph opens inside two containers at once.
+        (
+            "> - [note] nested in quote-list.\n",
+            "[note] nested in quote-list.",
+        ),
+        (
+            "- > [note] nested in item-quote.\n",
+            "[note] nested in item-quote.",
+        ),
+        // An ATX heading, a fence, a blockquote and a rule each interrupt
+        // the paragraph the opener began; a `#` with no space cannot and
+        // reads as the paragraph's next line.
+        ("[note] first\n# Heading\n", "[note] first\nHeading"),
+        (
+            "[note] first\n```\ncode line\n```\n",
+            "[note] first\ncode line",
+        ),
+        ("[note] first\n> quote after\n", "[note] first\nquote after"),
+        ("[note] first\n***\n", "[note] first"),
+        (
+            "[note] first\n#not-a-heading\n",
+            "[note] first\n#not-a-heading",
+        ),
+        // A hard break after the opener: the backslash is read, the two
+        // trailing spaces stay as written.
+        (
+            "[note] first  \nsecond line.\n",
+            "[note] first  \nsecond line.",
+        ),
+        (
+            "[note] first\\\nsecond line.\n",
+            "[note] first\nsecond line.",
+        ),
+        // A tab-indented line is indented code; the brackets are code text.
+        (
+            "\t[note] inside indented code.\n",
+            "[note] inside indented code.",
+        ),
+        // Inside an HTML block the brackets are raw text on the page.
+        ("<div>\n[note] raw text.\n</div>\n", "[note] raw text."),
+        // The inner pair resolves against the defined label while the
+        // unmatched outer pair stays literal.
+        ("[a [b] c] prose.\n\n[b]: /u\n", "[a b c] prose."),
+        // A blockquote's next paragraph, past its blank quoted line, opens
+        // on the brackets again.
+        (
+            "> a\n>\n> [note] restarts the quote.\n",
+            "a\n\n[note] restarts the quote.",
+        ),
+        // An image and a footnote reference beside the opener read their
+        // own syntax; the opening brackets stay.
+        ("[note] then ![alt](/i.png) end.\n", "[note] then alt end."),
+        (
+            "[note] and [^2] too.\n\n[^2]: Note two.\n",
+            "[note] and [2] too.\n\n[2] Note two.",
+        ),
+        // Punctuation hard against the opener: no space needed either side.
+        ("[note], opens a clause.\n", "[note], opens a clause."),
+        ("[note]; then more.\n", "[note]; then more."),
+        // A pipe inside the opener is plain text in a paragraph (no table),
+        // and an escaped `]` inside it does not close it.
+        ("[a | b] keeps its pipe.\n", "[a | b] keeps its pipe."),
+        ("[a\\]b] prose after.\n", "[a]b] prose after."),
+        // Strikethrough inside the opener is read; the brackets stay.
+        (
+            "[~~struck~~ note] stays prose.\n",
+            "[struck note] stays prose.",
+        ),
+        // An empty `()` after the opener is no link tail.
+        ("[note] () text.\n", "[note] () text."),
+        // A definition spanning two lines is read first; the paragraph
+        // after it still opens on brackets, which stay.
+        (
+            "[a]: /u\n  \"title\"\n\n[note] after multi-line def.\n",
+            "[note] after multi-line def.",
+        ),
+        // Labels resolve per paragraph: `[y]` is defined and reads as a
+        // link while the undefined `[x]` keeps its brackets.
+        ("[x] one.\n\n[y] two.\n\n[y]: /u\n", "[x] one.\n\ny two."),
+    ];
+    for (markdown, expected) in cases {
+        let result = run_export_text_on(markdown);
+        let rendered = result["text"].as_str().unwrap();
+        assert_eq!(rendered, expected, "{markdown:?}");
+        let ipc = MockIpc::new().on_get(
+            "/content",
+            Ok(json!({ "path": "/docs/test.md", "content": markdown })),
+        );
+        let response = tool_export_text(id(2), &json!({}), &ipc);
+        assert!(response.error.is_none(), "{markdown:?}");
+        assert_eq!(
+            content_text(&response)["text"].as_str().unwrap(),
+            expected,
+            "{markdown:?}"
+        );
+        assert_eq!(strip_markdown(markdown), expected, "{markdown:?}");
+        assert_eq!(
+            result["char_count"].as_u64().unwrap() as usize,
+            expected.chars().count(),
+            "{markdown:?}"
+        );
+        assert_eq!(
+            result["word_count"].as_u64().unwrap() as usize,
+            count_words(expected),
+            "{markdown:?}"
+        );
+    }
+
+    // At the paragraph's start, real syntax still owns its brackets: a
+    // wikilink reads its target, a defined label resolves whatever its
+    // case, a full reference reads its text, and every paragraph opening
+    // on a defined label resolves on its own.
+    for (markdown, expected) in [
+        ("[[note]] prose at start.\n", "note prose at start."),
+        (
+            "[Note] prose at start.\n\n[note]: /u\n",
+            "Note prose at start.",
+        ),
+        ("[note][ref] prose.\n\n[ref]: /u\n", "note prose."),
+        (
+            "[same] one.\n\n[same] two.\n\n[same]: /u\n",
+            "same one.\n\nsame two.",
+        ),
+    ] {
+        let result = run_export_text_on(markdown);
+        assert_eq!(result["text"].as_str().unwrap(), expected, "{markdown:?}");
+        assert_eq!(strip_markdown(markdown), expected, "{markdown:?}");
+    }
+
+    // The acceptance point, verbatim: the returned text retains both
+    // brackets and the following prose.
+    let result = run_export_text_on("[draft] please review this paragraph.\n");
+    let text = result["text"].as_str().unwrap();
+    assert!(text.starts_with("[draft] "), "{text:?}");
+    assert!(text.contains("please review this paragraph."), "{text:?}");
 }

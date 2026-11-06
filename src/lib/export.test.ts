@@ -548,6 +548,57 @@ describe("exportHtml", () => {
   });
 });
 
+// ─── exporting an empty document ─────────────────────────────────────────────
+
+describe("exportHtml — empty document", () => {
+  beforeEach(() => {
+    // Read view of a document with no content: an empty `.markdown-body`.
+    const div = document.createElement("div");
+    div.className = "markdown-body";
+    document.body.appendChild(div);
+    invokeMock.mockReset();
+    saveMock.mockReset();
+    invokeMock.mockResolvedValue(undefined);
+    saveMock.mockResolvedValue("/home/user/empty.html");
+    vi.mocked(toast.success).mockReset();
+    vi.mocked(toast.error).mockReset();
+    mockDocGetState.mockReturnValue({
+      path: "/vault/empty.md",
+      fileName: "empty.md",
+      content: "",
+    });
+  });
+  afterEach(() => {
+    teardownDom();
+    mockDocGetState.mockReset();
+    mockDocGetState.mockImplementation(() => ({
+      path: "/vault/my-doc.md",
+      fileName: "my-doc.md",
+      content: "# Hello\n\nWorld.",
+    }));
+  });
+
+  it("builds a complete page with an empty article, the given title and the default language", () => {
+    const html = buildStandaloneHtml("Empty");
+    expect(html).toMatch(/^<!doctype html>/i);
+    expect(html).toContain("<title>Empty</title>");
+    expect(html).toContain('<html lang="en"');
+    expect(html).toMatch(
+      /<article class="reading-surface">\s*<div class="markdown-body"><\/div>\s*<\/article>/,
+    );
+    expect(html.trimEnd().endsWith("</html>")).toBe(true);
+  });
+
+  it("writes the page, resolves true and toasts success without throwing", async () => {
+    await expect(exportHtml("empty")).resolves.toBe(true);
+    const written = writtenExport();
+    expect(written?.path).toBe("/home/user/empty.html");
+    expect(written?.text).toContain('<div class="markdown-body"></div>');
+    expect(toast.success).toHaveBeenCalledWith("Exported to empty.html");
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+});
+
 // ─── exportDocx ───────────────────────────────────────────────────────────────
 
 describe("exportDocx", () => {
