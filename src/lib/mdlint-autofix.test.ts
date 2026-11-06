@@ -15101,6 +15101,71 @@ describe("autofix: an invalid link inside a list item", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
     expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
   });
+
+  it.each([
+    ["-", "\n"],
+    ["2.", "\r\n"],
+    ["  *", "\n"],
+  ])("fixes each of two identical links in one %j item and keeps the marker and the text around them (line ending %j)", (marker, nl) => {
+    const doc = `${marker} See [same]() and [same]() again.${nl}${marker} Next item stays.${nl}`;
+    const expected = `${marker} See [same](TODO) and [same](TODO) again.${nl}${marker} Next item stays.${nl}`;
+
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(2);
+    // Each fix searches from its own offset, so it lands on its own copy of
+    // the identical link rather than the first match on the line.
+    expect(applyFix(doc, violations[0])).toBe(
+      `${marker} See [same](TODO) and [same]() again.${nl}${marker} Next item stays.${nl}`,
+    );
+    expect(applyFix(doc, violations[1])).toBe(
+      `${marker} See [same]() and [same](TODO) again.${nl}${marker} Next item stays.${nl}`,
+    );
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(applyAllFixes(doc, [...violations].reverse())).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+
+  it.each([
+    ["-", "  ", "\n"],
+    ["3)", "   ", "\r\n"],
+  ])("fixes a link in the indented continuation paragraph of a loose %j item (indent %j, line ending %j)", (marker, indent, nl) => {
+    const doc = [
+      `${marker} Intro text`,
+      "",
+      `${indent}See [[Note]] and [draft]() for details.`,
+      "",
+      `${marker} Other item`,
+      "",
+    ].join(nl);
+    const expected = [
+      `${marker} Intro text`,
+      "",
+      `${indent}See [[Note]] and [draft](TODO) for details.`,
+      "",
+      `${marker} Other item`,
+      "",
+    ].join(nl);
+
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    const { from, to } = violations[0].range!;
+    // Only the link is flagged: the wikilink is not a [text](href) link.
+    expect(doc.slice(from.offset, to.offset)).toBe("[draft]()");
+
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // Both marker lines, the wikilink and the continuation text are intact.
+    expect(fixed).toContain(`${marker} Intro text`);
+    expect(fixed).toContain(`${marker} Other item`);
+    expect(fixed).toContain("[[Note]]");
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
 });
 
 describe("autofix: a described image with no other findings", () => {
