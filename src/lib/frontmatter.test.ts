@@ -183,3 +183,36 @@ describe("frontmatterText", () => {
     expect(frontmatterText("\uFEFF---\ntitle: BOM\n---\n", "title")).toBe("BOM");
   });
 });
+
+describe("a document with no frontmatter", () => {
+  const doc = "# Title\n\nSome text.\n\n- a\n- b\n";
+
+  it("keeps the whole document as the body and round-trips it", () => {
+    const { frontmatter, body } = splitFrontmatter(doc);
+    expect(frontmatter).toBe("");
+    expect(body).toBe(doc);
+    expect(joinFrontmatter(frontmatter, body)).toBe(doc);
+  });
+
+  it("strips nothing: every line is kept and the offset is 0", () => {
+    const { lines, offset } = stripFrontmatter(doc);
+    expect(offset).toBe(0);
+    expect(lines.join("\n")).toBe(doc);
+  });
+
+  it("has no metadata for any key", () => {
+    expect(frontmatterText(doc, "title")).toBeNull();
+    expect(frontmatterText(doc, "author")).toBeNull();
+  });
+
+  it("keeps an unclosed --- opener as body text with no metadata", () => {
+    const raw = "---\ntitle: X\n\nno closing fence";
+    expect(splitFrontmatter(raw)).toEqual({ frontmatter: "", body: raw });
+    expect(frontmatterText(raw, "title")).toBeNull();
+  });
+
+  it("keeps an empty document empty", () => {
+    expect(splitFrontmatter("")).toEqual({ frontmatter: "", body: "" });
+    expect(frontmatterText("", "title")).toBeNull();
+  });
+});
