@@ -112,7 +112,7 @@ class AptPlanTests(unittest.TestCase):
 
     def archive_record(self, name='libwebkit2gtk-4.1-0', body=b'synthetic deb bytes'):
         return {'name': name, 'version': '2.0', 'architecture': 'amd64', 'size': len(body),
-                'filename': f'pool/main/w/webkit2gtk/{name}_2.0_amd64.deb',
+                'filename': f'{plan.DOWNLOAD_POOLS[name]}{name}_2.0_amd64.deb',
                 'sha256': hashlib.sha256(body).hexdigest()}
 
     def archive_text(self, record):
@@ -155,6 +155,17 @@ class AptPlanTests(unittest.TestCase):
                 plan.download_metadata(self.archive_text({**base, **change}))
         with self.assertRaises(ValueError):
             plan.download_metadata(self.archive_text(base) + self.archive_text({**base, 'sha256': 'a' * 64}))
+
+    def test_official_webkit_universe_and_javascriptcore_main_pool_bindings(self):
+        for name, pool in [('libjavascriptcoregtk-4.1-0', 'pool/main/w/webkit2gtk/'),
+                           ('libwebkit2gtk-4.1-0', 'pool/universe/w/webkit2gtk/')]:
+            record = self.archive_record(name)
+            record['filename'] = f'{pool}{name}_2.50.4-0ubuntu0.22.04.1_amd64.deb'
+            self.assertEqual(list(plan.download_metadata(self.archive_text(record)).values()), [record])
+            for wrong in ['pool/main/x/other/', 'pool/universe/x/other/',
+                          'pool/universe/w/webkit2gtk/' if '/main/' in pool else 'pool/main/w/webkit2gtk/']:
+                with self.subTest(name=name, pool=wrong), self.assertRaises(ValueError):
+                    plan.download_metadata(self.archive_text({**record, 'filename': wrong + record['filename'].rsplit('/', 1)[1]}))
 
     def test_failed_partial_or_changed_bytes_never_become_verified(self):
         record = self.archive_record()
