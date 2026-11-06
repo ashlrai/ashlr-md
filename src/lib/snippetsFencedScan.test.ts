@@ -69,4 +69,46 @@ describe("isInsideFencedCode reads up to the cursor's line", () => {
     const open = "---\nx: |\n  ```\n  y\n";
     expect(isInsideFencedCode(open, open.indexOf("y"))).toBe(true);
   });
+
+  it("keeps adjacent fenced blocks distinct", () => {
+    // Two blocks with no blank line between them: the first closing fence
+    // must end the first block, and the next opening fence start another.
+    const doc = "```js\nalpha\n```\n```py\nbeta\n```\nafter\n";
+    const at = (s: string, off = 0) => doc.indexOf(s) + off;
+    const inside = (p: number) => isInsideFencedCode(doc, p);
+
+    // Contents of each block are code.
+    expect(inside(at("alpha", 2))).toBe(true);
+    expect(inside(at("beta", 2))).toBe(true);
+    // Each fence line is code only after its first character.
+    const close1 = at("```\n```py");
+    const open2 = close1 + 4;
+    expect(inside(close1)).toBe(false);
+    expect(inside(close1 + 1)).toBe(true);
+    expect(inside(open2)).toBe(false);
+    expect(inside(open2 + 1)).toBe(true);
+    // The first block's close does not swallow the second block's info
+    // string as plain text, and text after the second block is prose.
+    expect(inside(at("py"))).toBe(true);
+    expect(inside(at("after", 2))).toBe(false);
+    expect(inside(doc.length)).toBe(false);
+
+    // Boundaries: each block yields its own code line; none merge across the boundary.
+    const lines = outline.markdownLines(doc).filter((l) => l.kind === "code");
+    expect(lines.map((l) => l.text)).toEqual(["alpha", "beta"]);
+    for (let p = 0; p <= doc.length; p++) expect(inside(p)).toBe(readAll(doc, p));
+  });
+
+  it("keeps adjacent blocks distinct with mixed fence styles", () => {
+    // A longer or different fence inside never closes the neighbour.
+    const doc = "````\n```\ninner\n```\n````\n~~~\ntilde\n~~~\nprose\n";
+    const inside = (s: string, off = 0) =>
+      isInsideFencedCode(doc, doc.indexOf(s) + off);
+    expect(inside("inner", 2)).toBe(true);
+    expect(inside("tilde", 2)).toBe(true);
+    expect(inside("prose", 2)).toBe(false);
+    for (let p = 0; p <= doc.length; p++) {
+      expect(isInsideFencedCode(doc, p)).toBe(readAll(doc, p));
+    }
+  });
 });
