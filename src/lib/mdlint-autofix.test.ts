@@ -34,6 +34,33 @@ import {
   ruleOrphanedHeading,
 } from "./mdlint";
 
+describe("invalid-link autofix: an empty href inside prose", () => {
+  const rules = [ruleInvalidLinkTarget];
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("replaces the empty href with TODO and preserves every surrounding character (%j)", (nl) => {
+    const doc = `Note [guide]: call f(a, b), then [guide]() yields g(c) — see (p. 4).${nl}`;
+    const expected = `Note [guide]: call f(a, b), then [guide](TODO) yields g(c) — see (p. 4).${nl}`;
+    const violations = lintDocument(doc, { rules });
+
+    // The bare "[guide]" mention, the f(…)/g(…) calls and "(p. 4)" are prose,
+    // not links: only the empty href is flagged.
+    expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe("[guide]()");
+
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // Stripping the placeholder restores the input byte-for-byte.
+    expect(fixed.replace("[guide](TODO)", "[guide]()")).toBe(doc);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+});
+
 describe("invalid-link autofix preserves surrounding punctuation", () => {
   it("retains punctuation and neighboring text for single and multiple fixes", () => {
     const doc = 'See ("[draft]()"), then [guide](#)! Keep [valid](./guide.md).\r\n';
