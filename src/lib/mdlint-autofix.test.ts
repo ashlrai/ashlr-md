@@ -14716,6 +14716,15 @@ describe("missing-alt-text autofix: idempotence for linked and angle-bracket ima
 });
 
 describe("autofix: no-findings document", () => {
+  it("returns ordinary prose with a valid link unchanged when no fixes are needed", () => {
+    const doc =
+      "---\ntitle: Guide\n---\n\nRead the [guide](https://example.com/guide) for more details.\n";
+    const violations = lintDocument(doc);
+
+    expect(violations).toEqual([]);
+    expect(applyAllFixes(doc, violations)).toBe(doc);
+  });
+
   const prose = [
     "---",
     "title: Field notes",
