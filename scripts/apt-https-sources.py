@@ -5,7 +5,7 @@ import re
 import stat
 
 URI = re.compile(r'http://(?:azure\.archive\.ubuntu\.com|archive\.ubuntu\.com|security\.ubuntu\.com)/ubuntu/?\Z')
-NAMES = {'sources.list', 'ubuntu.sources'}
+NAMES = {'sources.list', 'ubuntu.sources', 'apt-mirrors.txt'}
 MAX_BYTES = 1024 * 1024
 
 
@@ -52,6 +52,18 @@ def convert(text):
     return ''.join(result)
 
 
+def convert_mirrors(text):
+    # Hosted images use mirror+file: indirection. Keep the mirror selection,
+    # priority/options and existing HTTPS entries; change only approved schemes.
+    result = []
+    for line in text.splitlines(keepends=True):
+        match = re.match(r'^[ \t]*(\S+)', line)
+        if match and URI.fullmatch(match.group(1)):
+            line = line[:match.start(1)] + 'https://' + match.group(1)[7:] + line[match.end(1):]
+        result.append(line)
+    return ''.join(result)
+
+
 def update_file(directory_fd, name):
     if name not in NAMES:
         raise ValueError('unexpected APT source filename')
@@ -68,7 +80,8 @@ def update_file(directory_fd, name):
         raw = os.read(fd, MAX_BYTES + 1)
         if len(raw) > MAX_BYTES or len(raw) != info.st_size:
             raise ValueError('APT source size changed while reading')
-        updated = convert(raw.decode('utf-8')).encode('utf-8')
+        conversion = convert_mirrors if name == 'apt-mirrors.txt' else convert
+        updated = conversion(raw.decode('utf-8')).encode('utf-8')
         if len(updated) > MAX_BYTES:
             raise ValueError('updated APT source exceeds its bound')
         if updated != raw:
@@ -97,6 +110,7 @@ def main():
         try:
             apt = owned_directory('apt', etc)
             try:
+                update_file(apt, 'apt-mirrors.txt')
                 update_file(apt, 'sources.list')
                 try:
                     sources = owned_directory('sources.list.d', apt)
