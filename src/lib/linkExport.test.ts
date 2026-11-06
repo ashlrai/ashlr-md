@@ -70,6 +70,44 @@ describe("applyLinkExport", () => {
     }
   });
 
+  it("retains a link's fragment in the exported target", async () => {
+    const content = "See [setup](https://example.com/guide#setup) first.\n";
+    const rendered =
+      '<p>See <a href="https://example.com/guide#setup">setup</a> first.</p>';
+    useDocumentStore.setState({ content });
+    const body = document.createElement("div");
+    body.className = "markdown-body";
+    body.innerHTML = rendered;
+    document.body.appendChild(body);
+    invokeMock.mockResolvedValueOnce("html").mockResolvedValue(undefined);
+
+    try {
+      await applyLinkExport("/notes/a.md");
+      expect(useUiStore.getState().exportOpen).toBe(true);
+
+      await expect(exportHtml("a", "/notes/a.html")).resolves.toBe(true);
+      const write = invokeMock.mock.calls.find(
+        ([command]) => command === "write_file_bytes",
+      );
+      expect(write).toBeDefined();
+      const html = new TextDecoder().decode(write?.[1]);
+      expect(html).toContain('href="https://example.com/guide#setup"');
+    } finally {
+      body.remove();
+    }
+  });
+
+  it("keeps a fragment on the path the link asked to export", async () => {
+    useDocumentStore.setState({ path: "/notes/a.md#intro" });
+    invokeMock.mockResolvedValue("pdf");
+    await applyLinkExport("/notes/a.md#intro");
+    expect(invokeMock).toHaveBeenCalledWith("take_link_export", {
+      path: "/notes/a.md#intro",
+    });
+    expect(useUiStore.getState().exportOpen).toBe(true);
+    expect(useUiStore.getState().exportFormat).toBe("pdf");
+  });
+
   it("does nothing when the link asked for no export", async () => {
     invokeMock.mockResolvedValue(null);
     await applyLinkExport("/notes/a.md");
