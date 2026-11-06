@@ -52,6 +52,68 @@ describe("invalid-link autofix preserves surrounding punctuation", () => {
     expect(applyAllFixes(doc, [...violations].reverse())).toBe(expected);
     expect(lintDocument(expected, { rules })).toEqual([]);
   });
+
+  it.each([
+    ["a comma", "", ","],
+    ["a period", "", "."],
+    ["a semicolon", "", ";"],
+    ["a colon", "", ":"],
+    ["a question mark", "", "?"],
+    ["an exclamation mark", "", "!"],
+    ["an interrobang pair", "", "?!"],
+    ["an ellipsis", "", "…"],
+    ["parentheses", "(", ")"],
+    ["parentheses and a comma", "(", "),"],
+    ["parentheses and a period", "(", ")."],
+    ["double quotes", '"', '"'],
+    ["a period inside double quotes", '"', '."'],
+    ["single quotes", "'", "'"],
+    ["a possessive 's", "", "'s"],
+    ["em dashes", "—", "—"],
+  ])("fixes a link touching %s without moving the label or the mark", (_kind, before, after) => {
+    const rules = [ruleInvalidLinkTarget];
+    const doc = `See ${before}[the guide]()${after} next.\n`;
+    const expected = `See ${before}[the guide](TODO)${after} next.\n`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "invalid-link-target",
+    ]);
+    // The range covers the link only — never the punctuation touching it.
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe("[the guide]()");
+
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain(`${before}[the guide](TODO)${after}`);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+
+  it("keeps the commas, semicolons and colons between several invalid links in one sentence", () => {
+    const rules = [ruleInvalidLinkTarget];
+    const doc = "Then, [first](), [second](#); plus [third](?): read them all.\n";
+    const expected =
+      "Then, [first](TODO), [second](TODO); plus [third](TODO): read them all.\n";
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "invalid-link-target",
+      "invalid-link-target",
+      "invalid-link-target",
+    ]);
+    // One fix at a time touches only its own link's href.
+    expect(applyFix(doc, violations[0])).toBe(
+      "Then, [first](TODO), [second](#); plus [third](?): read them all.\n",
+    );
+    expect(applyFix(doc, violations[2])).toBe(
+      "Then, [first](), [second](#); plus [third](TODO): read them all.\n",
+    );
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(applyAllFixes(doc, [...violations].reverse())).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
 });
 
 // ─── 1. Rule: orphaned-heading ────────────────────────────────────────────────
