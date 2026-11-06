@@ -24405,3 +24405,109 @@ describe("invalid-link autofix: surrounding inline emphasis", () => {
     expect(applyAllFixes(doc, lintDocument(doc, { rules }))).toBe("*![](TODO)*\n");
   });
 });
+
+describe("invalid-link autofix in a list item: marker and prose stay intact", () => {
+  const rules = [ruleInvalidLinkTarget];
+
+  it.each([
+    ["-", ""],
+    ["*", "#"],
+    ["+", "?"],
+    ["3.", "  "],
+    ["  -", ""],
+  ])("puts TODO in the destination and keeps the %j marker and the prose on both sides of the link (invalid href %j)", (marker, href) => {
+    for (const nl of ["\n", "\r\n"]) {
+      const doc = `Steps:${nl}${marker} Read [the guide](${href}) before coding.${nl}${marker} Keep [ok](./ok.md) too.${nl}`;
+      const expected = `Steps:${nl}${marker} Read [the guide](TODO) before coding.${nl}${marker} Keep [ok](./ok.md) too.${nl}`;
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+      // The flagged range covers the link only: the marker and the prose on
+      // either side of it in the item sit outside the span.
+      const { from, to } = violations[0].range!;
+      expect(doc.slice(from.offset, to.offset)).toBe(`[the guide](${href})`);
+      expect(doc.slice(0, from.offset)).toBe(`Steps:${nl}${marker} Read `);
+
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      expect(fixed).toContain(`${marker} Read [the guide](TODO) before coding.`);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+      expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+    }
+  });
+
+  it.each([
+    ["-", "\n"],
+    ["2)", "\r\n"],
+    ["  *", "\n"],
+  ])("keeps the %j marker and the following item when the invalid link ends the item line (line ending %j)", (marker, nl) => {
+    const doc = `${marker} See the [release notes]()${nl}${marker} Next item stays.${nl}`;
+    const expected = `${marker} See the [release notes](TODO)${nl}${marker} Next item stays.${nl}`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe("[release notes]()");
+    // The link's `)` is the last byte before the line ending; the fix must
+    // stop there and leave the next item's marker untouched.
+    expect(doc.slice(to.offset, to.offset + nl.length)).toBe(nl);
+
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain(`${nl}${marker} Next item stays.${nl}`);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+
+  it("repairs the live link in the item, never its identical twin inside a code span", () => {
+    for (const nl of ["\n", "\r\n"]) {
+      const doc = `- Sample \`[a]()\` shows syntax; the live [a]() needs a target.${nl}- Next.${nl}`;
+      const violations = lintDocument(doc, { rules });
+
+      // The code span masks its twin from the rule and from the fix's masked
+      // search alike: only the prose link is flagged.
+      expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+      const { from, to } = violations[0].range!;
+      expect(doc.slice(from.offset, to.offset)).toBe("[a]()");
+      expect(doc.indexOf("[a]()")).toBeLessThan(from.offset);
+
+      const expected = `- Sample \`[a]()\` shows syntax; the live [a](TODO) needs a target.${nl}- Next.${nl}`;
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      // Marker, code sample and item prose are byte-for-byte intact.
+      expect(fixed).toContain("- Sample `[a]()`");
+      // A stale fix finds no live `[a]()` outside the masked span, so it is a
+      // no-op rather than a rewrite of the sample.
+      expect(applyFix(fixed, violations[0])).toBe(fixed);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+      expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+    }
+  });
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("flags only the empty-href link when the item's prose carries look-alike brackets and parens (%j)", (nl) => {
+    const doc = `- Note [guide]: call f(a, b), then [guide]() yields g(c) — see (p. 4).${nl}`;
+    const expected = `- Note [guide]: call f(a, b), then [guide](TODO) yields g(c) — see (p. 4).${nl}`;
+    const violations = lintDocument(doc, { rules });
+
+    // The bare "[guide]" mention, the f(…)/g(…) calls and "(p. 4)" are item
+    // prose, not links: only the empty href is flagged.
+    expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe("[guide]()");
+
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // Removing the placeholder restores the original item byte-for-byte —
+    // marker and prose included.
+    expect(fixed.replace("[guide](TODO)", "[guide]()")).toBe(doc);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+});
