@@ -34,6 +34,26 @@ import {
   ruleOrphanedHeading,
 } from "./mdlint";
 
+describe("invalid-link autofix preserves surrounding punctuation", () => {
+  it("retains punctuation and neighboring text for single and multiple fixes", () => {
+    const doc = 'See ("[draft]()"), then [guide](#)! Keep [valid](./guide.md).\r\n';
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "invalid-link-target",
+      "invalid-link-target",
+    ]);
+    expect(applyFix(doc, violations[0])).toBe(
+      'See ("[draft](TODO)"), then [guide](#)! Keep [valid](./guide.md).\r\n',
+    );
+    const expected =
+      'See ("[draft](TODO)"), then [guide](TODO)! Keep [valid](./guide.md).\r\n';
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(applyAllFixes(doc, [...violations].reverse())).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+});
+
 // ─── 1. Rule: orphaned-heading ────────────────────────────────────────────────
 
 describe("rule:orphaned-heading", () => {
