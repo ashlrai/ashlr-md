@@ -1,7 +1,7 @@
 # Task Plan
 
 ## Goal
-Integrate 8–16 related backlog PRs with unique product behavior on current upstream, leaving uncommitted code and exact source evidence.
+Integrate 8 to 16 related backlog PRs with unique product behavior on current upstream, leaving uncommitted code and exact source evidence.
 
 ## Phases
 - [x] Fetch and inspect conventions and current PR ownership/state.

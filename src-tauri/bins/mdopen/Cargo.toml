@@ -1,6 +1,6 @@
 [package]
 name = "mdopen"
-version = "0.7.1"
+version = "0.7.2"
 description = "CLI helper: open Markdown files in MD Opener via the mdopener:// URL scheme"
 authors = ["MD Opener contributors"]
 license = "MIT"
