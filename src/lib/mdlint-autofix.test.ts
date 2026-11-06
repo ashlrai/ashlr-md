@@ -16548,6 +16548,46 @@ describe("invalid link and unrelated prose on separate lines", () => {
   });
 });
 
+describe("invalid-link autofix on the second line", () => {
+  it.each([
+    ["empty", ""],
+    ["whitespace-only", " \t "],
+    ["lone hash", "#"],
+    ["lone question mark", "?"],
+  ])("changes the %s href and preserves the first line and its line break", (_kind, href) => {
+    for (const nl of ["\n", "\r\n"]) {
+      const firstLine = "Opening line: plain prose with (parens) and [brackets].";
+      const link = `[draft](${href})`;
+      const doc = `${firstLine}${nl}See ${link} for the rest.${nl}`;
+      const rules = [ruleInvalidLinkTarget];
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+      const { from, to } = violations[0].range!;
+      // The violation is on the second line and covers the link alone.
+      expect(from.line).toBe(2);
+      expect(to.line).toBe(2);
+      expect(doc.slice(from.offset, to.offset)).toBe(link);
+
+      const expected = `${firstLine}${nl}See [draft](TODO) for the rest.${nl}`;
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      // The first line and the line break between the lines survive
+      // byte-for-byte: the whole prefix before the link — first line, break
+      // and the "See " lead-in — is unchanged, and so is the tail after it.
+      expect(fixed.startsWith(`${firstLine}${nl}`)).toBe(true);
+      expect(fixed.slice(0, from.offset)).toBe(doc.slice(0, from.offset));
+      expect(fixed.slice(from.offset + "[draft](TODO)".length)).toBe(
+        doc.slice(to.offset),
+      );
+      expect(fixed.split(nl)).toHaveLength(doc.split(nl).length);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+      expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+    }
+  });
+});
+
 describe("invalid link followed by a newline and ordinary prose", () => {
   it.each([
     ["empty", ""],
