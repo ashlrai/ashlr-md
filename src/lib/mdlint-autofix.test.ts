@@ -25047,3 +25047,20 @@ describe("autofix: undescribed image in a document with no final newline", () =>
     ]);
   });
 });
+
+describe("invalid-link autofix on a final line with no trailing newline (default rules)", () => {
+  it("inserts the documented TODO href and appends no newline", () => {
+    const doc = "# Guide\n\nSee [valid](./a.md) first.\nLast: [draft]()";
+    const violations = lintDocument(doc).filter(
+      (v) => v.ruleId === "invalid-link-target",
+    );
+
+    expect(violations).toHaveLength(1);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe("# Guide\n\nSee [valid](./a.md) first.\nLast: [draft](TODO)");
+    expect(fixed.endsWith("\n")).toBe(false);
+    expect(
+      lintDocument(fixed).filter((v) => v.ruleId === "invalid-link-target"),
+    ).toEqual([]);
+  });
+});
