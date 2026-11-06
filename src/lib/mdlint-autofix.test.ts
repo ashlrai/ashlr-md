@@ -12290,6 +12290,39 @@ describe("invalid-link-target autofix: invalid link in a blockquote", () => {
     );
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
+
+  it.each([
+    ["an empty href", ""],
+    ["a whitespace-only href", " \t "],
+    ["a lone #", "#"],
+    ["a lone ?", "?"],
+  ])("puts TODO on the quoted link with %s and keeps the marker, the prose and an identical link before the quote", (_kind, href) => {
+    // The same link source sits earlier in the document, so the fix has to
+    // hit the quoted occurrence, not the first indexOf match.
+    const lead = `See [the guide](${href}) first.`;
+    const doc = `${lead}\n\n> Quoted prose, then [the guide](${href}) and more.\n`;
+    const expected = `${lead}\n\n> Quoted prose, then [the guide](TODO) and more.\n`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+      "invalid-link-target",
+      "invalid-link-target",
+    ]);
+    // The quoted violation is the second; its range covers only the link.
+    const quoted = violations[1];
+    expect(quoted.range!.from.line).toBe(3);
+    expect(doc.slice(quoted.range!.from.offset, quoted.range!.to.offset)).toBe(
+      `[the guide](${href})`,
+    );
+    expect(applyFix(doc, quoted)).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(
+      `See [the guide](TODO) first.\n\n> Quoted prose, then [the guide](TODO) and more.\n`,
+    );
+    expect(fixed.split("\n")[2].startsWith("> ")).toBe(true);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
 });
 
 describe("invalid-link-target autofix: single fix in a blockquote list", () => {
