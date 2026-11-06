@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import hashlib
 import importlib.util
 from pathlib import Path
 import sys
@@ -108,6 +109,82 @@ class AptPlanTests(unittest.TestCase):
             return code, text
         with self.assertRaisesRegex(ValueError, 'metadata changed'):
             plan.collect(changed)
+
+    def archive_record(self, name='libwebkit2gtk-4.1-0', body=b'synthetic deb bytes'):
+        return {'name': name, 'version': '2.0', 'architecture': 'amd64', 'size': len(body),
+                'filename': f'pool/main/w/webkit2gtk/{name}_2.0_amd64.deb',
+                'sha256': hashlib.sha256(body).hexdigest()}
+
+    def archive_text(self, record):
+        return metadata(record['name'], record['version'], record['architecture'], record['size']).strip() + f"\nFilename: {record['filename']}\nSHA256: {record['sha256']}\n\n"
+
+    def test_exact_official_archive_record_and_binary_process_output(self):
+        record = self.archive_record()
+        parsed = plan.download_metadata(self.archive_text(record))
+        self.assertEqual(list(parsed.values()), [record])
+        code, body = plan.bounded_command([sys.executable, '-c', 'import sys;sys.stdout.buffer.write(bytes([0,255]))'], binary=True)
+        self.assertEqual(code, 0)
+        self.assertEqual(body, bytes([0, 255]))
+
+    def test_official_gets_are_closed_bounded_and_hash_verified(self):
+        record = self.archive_record()
+        calls = []
+        def run(argv, **kwargs):
+            calls.append((argv, kwargs))
+            return 0, b'synthetic deb bytes'
+        result = plan.download_one(plan.MIRRORS[0], record, run)
+        self.assertEqual(result['status'], 'verified')
+        self.assertEqual(result['verifiedSha256'], record['sha256'])
+        argv, limits = calls[0]
+        self.assertEqual(argv[:2], ['/usr/bin/curl', '--disable'])
+        self.assertIn('--max-redirs', argv)
+        self.assertEqual(argv[argv.index('--max-redirs') + 1], '0')
+        self.assertEqual(argv[-1], plan.MIRRORS[0] + record['filename'])
+        self.assertEqual(limits, {'timeout': 35, 'max_bytes': record['size'], 'binary': True})
+        for bad in ['http://localhost/', 'https://other.invalid/']:
+            with self.assertRaises(ValueError):
+                plan.download_one(bad, record, run)
+        self.assertEqual(len(calls), 1)
+
+    def test_download_metadata_rejects_paths_identity_hash_and_oversize(self):
+        base = self.archive_record()
+        for change in [{'filename': 'pool/main/../bad.deb'}, {'filename': 'https://other.invalid/bad.deb'},
+                       {'filename': 'pool/main/w/wrong_2.0_amd64.deb'}, {'sha256': 'bad'},
+                       {'size': plan.MAX_DOWNLOAD + 1}]:
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                plan.download_metadata(self.archive_text({**base, **change}))
+        with self.assertRaises(ValueError):
+            plan.download_metadata(self.archive_text(base) + self.archive_text({**base, 'sha256': 'a' * 64}))
+
+    def test_failed_partial_or_changed_bytes_never_become_verified(self):
+        record = self.archive_record()
+        for code, body, status in [(0, b'x' * record['size'], 'integrity-mismatch'),
+                                   (0, b'x', 'integrity-mismatch'), (28, b'', 'unavailable')]:
+            result = plan.download_one(plan.MIRRORS[0], record, lambda *args, **kwargs: (code, body))
+            self.assertEqual(result['status'], status)
+            self.assertNotIn('verifiedBytes', result)
+        def refused(*args, **kwargs):
+            raise ValueError('synthetic deadline')
+        self.assertEqual(plan.download_one(plan.MIRRORS[0], record, refused)['status'], 'bounded-download-refused')
+
+    def test_comparison_fetches_only_two_exact_packages_from_two_official_hosts(self):
+        records = [self.archive_record(name) for name in plan.DOWNLOAD_PACKAGES]
+        report = {'plans': {'withoutRecommends': {'plannedPackages': [
+            {'name': r['name'], 'version': r['version'], 'architecture': r['architecture'], 'archiveBytes': r['size']} for r in records]}}}
+        calls = []
+        def run(argv, **kwargs):
+            calls.append(argv)
+            if argv[0].endswith('apt-cache'):
+                return 0, ''.join(self.archive_text(r) for r in records)
+            return 0, b'synthetic deb bytes'
+        result = plan.compare_mirrors(report, run)
+        self.assertEqual(len(result['downloads']), 4)
+        self.assertTrue(all(row['status'] == 'verified' for row in result['downloads']))
+        self.assertFalse(result['payloadsExecutedOrInstalled'])
+        self.assertEqual(len([call for call in calls if call[0].endswith('curl')]), 4)
+        wrong = {'plans': {'withoutRecommends': {'plannedPackages': report['plans']['withoutRecommends']['plannedPackages'][:1]}}}
+        with self.assertRaises(ValueError):
+            plan.compare_mirrors(wrong, run)
 
     def test_subprocess_output_and_deadline_are_bounded(self):
         started = time.monotonic()

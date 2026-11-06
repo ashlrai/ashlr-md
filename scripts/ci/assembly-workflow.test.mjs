@@ -71,7 +71,7 @@ test('dependency probe is an isolated simulation with no assembly authority', ()
   assert.equal(runs.length, 3);
   const metadata = runs.find(step => step.name === 'Refresh package metadata only').run;
   assert.match(metadata, /sudo apt-get .* update/); assert.doesNotMatch(metadata, /\binstall\b/);
-  const simulate = runs.find(step => step.name === 'Simulate both fixed dependency plans without installing').run;
+  const simulate = runs.find(step => step.name === 'Simulate fixed plans and compare official archive mirrors').run;
   assert.match(simulate, /python3 scripts\/apt-dependency-plan\.py > "\$RUNNER_TEMP\/md-apt-plan\.json"/);
   assert.doesNotMatch(simulate, /apt-get|\$\{\{.*inputs/);
 });

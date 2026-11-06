@@ -26,7 +26,7 @@ on:
         type: string
 
       apt_plan_only:
-        description: Compare the fixed Linux dependency simulations only (assembly inputs are unused)
+        description: Compare fixed Linux dependency simulations and official HTTPS archives only
         type: boolean
         default: false
 
@@ -132,7 +132,7 @@ jobs:
           set -euo pipefail
           apt_opts=(-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30)
           sudo apt-get "${apt_opts[@]}" update
-      - name: Simulate both fixed dependency plans without installing
+      - name: Simulate fixed plans and compare official archive mirrors
         timeout-minutes: 3
         run: |
           set -euo pipefail
