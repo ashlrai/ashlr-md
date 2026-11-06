@@ -17,16 +17,16 @@ ancestors are not checked. The `default_tempdir_is_not_a_searchable_vault_root`
 test shows both sides: a default `.tmp…` directory is refused as a hidden
 folder while the `vault-` directory resolves to its canonical path.
 
-Inside the visible parent the fixture still exercises hidden entries —
-`.hidden.md`, and the `.git` directory the journey adds — which the walk
-skips without refusing the vault itself. The tilde-path test keeps the same
+Inside the visible parent the fixture still exercises hidden entries:
+`.hidden.md` and the `.git` directory the journey adds. The walk
+skips them without refusing the vault itself. The tilde-path test keeps the same
 rule: `~/notes` resolves to a visible `notes` component under the temporary
 `home-` directory.
 
 Cleanup is the `tempfile::TempDir` the helper returns: it owns the parent
 directory, and dropping it removes the directory and its contents
-recursively, including files added after setup. Removal is best effort —
-errors are ignored and it cannot run after abrupt process termination — so
+recursively, including files added after setup. Removal is best effort:
+errors are ignored and it cannot run after abrupt process termination, so
 the fixture lives exactly as long as its `TempDir` handle. The
 `vault_fixture_is_visible_and_removed_when_dropped` test drops the handle
 explicitly and asserts the path no longer exists; the server's temporary HOME
