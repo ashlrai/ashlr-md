@@ -51,7 +51,7 @@ test('download step passes hostile inputs as literal arguments, never shell code
     assert.equal(result.status, 0, result.stderr);
     const args = JSON.parse(readFileSync(trace, 'utf8'));
     assert.deepEqual(args, ['scripts/prepare-release-assembly.py', '--tag', 'v0.7.2', '--source-sha', hostile,
-      '--run-id', '123', '--run-attempt', '1', '--output', join(directory, 'md-original-zips')]);
+      '--run-id', '123', '--run-attempt', '1']);
     assert.throws(() => readFileSync(join(directory, 'SHOULD_NOT_EXIST')));
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });

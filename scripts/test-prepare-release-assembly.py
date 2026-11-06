@@ -1,8 +1,12 @@
 """Exercise original ZIP transport against the real provenance verifier."""
 import copy
+import os
+from unittest.mock import patch
 import importlib.util
 from pathlib import Path
 import shutil
+import subprocess
+import sys
 import unittest
 
 
@@ -21,10 +25,11 @@ class HostedAssemblyTests(unittest.TestCase):
     def setUp(self):
         self.fixture = fixture.ProvenanceTests()
         self.fixture.setUp()
-        self.directory = Path(self.fixture.tmp.name) / 'original-zips'
+        self.root = Path(self.fixture.tmp.name).resolve()
+        self.directory = self.root / 'md-original-zips'
         self.env = {'GITHUB_EVENT_NAME': 'workflow_dispatch', 'GITHUB_REF': 'refs/heads/main',
                     'GITHUB_REPOSITORY': 'ashlrai/ashlr-md', 'GITHUB_REPOSITORY_ID': str(fixture.RID),
-                    'GITHUB_SHA': fixture.OTHER}
+                    'GITHUB_SHA': fixture.OTHER, 'RUNNER_TEMP': str(self.root)}
         self.downloads = []
 
     def tearDown(self):
@@ -35,7 +40,7 @@ class HostedAssemblyTests(unittest.TestCase):
         shutil.copyfile(self.fixture.zips[artifact['name']], destination)
 
     def run_prepare(self, **kwargs):
-        return prepare.prepare('v0.4.0', fixture.SHA, fixture.RUN, 1, self.directory,
+        return prepare.prepare('v0.4.0', fixture.SHA, fixture.RUN, 1,
                                env=self.env, api=self.fixture.api, download=kwargs.get('download', self.download))
 
     def test_original_bytes_and_all_live_proofs_are_retained(self):
@@ -56,7 +61,7 @@ class HostedAssemblyTests(unittest.TestCase):
             with self.subTest(key=key, value=value):
                 env = {**self.env, key: value}
                 with self.assertRaises(ValueError):
-                    prepare.prepare('v0.4.0', fixture.SHA, fixture.RUN, 1, self.directory,
+                    prepare.prepare('v0.4.0', fixture.SHA, fixture.RUN, 1,
                                     env=env, api=self.fixture.api, download=self.download)
                 self.assertFalse(self.directory.exists())
                 self.assertEqual(self.downloads, [])
@@ -117,6 +122,66 @@ class HostedAssemblyTests(unittest.TestCase):
                 self.fixture.data[path]['artifacts'][0]['id'] += 1000
         with self.assertRaisesRegex(ValueError, 'inventory changed'):
             self.run_prepare(download=raced)
+        self.assertFalse(self.directory.exists())
+
+    def test_invalid_runner_temp_roots_are_rejected(self):
+        link = self.root.parent / (self.root.name + '-link')
+        link.symlink_to(self.root, target_is_directory=True)
+        try:
+            for root in ('relative', str(link), str(self.root / '..' / self.root.name), ''):
+                with self.subTest(root=root), self.assertRaises((ValueError, OSError)):
+                    prepare.output_directory({**self.env, 'RUNNER_TEMP': root})
+            for mode in (0o720, 0o702):
+                self.root.chmod(mode)
+                with self.subTest(mode=mode), self.assertRaises(ValueError):
+                    self.run_prepare()
+            self.root.chmod(0o700)
+            with patch.object(prepare.os, 'geteuid', return_value=os.geteuid() + 1):
+                with self.assertRaises(ValueError):
+                    self.run_prepare()
+        finally:
+            self.root.chmod(0o700)
+            link.unlink()
+        self.assertEqual(self.downloads, [])
+
+    def test_existing_output_symlink_is_not_followed_or_removed(self):
+        target = self.root / 'elsewhere'
+        target.mkdir()
+        self.directory.symlink_to(target, target_is_directory=True)
+        with self.assertRaises(FileExistsError):
+            self.run_prepare()
+        self.assertTrue(self.directory.is_symlink())
+        self.assertEqual(list(target.iterdir()), [])
+
+    def test_download_symlink_is_rejected(self):
+        target = self.root / 'outside'
+        target.write_bytes(b'untouched')
+        def symlink(_artifact, destination):
+            destination.symlink_to(target)
+        with self.assertRaises(ValueError):
+            self.run_prepare(download=symlink)
+        self.assertEqual(target.read_bytes(), b'untouched')
+        self.assertFalse(self.directory.exists())
+
+    def test_traversal_artifact_name_is_rejected(self):
+        path = f'{fixture.REPO}/actions/runs/{fixture.RUN}/artifacts?per_page=100&page=1'
+        rows = self.fixture.data[path]['artifacts']
+        names = list(prepare.provenance.LEGS)
+        names[0] = '../escape'
+        rows[0]['name'] = names[0]
+        with patch.object(prepare.provenance, 'LEGS', tuple(names)):
+            with self.assertRaisesRegex(ValueError, 'invalid artifact filename'):
+                self.run_prepare()
+        self.assertFalse((self.root / 'escape.zip').exists())
+        self.assertFalse(self.directory.exists())
+
+    def test_cli_rejects_output_option(self):
+        result = subprocess.run([sys.executable, str(Path(prepare.__file__)), '--tag', 'v0.4.0',
+                                 '--source-sha', fixture.SHA, '--run-id', str(fixture.RUN),
+                                 '--run-attempt', '1', '--output', str(self.directory)],
+                                capture_output=True, text=True, env={**self.env, 'HOME': os.environ['HOME']})
+        self.assertEqual(result.returncode, 2)
+        self.assertIn('unrecognized arguments: --output', result.stderr)
         self.assertFalse(self.directory.exists())
 
     def test_existing_output_is_never_replaced_or_cleaned(self):

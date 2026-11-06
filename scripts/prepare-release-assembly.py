@@ -8,6 +8,7 @@ from pathlib import Path
 import re
 import resource
 import shutil
+import stat
 import subprocess
 
 spec = importlib.util.spec_from_file_location('assembly_provenance', Path(__file__).with_name('release-provenance.py'))
@@ -46,8 +47,19 @@ def download_original(artifact, destination):
                        preexec_fn=limits)
 
 
-def prepare(tag, sha, run_id, attempt, directory, *, env, api=provenance.fetch, download=download_original):
+def output_directory(env):
+    root = Path(env.get('RUNNER_TEMP', ''))
+    if not root.is_absolute() or '..' in root.parts or root.resolve(strict=True) != root:
+        fail('RUNNER_TEMP must be an absolute real directory')
+    info = root.lstat()
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.geteuid() or info.st_mode & 0o022:
+        fail('RUNNER_TEMP must be owned and not group/world writable')
+    return root / 'md-original-zips'
+
+
+def prepare(tag, sha, run_id, attempt, *, env, api=provenance.fetch, download=download_original):
     validate_context(env, tag, sha, run_id, attempt)
+    directory = output_directory(env)
     run = api(f'{provenance.REPO}/actions/runs/{run_id}')
     if (run.get('id') != run_id or run.get('run_attempt') != 1 or run.get('head_sha') != sha
             or run.get('head_branch') != tag or run.get('event') != 'push'
@@ -73,11 +85,16 @@ def prepare(tag, sha, run_id, attempt, directory, *, env, api=provenance.fetch, 
             fail('original artifact identity/digest/size differs')
         ids.add(identity)
     # mkdir is exclusive: cleanup below owns only this new private directory.
-    directory = Path(directory)
     directory.mkdir(mode=0o700)
     try:
         for artifact in sorted(artifacts, key=lambda row: row['name']):
-            download(artifact, directory / (artifact['name'] + '.zip'))
+            name = artifact['name']
+            if not re.fullmatch(r'[A-Za-z0-9_][A-Za-z0-9_.-]*', name):
+                fail('invalid artifact filename')
+            destination = directory / (name + '.zip')
+            download(artifact, destination)
+            if not stat.S_ISREG(destination.lstat().st_mode):
+                fail('download must be a regular file')
         if sorted(p.name for p in directory.iterdir()) != sorted(name + '.zip' for name in provenance.LEGS):
             fail('downloaded ZIP inventory differs')
         zips = {name: directory / (name + '.zip') for name in provenance.LEGS}
@@ -99,10 +116,9 @@ def main():
     parser.add_argument('--source-sha', required=True)
     parser.add_argument('--run-id', type=int, required=True)
     parser.add_argument('--run-attempt', type=int, required=True)
-    parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
     try:
-        evidence = prepare(args.tag, args.source_sha, args.run_id, args.run_attempt, args.output, env=os.environ)
+        evidence = prepare(args.tag, args.source_sha, args.run_id, args.run_attempt, env=os.environ)
     except (ValueError, OSError, KeyError, subprocess.SubprocessError):
         parser.exit(1, 'assembly preparation failed; original release proof or download unavailable\n')
     print(json.dumps({'source': evidence['sha'], 'releaseRun': evidence['release_run'],
