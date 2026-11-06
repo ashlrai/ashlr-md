@@ -26,7 +26,7 @@ bun run tauri dev -- -- /path/to/file.md
 
 ### Check the frontend without the desktop shell
 
-On a machine with no Rust toolchain or display (for example a Linux CI box), these run the web part only. The suite is 224 test files and 4146 tests as of Nov 2, 2026 (a full run takes several minutes on a laptop, and the heavy editor DOM tests can hit the 5 s timeout when the machine is busy). `bun run tauri dev` needs the Tauri system libraries.
+On a machine with no Rust toolchain or display (for example a Linux CI box), these run the web part only. The suite is 234 test files and 6610 tests as of Nov 6, 2026 (a full run takes several minutes on a laptop, and the heavy editor DOM tests can hit the 5 s timeout when the machine is busy; a handful of CLI tests build `mdopen` and `mdopener-mcp` with cargo first). `bun run tauri dev` needs the Tauri system libraries.
 
 ```bash
 bun install --frozen-lockfile
@@ -43,6 +43,7 @@ bunx biome check src     # lint + format
 bun run test             # Vitest unit tests
 bun run check:crypto     # classical-only crypto policy
 bun run check:doc-links  # relative links in the repo's Markdown resolve
+bun run check:version    # package.json, tauri.conf.json and Cargo.toml versions agree
 bun run check:workflow-bash  # bash -n every bash/sh run block in .github/workflows
 python3 scripts/check-docs.py  # docs/AGENTS.md matches tool_registry() and the CLI HELP
 node --test scripts/check-readme-parity.test.mjs && node scripts/check-readme-parity.mjs
@@ -101,7 +102,7 @@ else is reported and left for a human. Re-run after finishing those, then
 - `src/`: React + TypeScript frontend (Zustand stores, react-markdown renderer,
   Milkdown/CodeMirror editors, AI sidebar, export).
 - `src-tauri/src/`: Rust core (file I/O, watcher, deep links, AI proxy, IPC server).
-- `src-tauri/bins/`: the `mdopen` CLI and `mdopener-mcp` MCP server.
+- `src-tauri/bins/`: the `mdopen` CLI, the `mdopener-mcp` MCP server, and the macOS Swift sidecars (`mdopener-afm` on-device AI, `mdopener-setdefault` default-handler helper).
 
 ## License
 
