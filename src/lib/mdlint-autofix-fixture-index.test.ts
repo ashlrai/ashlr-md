@@ -45,7 +45,10 @@ describe("mdlint autofix fixture index", () => {
   it("only indexes names that exist in mdlint-autofix.test.ts", () => {
     const missing = [...byHeading.values()]
       .flat()
-      .filter((name) => !testSource.includes(`"${name}"`) && !testSource.includes(`\`${name}\``));
+      .filter(
+        (name) =>
+          !testSource.includes(`"${name}"`) && !testSource.includes(`\`${name}\``),
+      );
     expect(missing).toEqual([]);
   });
 
