@@ -603,6 +603,35 @@ describe("edge cases", () => {
     expect(result!.options.length).toBeGreaterThan(0);
   });
 
+  describe("markdownSnippetSource: truly empty document", () => {
+    it("offers only the built-in catalogue, anchored at 0, with nothing invented", () => {
+      const result = markdownSnippetSource()(makeContext("", 0, true));
+      expect(result).not.toBeNull();
+      expect(result!.from).toBe(0);
+      expect(result!.options.map((o) => o.label)).toEqual(
+        BUILTIN_SNIPPETS.map((s) => s.label),
+      );
+    });
+
+    it("adds only the user snippets it was given", () => {
+      const user: UserSnippet[] = [{ label: "mine", template: "mine $0" }];
+      const labels = markdownSnippetSource(user)(makeContext("", 0, true))!.options.map(
+        (o) => o.label,
+      );
+      expect(labels).toEqual([...BUILTIN_SNIPPETS.map((s) => s.label), "mine"]);
+    });
+
+    it("returns null when not explicit (nothing typed, nothing to complete)", () => {
+      expect(markdownSnippetSource()(makeContext("", 0, false))).toBeNull();
+    });
+
+    it("does not mutate the document", () => {
+      const ctx = makeContext("", 0, true);
+      markdownSnippetSource()(ctx);
+      expect(ctx.state.doc.toString()).toBe("");
+    });
+  });
+
   it("BUILTIN_SNIPPETS: no template contains a bare unescaped $ (only $N)", () => {
     // All dollar signs should be followed by a digit (tabstop) or be $0
     for (const s of BUILTIN_SNIPPETS) {

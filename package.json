@@ -1,7 +1,7 @@
 {
   "name": "md-opener",
   "private": true,
-  "version": "0.6.0",
+  "version": "0.7.3",
   "type": "module",
   "scripts": {
     "check:crypto": "node --test scripts/check-crypto.test.mjs && node scripts/check-crypto.mjs",
@@ -81,5 +81,8 @@
     "typescript": "~5.8.3",
     "vite": "^7.0.4",
     "vitest": "2"
+  },
+  "patchedDependencies": {
+    "@milkdown/ctx@7.21.2": "patches/@milkdown%2Fctx@7.21.2.patch"
   }
 }
