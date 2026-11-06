@@ -8047,6 +8047,93 @@ describe("rule:invalid-link-target", () => {
       expect(applyAllFixes(expected, remaining)).toBe(expected);
     }
   });
+
+  describe("autofix at the beginning of a document", () => {
+    const rules = [ruleInvalidLinkTarget];
+
+    it.each([
+      ["an empty destination", ""],
+      ["a whitespace-only destination", " \t"],
+      ["a bare hash destination", "#"],
+      ["a bare query destination", "?"],
+    ])("writes TODO into %s at offset 0 and keeps every byte after the link", (_name, href) => {
+      const tail =
+        " opens the file — `code [x](#)` stays, (parens) and [ok](./ok.md) stay.";
+      for (const nl of ["\n", "\r\n"]) {
+        const doc = `[guide](${href})${tail}${nl}Next line stays.${nl}`;
+        const expected = `[guide](TODO)${tail}${nl}Next line stays.${nl}`;
+        const violations = lintDocument(doc, { rules });
+
+        // The code span's link is masked and `./ok.md` is valid, so only the
+        // document's first bytes are flagged.
+        expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+        const { from, to } = violations[0].range!;
+        expect(from).toMatchObject({ offset: 0, line: 1, col: 0 });
+        expect(doc.slice(from.offset, to.offset)).toBe(`[guide](${href})`);
+        expect(applyFix(doc, violations[0])).toBe(expected);
+        const fixed = applyAllFixes(doc, violations);
+        expect(fixed).toBe(expected);
+        // Everything after the repaired link is the original tail,
+        // byte-for-byte.
+        expect(fixed.slice("[guide](TODO)".length)).toBe(
+          doc.slice(`[guide](${href})`.length),
+        );
+        expect(lintDocument(fixed, { rules })).toEqual([]);
+        expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+      }
+    });
+
+    it("fixes the first of two identical adjacent links, then the second", () => {
+      const doc = "[a]()[a]() — tail stays.\n";
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations).toHaveLength(2);
+      expect(violations.map((v) => v.range!.from.offset)).toEqual([0, 5]);
+      // Each fix rewrites only its own occurrence, found by offset.
+      expect(applyFix(doc, violations[0])).toBe("[a](TODO)[a]() — tail stays.\n");
+      expect(applyFix(doc, violations[1])).toBe("[a]()[a](TODO) — tail stays.\n");
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe("[a](TODO)[a](TODO) — tail stays.\n");
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+    });
+
+    it("writes TODO inside the link's own parens when a parenthesised aside follows it", () => {
+      const doc = "[a]()(an aside) and [ok](./ok.md) end.\n";
+      const violations = lintDocument(doc, { rules });
+
+      // `(an aside)` is prose, not a second link: only the empty href flags.
+      expect(violations).toHaveLength(1);
+      expect(violations[0].range!.from.offset).toBe(0);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe("[a](TODO)(an aside) and [ok](./ok.md) end.\n");
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+    });
+
+    it("still finds the link when a prefix is inserted before it after linting", () => {
+      const violations = lintDocument("[a]() tail stays.\n", { rules });
+
+      expect(violations[0].range!.from.offset).toBe(0);
+      // The fix searches from the recorded offset, and an offset-0 search
+      // covers the whole document, so the moved link is still repaired.
+      expect(applyFix("Inserted prefix. [a]() tail stays.\n", violations[0])).toBe(
+        "Inserted prefix. [a](TODO) tail stays.\n",
+      );
+    });
+
+    it("cannot reach an identical link inside a fence when its fix is applied again", () => {
+      const fence = ["```md", "[a]() stays code.", "```"].join("\n");
+      const doc = `[a]() opens the file.\n${fence}\n`;
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations).toHaveLength(1);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(`[a](TODO) opens the file.\n${fence}\n`);
+      // The stale fix finds no `[a]()` left in prose: the fenced twin is
+      // masked, so reapplying leaves the document untouched.
+      expect(applyFix(fixed, violations[0])).toBe(fixed);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+    });
+  });
 });
 
 // ─── 3. Rule: missing-alt-text ────────────────────────────────────────────────
