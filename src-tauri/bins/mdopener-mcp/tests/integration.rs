@@ -6598,6 +6598,28 @@ fn export_text_preserves_adjacent_bracketed_words_in_prose() {
 }
 
 #[test]
+fn export_text_preserves_consecutive_bracketed_fragments_and_intervening_prose() {
+    for (markdown, expected) in [
+        (
+            "Before [first fragment] and the words between [second fragment] after.\n",
+            "Before [first fragment] and the words between [second fragment] after.",
+        ),
+        (
+            "[draft], followed by a revision: [final].\n",
+            "[draft], followed by a revision: [final].",
+        ),
+        (
+            "[first] intervening prose\ncontinues before [second].\n",
+            "[first] intervening prose\ncontinues before [second].",
+        ),
+    ] {
+        let result = run_export_text_on(markdown);
+        assert_eq!(result["text"].as_str().unwrap(), expected, "{markdown:?}");
+        assert_eq!(strip_markdown(markdown), expected, "{markdown:?}");
+    }
+}
+
+#[test]
 fn export_text_keeps_prose_brackets_beside_formatted_links() {
     for (markdown, expected) in [
         (
@@ -10502,10 +10524,29 @@ fn export_text_keeps_bracketed_prose_and_terminal_punctuation() {
             "Read [the guide] and finish [the review].\n\n[the guide]: /guide\n",
             "Read the guide and finish [the review].",
         ),
+        ("The result: [pending];\n", "The result: [pending];"),
+        ("The result ([pending]).\n", "The result ([pending])."),
+        ("The result [**pending**]!\n", "The result [pending]!"),
+        (
+            "See [the guide](/guide); result: [pending].\n\nNext paragraph.\n",
+            "See the guide; result: [pending].\n\nNext paragraph.",
+        ),
     ] {
         let result = run_export_text_on(markdown);
         assert_eq!(
             result["text"].as_str().unwrap(),
+            expected,
+            "input: {markdown:?}"
+        );
+
+        let ipc = MockIpc::new().on_get(
+            "/content",
+            Ok(json!({ "path": "/docs/test.md", "content": markdown })),
+        );
+        let response = tool_export_text(id(2), &json!({}), &ipc);
+        assert!(response.error.is_none(), "input: {markdown:?}");
+        assert_eq!(
+            content_text(&response)["text"],
             expected,
             "input: {markdown:?}"
         );
