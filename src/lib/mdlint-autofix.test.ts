@@ -24468,3 +24468,19 @@ describe("invalid-link autofix: surrounding inline emphasis", () => {
     expect(applyAllFixes(doc, lintDocument(doc, { rules }))).toBe("*![](TODO)*\n");
   });
 });
+
+describe("invalid-link autofix: whitespace-only href in a table cell", () => {
+  it("sets the href to TODO and keeps the link text, sibling cells and prose", () => {
+    const doc =
+      "Before.\n\n| Name | Link |\n| --- | --- |\n| Guide | [read it](  \t ) |\n\nAfter.\n";
+    const expected =
+      "Before.\n\n| Name | Link |\n| --- | --- |\n| Guide | [read it](TODO) |\n\nAfter.\n";
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+});
