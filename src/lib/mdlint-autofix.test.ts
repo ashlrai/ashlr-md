@@ -20214,6 +20214,105 @@ describe("autofix: described image beside an undescribed image", () => {
   });
 });
 
+describe("rule:missing-alt-text undescribed image next to a described image", () => {
+  it.each([
+    ["described first", true, "\n"],
+    ["undescribed first", false, "\n"],
+    ["described first", true, "\r\n"],
+    ["undescribed first", false, "\r\n"],
+  ])("describes only the inner image of a linked pair sitting side by side, keeping both link hrefs and the described alt (%s, %j line endings)", (_name, describedFirst, nl) => {
+    const described = "[![Team photo](img/team.jpg)](pages/team)";
+    const undescribed = "[![](img/chart.png?v=2)](<pages/chart page>)";
+    const repaired = "[![TODO: describe image](img/chart.png?v=2)](<pages/chart page>)";
+    const pair = (a: string, b: string) => (describedFirst ? `${a} ${b}` : `${b} ${a}`);
+    const doc = `Figures:${nl}${nl}See ${pair(described, undescribed)} today.${nl}`;
+    const expected = `Figures:${nl}${nl}See ${pair(described, repaired)} today.${nl}`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    // Exactly one violation; its range covers only the inner image — not
+    // the wrapping link and not the neighbouring image.
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe("![](img/chart.png?v=2)");
+    expect(violations[0].fix).not.toBeNull();
+
+    // The single-fix path and the batch path produce the same document.
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+
+    // The described image — inside its own link — and both link
+    // destinations are byte-for-byte intact; exactly one placeholder.
+    expect(fixed).toContain(described);
+    expect(fixed).toContain("](pages/team)");
+    expect(fixed).toContain("](<pages/chart page>)");
+    expect(fixed.split("TODO: describe image")).toHaveLength(2);
+
+    // Clean after the fix and stable under a second pass.
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+
+  it.each([
+    ["empty alt, pressed together", "", ""],
+    ["whitespace alt, pressed together", " \t ", ""],
+    ["empty alt, one space", "", " "],
+    ["whitespace alt, one space", "  ", " "],
+  ])("inserts the placeholder only into the undescribed image sitting directly next to a described one, in either order (%s)", (_name, alt, separator) => {
+    for (const nl of ["\n", "\r\n"]) {
+      for (const describedFirst of [true, false]) {
+        const described = '![Café chart](img/caf%C3%A9.png?v=2#top "Chart")';
+        const undescribed = `![${alt}](img/map.png)`;
+        const repaired = "![TODO: describe image](img/map.png)";
+        const pair = (a: string, b: string) =>
+          describedFirst ? `${a}${separator}${b}` : `${b}${separator}${a}`;
+        const doc = `Figures:${nl}${nl}${pair(described, undescribed)}${nl}`;
+        const expected = `Figures:${nl}${nl}${pair(described, repaired)}${nl}`;
+        const rules = [ruleMissingAltText];
+        const violations = lintDocument(doc, { rules });
+
+        expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+        const { from, to } = violations[0].range!;
+        expect(doc.slice(from.offset, to.offset)).toBe(undescribed);
+        expect(from.offset).toBe(doc.indexOf(undescribed));
+        expect(applyFix(doc, violations[0])).toBe(expected);
+        const fixed = applyAllFixes(doc, violations);
+        expect(fixed).toBe(expected);
+        expect(fixed).toContain(described);
+        expect(fixed.split("TODO: describe image")).toHaveLength(2);
+        expect(fixed).not.toContain(undescribed);
+        expect(lintDocument(fixed, { rules })).toEqual([]);
+        expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+      }
+    }
+  });
+
+  it("adds a second placeholder next to an image already described with the placeholder text", () => {
+    const described = "![TODO: describe image](img/done.png)";
+    const undescribed = "![](img/todo.png)";
+    const repaired = "![TODO: describe image](img/todo.png)";
+    const doc = `Pair: ${described} ${undescribed}.\n`;
+    const expected = `Pair: ${described} ${repaired}.\n`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    // The earlier placeholder reads as ordinary alt text, so only the
+    // undescribed image is flagged.
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    expect(violations[0].range?.from.offset).toBe(doc.indexOf(undescribed));
+
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // Both images now carry the placeholder — the pre-existing one stays
+    // byte-identical at its offset, the new one was added exactly once.
+    expect(fixed.match(/!\[TODO: describe image\]/g)).toHaveLength(2);
+    expect(fixed.indexOf(described)).toBe(doc.indexOf(described));
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+});
+
 // ─── Bracketed prose spans: [1], [sic], [TODO] ───────────────────────────────
 
 describe("autofix: bracketed prose [1], [sic] and [TODO]", () => {
