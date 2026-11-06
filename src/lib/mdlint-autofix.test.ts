@@ -23702,3 +23702,245 @@ describe("invalid-link-target autofix: a valid link flanked by invalid links", (
     }
   });
 });
+
+describe("invalid-link autofix: surrounding inline emphasis", () => {
+  const rules = [ruleInvalidLinkTarget];
+
+  it.each([
+    ["asterisk italic", "*", "*"],
+    ["underscore italic", "_", "_"],
+    ["asterisk bold", "**", "**"],
+    ["underscore bold", "__", "__"],
+    ["asterisk bold-italic", "***", "***"],
+    ["underscore bold-italic", "___", "___"],
+    ["strikethrough", "~~", "~~"],
+    ["nested bold-italic markers", "**_", "_**"],
+    ["mismatched markers", "**", "*"],
+    ["an opening marker only", "*", ""],
+    ["a closing marker only", "", "**"],
+    ["escaped asterisks", "\\*", "\\*"],
+  ])("replaces the href with TODO and keeps %s around the link byte-for-byte", (_kind, open, close) => {
+    for (const href of ["", " ", "#", "?"]) {
+      for (const nl of ["\n", "\r\n"]) {
+        const link = `[guide](${href})`;
+        const doc = `See ${open}${link}${close} next.${nl}`;
+        const expected = `See ${open}[guide](TODO)${close} next.${nl}`;
+        const violations = lintDocument(doc, { rules });
+
+        expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+        // The range covers the link only — never the emphasis around it.
+        const { from, to } = violations[0].range!;
+        expect(doc.slice(from.offset, to.offset)).toBe(link);
+
+        expect(applyFix(doc, violations[0])).toBe(expected);
+        const fixed = applyAllFixes(doc, violations);
+        expect(fixed).toBe(expected);
+        expect(applyAllFixes(doc, [...violations].reverse())).toBe(expected);
+        // Only the href bytes changed: every emphasis marker is exactly
+        // where it was, and the repaired link still sits inside it.
+        expect(fixed.match(/[*_~\\]/g)).toEqual(doc.match(/[*_~\\]/g));
+        expect(fixed).toContain(`${open}[guide](TODO)${close}`);
+        // A stale fix finds no invalid href left to rewrite.
+        expect(applyFix(fixed, violations[0])).toBe(fixed);
+        expect(lintDocument(fixed, { rules })).toEqual([]);
+        expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+      }
+    }
+  });
+
+  it.each([
+    ["an italic label", "*guide*"],
+    ["a bold label", "**guide**"],
+    ["an underscore label", "_guide_"],
+    ["a struck-through label", "~~old~~ new"],
+    ["a mixed-format label", "the *i* and **b** guide, v2"],
+    ["a label starting with a marker", "**guide"],
+    ["a label ending in a marker", "guide**"],
+    ["an empty label", ""],
+  ])("keeps %s exactly while the href becomes TODO", (_name, label) => {
+    for (const nl of ["\n", "\r\n"]) {
+      const link = `[${label}]()`;
+      const doc = `Read ${link} now.${nl}`;
+      const expected = `Read [${label}](TODO) now.${nl}`;
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+      const { from, to } = violations[0].range!;
+      expect(doc.slice(from.offset, to.offset)).toBe(link);
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      // The rebuilt link keeps the label — markers and all — before (TODO).
+      expect(fixed).toContain(`[${label}](TODO)`);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+      expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+    }
+  });
+
+  it.each([
+    [
+      "a phrase in italic",
+      "*see [the guide]() for details*",
+      "*see [the guide](TODO) for details*",
+    ],
+    [
+      "a phrase in bold",
+      "**note: read [the guide](#) first**",
+      "**note: read [the guide](TODO) first**",
+    ],
+    ["the link mid-span", "_before [a](  ) and after_", "_before [a](TODO) and after_"],
+    [
+      "the link between emphasized words",
+      "*start* [a](?) *stop*",
+      "*start* [a](TODO) *stop*",
+    ],
+    ["emphasis inside parentheses", "(*[a]()*)", "(*[a](TODO)*)"],
+    ["underscores inside a word", "snake_[a]()_case", "snake_[a](TODO)_case"],
+    ["an emphasized heading", "## Plan *[a]() draft*", "## Plan *[a](TODO) draft*"],
+    ["a marker touching plain prose", "the *[a]()* point", "the *[a](TODO)* point"],
+  ])("changes only the href when the link sits inside %s", (_name, body, expectedBody) => {
+    for (const nl of ["\n", "\r\n"]) {
+      const doc = `${body}${nl}`;
+      const expected = `${expectedBody}${nl}`;
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+      // Each row holds exactly one link; the reported range covers it and
+      // nothing else — not the emphasis it sits inside.
+      const link = body.match(/\[[^\]]*\]\([^)]*\)/)![0];
+      const { from, to } = violations[0].range!;
+      expect(doc.slice(from.offset, to.offset)).toBe(link);
+
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      expect(fixed.match(/[*_~]/g)).toEqual(doc.match(/[*_~]/g));
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+      expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+    }
+  });
+
+  it.each([
+    ["one italic span", "*[a]() and [b](#)*", "*[a](TODO) and [b](TODO)*", 2],
+    ["adjacent emphasis spans", "*[a]()*_[b](#)_", "*[a](TODO)*_[b](TODO)_", 2],
+    [
+      "one bold span over adjacent links",
+      "**[a]()[b](): done**",
+      "**[a](TODO)[b](TODO): done**",
+      2,
+    ],
+    [
+      "a valid link sharing the span",
+      "_[a]() and [ok](./ok.md)_",
+      "_[a](TODO) and [ok](./ok.md)_",
+      1,
+    ],
+  ])("repairs every invalid href inside %s and keeps every marker", (_name, body, expectedBody, count) => {
+    for (const nl of ["\n", "\r\n"]) {
+      const doc = `${body}${nl}`;
+      const expected = `${expectedBody}${nl}`;
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations).toHaveLength(count);
+      expect(
+        violations.every((v) => v.ruleId === "invalid-link-target" && v.fix !== null),
+      ).toBe(true);
+
+      // Each single fix repairs its own link's href and no other, and no
+      // marker is lost on the way.
+      for (const v of violations) {
+        const once = applyFix(doc, v);
+        expect(once.match(/\]\(TODO\)/g)).toHaveLength(1);
+        expect(once.match(/[*_~]/g)).toEqual(doc.match(/[*_~]/g));
+      }
+
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      expect(applyAllFixes(doc, [...violations].reverse())).toBe(expected);
+      expect(fixed.match(/\]\(TODO\)/g)).toHaveLength(count);
+      expect(fixed.match(/[*_~]/g)).toEqual(doc.match(/[*_~]/g));
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+      expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+    }
+  });
+
+  it("repairs each identical emphasized link at its own offset", () => {
+    const doc = "*[a]()* first, *[a]()* second.\n";
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual([
+      "invalid-link-target",
+      "invalid-link-target",
+    ]);
+    expect(violations[0].range!.from.offset).toBe(doc.indexOf("[a]()"));
+    expect(violations[1].range!.from.offset).toBe(doc.lastIndexOf("[a]()"));
+
+    // Each fix searches from its own offset, so repairing one identical
+    // emphasized link cannot rewrite the other.
+    expect(applyFix(doc, violations[0])).toBe("*[a](TODO)* first, *[a]()* second.\n");
+    expect(applyFix(doc, violations[1])).toBe("*[a]()* first, *[a](TODO)* second.\n");
+    const expected = "*[a](TODO)* first, *[a](TODO)* second.\n";
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(applyAllFixes(doc, [...violations].reverse())).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+
+  it("leaves the identical link inside an emphasized code span untouched", () => {
+    // The masked text the fix searches NULs out the code span but keeps the
+    // emphasized live link, so the repair lands on the live link even though
+    // the same "[a]()" bytes appear inside the code span first.
+    const doc = "Code `*[a]()`* shows syntax; live *[a]()* gets fixed.\n";
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+    const { from, to } = violations[0].range!;
+    expect(from.offset).toBe(doc.indexOf("live *[a]()*") + "live *".length);
+    expect(doc.slice(from.offset, to.offset)).toBe("[a]()");
+
+    const expected = "Code `*[a]()`* shows syntax; live *[a](TODO)* gets fixed.\n";
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // The emphasized code span is byte-for-byte intact.
+    expect(fixed).toContain("`*[a]()`*");
+    // The stale fix finds no remaining "[a]()" outside the masked span.
+    expect(applyFix(fixed, violations[0])).toBe(fixed);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it("reports nothing when the only link sits inside an emphasized code span", () => {
+    for (const nl of ["\n", "\r\n"]) {
+      const doc = `Wrap it: *\`[a]()\`* is a code span, not a link.${nl}`;
+      const violations = lintDocument(doc, { rules });
+      expect(violations).toEqual([]);
+      expect(applyAllFixes(doc, violations)).toBe(doc);
+    }
+  });
+
+  it("keeps the emphasis while the image fix and the deferred link fix converge", () => {
+    const both = [ruleInvalidLinkTarget, ruleMissingAltText];
+    const pass = (text: string) =>
+      applyAllFixes(text, lintDocument(text, { rules: both }));
+    const doc = "*![](?)*\n";
+
+    // Both rules fire inside the emphasis; the image's range strictly
+    // contains the link's, so the batch repairs the image first.
+    expect(lintDocument(doc, { rules: both }).map((v) => v.ruleId)).toEqual([
+      "missing-alt-text",
+      "invalid-link-target",
+    ]);
+    const once = pass(doc);
+    expect(once).toBe("*![TODO: describe image](?)*\n");
+    expect(lintDocument(once, { rules: both }).map((v) => v.ruleId)).toEqual([
+      "invalid-link-target",
+    ]);
+    const twice = pass(once);
+    expect(twice).toBe("*![TODO: describe image](TODO)*\n");
+    expect(lintDocument(twice, { rules: both })).toEqual([]);
+    expect(pass(twice)).toBe(twice);
+
+    // Under the link rule alone the same emphasized image's href is repaired
+    // in one pass, markers intact.
+    expect(applyAllFixes(doc, lintDocument(doc, { rules }))).toBe("*![](TODO)*\n");
+  });
+});
