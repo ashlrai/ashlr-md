@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { runInNewContext } from 'node:vm';
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -156,4 +157,35 @@ test('all repository workflow run blocks pass bash -n', () => {
     const { failures } = checkRuns(extractRuns(readFileSync(join(WORKFLOWS, file), 'utf8')));
     assert.deepEqual(failures, [], file);
   }
+});
+
+// Exercise the real job expression on synthetic GitHub contexts. Workflow
+// paths are a closed list; no network, credentials or publisher is invoked.
+function autoTagAllowed(eventName, { repo = 'ashlrai/ashlr-md', headRepo = repo,
+  conclusion = 'success', event = 'push', ref = 'refs/heads/main' } = {}) {
+  const source = readFileSync(join(WORKFLOWS, 'auto-tag.yml'), 'utf8');
+  const condition = source.match(/^    if: (.+)$/m)?.[1];
+  assert.ok(condition, 'tag job condition exists');
+  const fields = new Set(['github.event_name', 'github.event.workflow_run.conclusion',
+    'github.event.workflow_run.event', 'github.event.workflow_run.head_repository.full_name',
+    'github.repository', 'github.ref']);
+  const identifiers = condition.replace(/'[^']*'/g, '').match(/[A-Za-z_][A-Za-z0-9_.]*/g) ?? [];
+  assert.ok(identifiers.every(field => fields.has(field)), 'closed condition field vocabulary');
+  assert.match(condition, /^[A-Za-z0-9_.'/:()=&| -]+$/);
+  return runInNewContext(condition, { github: { event_name: eventName, repository: repo, ref,
+    event: { workflow_run: { conclusion, event, head_repository: { full_name: headRepo } } } } }, { timeout: 100 });
+}
+
+test('auto-tag admits successful same-repository push CI but denies fork or missing origin', () => {
+  assert.equal(autoTagAllowed('workflow_run'), true);
+  assert.equal(autoTagAllowed('workflow_run', { headRepo: 'untrusted/fork' }), false);
+  assert.equal(autoTagAllowed('workflow_run', { headRepo: '' }), false);
+  assert.equal(autoTagAllowed('workflow_run', { conclusion: 'failure' }), false);
+  assert.equal(autoTagAllowed('workflow_run', { event: 'pull_request' }), false);
+});
+
+test('auto-tag keeps direct push and canonical main manual entry points unchanged', () => {
+  assert.equal(autoTagAllowed('push', { conclusion: '', event: '', headRepo: '' }), true);
+  assert.equal(autoTagAllowed('workflow_dispatch', { conclusion: '', event: '', headRepo: '' }), true);
+  assert.equal(autoTagAllowed('workflow_dispatch', { ref: 'refs/heads/other', conclusion: '', event: '', headRepo: '' }), false);
 });
