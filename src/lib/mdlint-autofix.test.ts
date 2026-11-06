@@ -25047,3 +25047,31 @@ describe("autofix: undescribed image in a document with no final newline", () =>
     ]);
   });
 });
+
+describe("invalid-link autofix: a whitespace-only link target", () => {
+  const rules = [ruleInvalidLinkTarget];
+
+  it.each([
+    ["spaces", "   "],
+    ["a tab", "\t"],
+    ["mixed spaces and tabs", " \t "],
+  ])("replaces %s with TODO and preserves the link text", (_name, target) => {
+    for (const nl of ["\n", "\r\n"]) {
+      const doc = `See [the guide](${target}) for details.${nl}`;
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(`See [the guide](TODO) for details.${nl}`);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+    }
+  });
+
+  it("leaves a valid neighbouring link untouched", () => {
+    const doc = "[ok](./ok.md) and [blank](  ) end\n";
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(applyFix(doc, violations[0])).toBe("[ok](./ok.md) and [blank](TODO) end\n");
+  });
+});
