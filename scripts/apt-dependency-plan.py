@@ -196,7 +196,9 @@ def collect(run=bounded_command):
 
 
 MIRRORS = ('https://azure.archive.ubuntu.com/ubuntu/', 'https://archive.ubuntu.com/ubuntu/')
-DOWNLOAD_PACKAGES = ('libjavascriptcoregtk-4.1-0', 'libwebkit2gtk-4.1-0')
+DOWNLOAD_POOLS = {'libjavascriptcoregtk-4.1-0': 'pool/main/w/webkit2gtk/',
+                  'libwebkit2gtk-4.1-0': 'pool/universe/w/webkit2gtk/'}
+DOWNLOAD_PACKAGES = tuple(DOWNLOAD_POOLS)
 MAX_DOWNLOAD = 64 * 1024 * 1024
 
 
@@ -205,8 +207,12 @@ def download_metadata(text):
     for fields in metadata_fields(text):
         key, size = package_identity_size(fields)
         filename, digest = fields.get('Filename', ''), fields.get('SHA256', '')
-        if not re.fullmatch(r'pool/main/[A-Za-z0-9._+~/-]+\.deb', filename) or any(part in ('', '.', '..') for part in filename.split('/')):
+        if not re.fullmatch(r'pool/(?:main|universe)/[A-Za-z0-9._+~/-]+\.deb', filename) or any(part in ('', '.', '..') for part in filename.split('/')):
             raise ValueError('official archive filename unavailable')
+        # These two fixed packages are officially split across main and universe.
+        # Bind each to its exact source-package directory, not arbitrary APT paths.
+        if key[0] not in DOWNLOAD_POOLS or filename.rsplit('/', 1)[0] + '/' != DOWNLOAD_POOLS[key[0]]:
+            raise ValueError('archive pool does not match its approved package')
         if not filename.split('/')[-1].startswith(key[0] + '_') or not filename.endswith('_' + key[2] + '.deb'):
             raise ValueError('archive filename does not match its package')
         if not re.fullmatch(r'[a-f0-9]{64}', digest) or size > MAX_DOWNLOAD:
