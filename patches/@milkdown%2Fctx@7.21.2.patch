@@ -1,0 +1,88 @@
+diff --git a/lib/index.js b/lib/index.js
+index 554648a4f7717a66ced38ac30c92b0a73bf2f014..37940313dc632220dfcad71230310b975ed877b7 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -258,17 +258,18 @@ var Timer = class {
+ 				this.#listener = (e) => {
+ 					if (!(e instanceof CustomEvent)) return;
+ 					if (e.detail.id === this.#eventUniqId) {
++						clearTimeout(timeout);
+ 						this.#status = "resolved";
+ 						this.#removeListener();
+ 						e.stopImmediatePropagation();
+ 						resolve();
+ 					}
+ 				};
+-				this.#waitTimeout(() => {
++				const timeout = setTimeout(() => {
+ 					if (this.#status === "pending") this.#status = "rejected";
+ 					this.#removeListener();
+ 					reject(/* @__PURE__ */ new Error(`Timing ${this.type.name} timeout.`));
+-				});
++				}, this.type.timeout);
+ 				this.#status = "pending";
+ 				addEventListener(this.type.name, this.#listener);
+ 			});
+@@ -280,11 +281,7 @@ var Timer = class {
+ 		};
+ 		this.#removeListener = () => {
+ 			if (this.#listener) removeEventListener(this.type.name, this.#listener);
+-		};
+-		this.#waitTimeout = (ifTimeout) => {
+-			setTimeout(() => {
+-				ifTimeout();
+-			}, this.type.timeout);
++			this.#listener = null;
+ 		};
+ 		this.#eventUniqId = Symbol(type.name);
+ 		this.type = type;
+@@ -294,7 +291,6 @@ var Timer = class {
+ 		return this.#status;
+ 	}
+ 	#removeListener;
+-	#waitTimeout;
+ };
+ var TimerType = class {
+ 	constructor(name, timeout = 3e3) {
+diff --git a/src/timer/timer.ts b/src/timer/timer.ts
+index eca09a59b911a78083d42ec9ff7c79795205797f..40aaa8d057446ba363344a2e5e38bf27e4adb1a7 100644
+--- a/src/timer/timer.ts
++++ b/src/timer/timer.ts
+@@ -38,6 +38,7 @@ export class Timer {
+         if (!(e instanceof CustomEvent)) return
+ 
+         if (e.detail.id === this.#eventUniqId) {
++          clearTimeout(timeout)
+           this.#status = 'resolved'
+           this.#removeListener()
+           e.stopImmediatePropagation()
+@@ -45,12 +46,12 @@ export class Timer {
+         }
+       }
+ 
+-      this.#waitTimeout(() => {
++      const timeout = setTimeout(() => {
+         if (this.#status === 'pending') this.#status = 'rejected'
+ 
+         this.#removeListener()
+         reject(new Error(`Timing ${this.type.name} timeout.`))
+-      })
++      }, this.type.timeout)
+ 
+       this.#status = 'pending'
+       addEventListener(this.type.name, this.#listener)
+@@ -70,13 +71,7 @@ export class Timer {
+   /// @internal
+   #removeListener = () => {
+     if (this.#listener) removeEventListener(this.type.name, this.#listener)
+-  }
+-
+-  /// @internal
+-  #waitTimeout = (ifTimeout: () => void) => {
+-    setTimeout(() => {
+-      ifTimeout()
+-    }, this.type.timeout)
++    this.#listener = null
+   }
+ }
+ 
