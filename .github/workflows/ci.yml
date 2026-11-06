@@ -62,7 +62,9 @@ jobs:
       - name: CI gate regression tests
         run: node --test scripts/ci/gate.test.mjs scripts/ci/release-gate.test.mjs scripts/ci/assembly-workflow.test.mjs
       - name: Dependency plan parser regressions
-        run: python3 scripts/test-apt-dependency-plan.py
+        run: |
+          python3 scripts/test-apt-dependency-plan.py
+          python3 scripts/test-apt-https-sources.py
 
       - name: User-facing punctuation regression
         run: bun run test -- src/noDashes.test.ts
@@ -230,6 +232,7 @@ jobs:
       - name: Install Linux system dependencies
         timeout-minutes: 8
         run: |
+          sudo python3 scripts/apt-https-sources.py
           apt_opts=(-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30)
           sudo apt-get "${apt_opts[@]}" update
           sudo apt-get "${apt_opts[@]}" install -y \
