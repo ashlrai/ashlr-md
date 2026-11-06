@@ -24665,3 +24665,113 @@ describe("invalid-link-target autofix: invalid link in a blockquote — marker v
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+// ─── Undescribed image autofix in a document with no final newline ───────────
+
+describe("autofix: undescribed image in a document with no final newline", () => {
+  const rules = [ruleMissingAltText];
+
+  it.each([
+    ["an image-only document", "![](a.png)", "![TODO: describe image](a.png)"],
+    [
+      "an image inside a prose last line",
+      "Intro.\n\nSee ![](a.png) now",
+      "Intro.\n\nSee ![TODO: describe image](a.png) now",
+    ],
+    [
+      "a whitespace-only alt on a CRLF last line",
+      "Gallery.\r\n\r\n![ \t ](dir/b%20c.png)",
+      "Gallery.\r\n\r\n![TODO: describe image](dir/b%20c.png)",
+    ],
+    [
+      "an image with a query and title as the last bytes",
+      'Pics.\n\n![](img/c%20d.png?v=2#top "Chart")',
+      'Pics.\n\n![TODO: describe image](img/c%20d.png?v=2#top "Chart")',
+    ],
+  ])("writes the placeholder into %s and appends no line break", (_name, doc, expected) => {
+    const violations = lintDocument(doc, { rules });
+
+    expect(doc.endsWith("\n")).toBe(false);
+    expect(doc.endsWith("\r")).toBe(false);
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    // The flagged range spans exactly the image markup.
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toMatch(/^!\[\s*\]\(/);
+
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.endsWith("\n")).toBe(false);
+    expect(fixed.endsWith("\r")).toBe(false);
+    // Outside the image the document is byte-for-byte identical.
+    expect(fixed.slice(0, from.offset)).toBe(doc.slice(0, from.offset));
+    expect(fixed.endsWith(doc.slice(to.offset))).toBe(true);
+    // A second pass finds nothing and changes nothing.
+    const remaining = lintDocument(fixed, { rules });
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(fixed, remaining)).toBe(expected);
+  });
+
+  it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+  ])("flags a last-line image ending exactly at the last byte (%j line endings)", (nl) => {
+    const doc = `# Summary${nl}${nl}Total: ![](img/summary.png)`;
+    const expected = `# Summary${nl}${nl}Total: ![TODO: describe image](img/summary.png)`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    const { to } = violations[0].range!;
+    // The image is the last thing in the file: the fix's tail splice is the
+    // empty string, so no line break can come from after the `)`.
+    expect(to.offset).toBe(doc.length);
+    expect(doc.slice(to.offset)).toBe("");
+    expect(to.col).toBe(doc.length - doc.lastIndexOf("\n") - 1);
+
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.endsWith("\n")).toBe(false);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it("records the image fix in the lint history and still appends no newline", () => {
+    const doc =
+      "Quarterly report — every figure verified.\n\nSee ![](charts/summary.png)";
+    clearLintHistory();
+    const violations = lintDocument(doc, { rules });
+
+    const fixed = fixAllViolations(doc, violations);
+    expect(fixed).toBe(
+      "Quarterly report — every figure verified.\n\nSee ![TODO: describe image](charts/summary.png)",
+    );
+    expect(fixed.endsWith("\n")).toBe(false);
+
+    const history = getLintHistory();
+    expect(history.map((entry) => entry.ruleId)).toEqual(["missing-alt-text"]);
+    // The recorded snippet ends at the document's last byte: nothing, not
+    // even a newline, sits past the image for it to capture.
+    expect(doc.endsWith(history[0].docSnippet)).toBe(true);
+    expect(history[0].docSnippet).toContain("![](charts/summary.png)");
+  });
+
+  it("fixes the image beside an unfixable violation and still appends no newline", () => {
+    const rules = [ruleOrphanedHeading, ruleMissingAltText];
+    const doc = "# Top\n\n# Next\n\nSee ![](pic.png)";
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+      "orphaned-heading",
+      "missing-alt-text",
+    ]);
+    expect(violations[0].fix).toBeNull();
+
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe("# Top\n\n# Next\n\nSee ![TODO: describe image](pic.png)");
+    expect(fixed.endsWith("\n")).toBe(false);
+    // The unfixable warning survives the pass; only the image was rewritten.
+    expect(lintDocument(fixed, { rules }).map(({ ruleId }) => ruleId)).toEqual([
+      "orphaned-heading",
+    ]);
+  });
+});
