@@ -372,6 +372,103 @@ describe("autofix: undescribed image on a line with leading indentation", () => 
   });
 });
 
+describe("autofix: undescribed image in a heading", () => {
+  const rules = [ruleMissingAltText];
+
+  it.each([
+    ["an H1", "# Report ![](img/a.png) overview"],
+    ["an H2", "## Report ![](img/a.png) overview"],
+    ["an H3", "### Report ![](img/a.png) overview"],
+    ["an H4", "#### Report ![](img/a.png) overview"],
+    ["an H5", "##### Report ![](img/a.png) overview"],
+    ["an H6", "###### Report ![](img/a.png) overview"],
+    ["a closed ATX heading", "## Report ![](img/a.png) ##"],
+    ["an image opening the heading text", "# ![](img/a.png) Report"],
+    ["an image ending the heading text", "# Report ![](img/a.png)"],
+    ["an image as the whole heading text", "# ![](img/a.png)"],
+    ["a whitespace-only description", "# Report ![ \t](img/a.png) overview"],
+    [
+      "a source with a query, fragment and title",
+      '# Report ![](img/a%20b.png?v=2#top "Chart") overview',
+    ],
+  ])("inserts the placeholder inside %s and keeps the heading and source intact", (_name, headingLine) => {
+    for (const nl of ["\n", "\r\n"]) {
+      const doc = `Intro.${nl}${headingLine}${nl}Tail.${nl}`;
+      const violations = lintDocument(doc, { rules });
+
+      // The undescribed image in the heading is the only violation, and its
+      // range covers exactly the image — nothing of the heading around it.
+      expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+      expect(violations[0].fix).not.toBeNull();
+      const { from, to } = violations[0].range!;
+      const imageText = doc.slice(from.offset, to.offset);
+      expect(imageText).toMatch(/^!\[\s*\]\(.+\)$/);
+      const src = imageText.slice(imageText.indexOf("](") + 2, -1);
+      const repaired = `![TODO: describe image](${src})`;
+      const expected = `Intro.${nl}${headingLine.replace(imageText, repaired)}${nl}Tail.${nl}`;
+
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      // The placeholder was inserted; the heading marker, heading text and
+      // image source survive — every byte outside the image range is
+      // unchanged.
+      expect(fixed.slice(0, from.offset)).toBe(doc.slice(0, from.offset));
+      expect(fixed.slice(from.offset + repaired.length)).toBe(doc.slice(to.offset));
+      expect(fixed).toContain(`](${src})`);
+      expect(fixed.match(/TODO: describe image/g)).toHaveLength(1);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+      expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+    }
+  });
+
+  it("keeps a setext heading's text and underline intact around the inserted placeholder", () => {
+    for (const nl of ["\n", "\r\n"]) {
+      for (const underline of ["===", "---"]) {
+        const doc = `Intro.${nl}Report ![](img/a.png) overview${nl}${underline}${nl}Tail.${nl}`;
+        const violations = lintDocument(doc, { rules });
+
+        expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+        const { from, to } = violations[0].range!;
+        expect(doc.slice(from.offset, to.offset)).toBe("![](img/a.png)");
+        const expected = `Intro.${nl}Report ![TODO: describe image](img/a.png) overview${nl}${underline}${nl}Tail.${nl}`;
+        expect(applyFix(doc, violations[0])).toBe(expected);
+        const fixed = applyAllFixes(doc, violations);
+        expect(fixed).toBe(expected);
+        // Heading text line and its underline are byte-identical; the tail
+        // paragraph is untouched and exactly one placeholder was inserted.
+        expect(fixed).toContain(`${underline}${nl}Tail.`);
+        expect(fixed.match(/TODO: describe image/g)).toHaveLength(1);
+        expect(lintDocument(fixed, { rules })).toEqual([]);
+      }
+    }
+  });
+
+  it("fixes only the undescribed image when the heading also holds a described one", () => {
+    for (const nl of ["\n", "\r\n"]) {
+      const described = "![Logo](logo.svg)";
+      const undescribed = '![](chart/図.png?size=2#view "Chart")';
+      const doc = `## ${described} vs ${undescribed}${nl}Tail.${nl}`;
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+      const { from, to } = violations[0].range!;
+      expect(doc.slice(from.offset, to.offset)).toBe(undescribed);
+
+      const expected = `## ${described} vs ![TODO: describe image](chart/図.png?size=2#view "Chart")${nl}Tail.${nl}`;
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      // Heading marker, described sibling and its own source are
+      // byte-identical; only the undescribed image gained the placeholder.
+      expect(fixed).toContain(`## ${described} vs `);
+      expect(fixed.match(/TODO: describe image/g)).toHaveLength(1);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+      expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+    }
+  });
+});
+
 describe("autofix: two undescribed images on one line", () => {
   it.each([
     [
