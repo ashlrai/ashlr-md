@@ -591,19 +591,28 @@ export const ruleInvalidLinkTarget: LintRule = {
       if (/^\s*$/.test(href) || href === "#" || href === "?") {
         const from = m.index;
         const to = from + m[0].length;
-        // ?? preserves empty strings (empty-label links like [](#));
-        // || would incorrectly convert them to "link".
-        const text = m[1] ?? "link";
+        // Keep the captured label for autofix; the fallback is display-only.
+        const text = m[1];
         const originalMatch = m[0];
         violations.push({
           ruleId: "invalid-link-target",
-          message: `Invalid link target: [${text.slice(0, 30) || "link"}](${href || "empty"})`,
+          message: `Invalid link target: [${(text || "link").slice(0, 30)}](${href || "empty"})`,
           severity: "warning",
           range: range(doc, from, to),
           fix: (d) => {
-            let idx = d.indexOf(originalMatch, from);
-            if (idx === -1) {
-              idx = d.indexOf(originalMatch);
+            // Search the masked text (same offsets as `d`) so a stale fix
+            // applied a second time cannot rewrite an identical link inside
+            // code, front matter or HTML the rule skipped.
+            const masked = stripCodeBlocks(d);
+            let idx = masked.indexOf(originalMatch, from);
+            if (idx !== from) {
+              // Earlier fixes can shrink the document and move this link
+              // before its recorded offset. Prefer the nearest live match,
+              // retaining the mask so code samples cannot become targets.
+              const prev = masked.lastIndexOf(originalMatch, from);
+              if (idx === -1 || (prev !== -1 && from - prev <= idx - from)) {
+                idx = prev;
+              }
             }
             if (idx === -1) return d;
             return (

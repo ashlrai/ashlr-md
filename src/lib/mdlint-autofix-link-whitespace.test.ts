@@ -83,6 +83,7 @@ describe("invalid link autofix with a whitespace-only href", () => {
   it.each([
     "",
     "  ",
+    "\t",
     "#",
     "?",
   ])("keeps an empty label empty and names it 'link' in the message (href %j)", (href) => {
