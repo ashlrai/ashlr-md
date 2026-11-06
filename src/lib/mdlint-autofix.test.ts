@@ -22908,6 +22908,39 @@ describe("autofix: two undescribed images sharing a path prefix", () => {
   });
 });
 
+describe("autofix: invalid links on separate lines", () => {
+  it.each([
+    "\n",
+    "\r\n",
+  ])("repairs both destinations and preserves surrounding text (%j)", (nl) => {
+    const doc = [
+      "Opening café.",
+      "Read [first](#) before continuing.",
+      "Keep [valid](./guide.md) and `code` intact.",
+      "Then see [second](?) for details.",
+      "Closing ☕.",
+    ].join(nl);
+    const expected = [
+      "Opening café.",
+      "Read [first](TODO) before continuing.",
+      "Keep [valid](./guide.md) and `code` intact.",
+      "Then see [second](TODO) for details.",
+      "Closing ☕.",
+    ].join(nl);
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+      "invalid-link-target",
+      "invalid-link-target",
+    ]);
+    expect(violations.map(({ range }) => range?.from.line)).toEqual([2, 4]);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(applyAllFixes(doc, [...violations].reverse())).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+});
+
 describe("autofix: two invalid links on one line", () => {
   const rules = [ruleInvalidLinkTarget];
 
