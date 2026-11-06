@@ -29,3 +29,4 @@ It's a single static file; host it anywhere:
 ## Notes
 
 - Fonts load from Google Fonts; for a fully offline page, self-host them.
+- [llms.txt](./llms.txt) and [llms-full.txt](./llms-full.txt) are the agent index and the one-file manual. They match the copies at the repository root.

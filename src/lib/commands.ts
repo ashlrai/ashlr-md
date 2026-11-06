@@ -484,7 +484,7 @@ export function getCommands(): Command[] {
         // Append to the current content with surrounding newlines.
         const current = doc.content;
         const separator = current.endsWith("\n") ? "\n" : "\n\n";
-        doc.setContent(current + separator + tableMarkdown + "\n");
+        doc.setContent(`${current + separator + tableMarkdown}\n`);
         toast.success(`Inserted ${rows}×${cols} table`);
       },
     },

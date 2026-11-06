@@ -62,7 +62,7 @@ describe("loadMetrics()", () => {
 
   it("round-trips through saveMetrics/loadMetrics", () => {
     const metrics = loadMetrics();
-    metrics.providers["ollama"] = {
+    metrics.providers.ollama = {
       providerId: "ollama",
       tier: 1,
       successCount: 5,
@@ -73,8 +73,8 @@ describe("loadMetrics()", () => {
     };
     saveMetrics(metrics);
     const loaded = loadMetrics();
-    expect(loaded.providers["ollama"].successCount).toBe(5);
-    expect(loaded.providers["ollama"].totalLatencyMs).toBe(2500);
+    expect(loaded.providers.ollama.successCount).toBe(5);
+    expect(loaded.providers.ollama.totalLatencyMs).toBe(2500);
   });
 });
 
@@ -101,10 +101,10 @@ describe("recordSuccess()", () => {
   it("creates a new entry on first call", () => {
     recordSuccess("ollama", 1, 300);
     const m = loadMetrics();
-    expect(m.providers["ollama"]).toBeDefined();
-    expect(m.providers["ollama"].successCount).toBe(1);
-    expect(m.providers["ollama"].totalLatencyMs).toBe(300);
-    expect(m.providers["ollama"].tier).toBe(1);
+    expect(m.providers.ollama).toBeDefined();
+    expect(m.providers.ollama.successCount).toBe(1);
+    expect(m.providers.ollama.totalLatencyMs).toBe(300);
+    expect(m.providers.ollama.tier).toBe(1);
   });
 
   it("accumulates successCount and totalLatencyMs across calls", () => {
@@ -112,15 +112,15 @@ describe("recordSuccess()", () => {
     recordSuccess("ollama", 1, 200);
     recordSuccess("ollama", 1, 300);
     const m = loadMetrics();
-    expect(m.providers["ollama"].successCount).toBe(3);
-    expect(m.providers["ollama"].totalLatencyMs).toBe(600);
+    expect(m.providers.ollama.successCount).toBe(3);
+    expect(m.providers.ollama.totalLatencyMs).toBe(600);
   });
 
   it("does not touch failureCount or abortCount", () => {
     recordSuccess("anthropic", 2, 500);
     const m = loadMetrics();
-    expect(m.providers["anthropic"].failureCount).toBe(0);
-    expect(m.providers["anthropic"].abortCount).toBe(0);
+    expect(m.providers.anthropic.failureCount).toBe(0);
+    expect(m.providers.anthropic.abortCount).toBe(0);
   });
 
   it("updates lastUsedAt to a recent timestamp", () => {
@@ -128,18 +128,18 @@ describe("recordSuccess()", () => {
     recordSuccess("hosted", 3, 800);
     const after = Date.now();
     const m = loadMetrics();
-    expect(m.providers["hosted"].lastUsedAt).toBeGreaterThanOrEqual(before);
-    expect(m.providers["hosted"].lastUsedAt).toBeLessThanOrEqual(after);
+    expect(m.providers.hosted.lastUsedAt).toBeGreaterThanOrEqual(before);
+    expect(m.providers.hosted.lastUsedAt).toBeLessThanOrEqual(after);
   });
 
   it("tracks multiple distinct providers independently", () => {
     recordSuccess("ollama", 1, 200);
     recordSuccess("anthropic", 2, 400);
     const m = loadMetrics();
-    expect(m.providers["ollama"].successCount).toBe(1);
-    expect(m.providers["anthropic"].successCount).toBe(1);
-    expect(m.providers["ollama"].totalLatencyMs).toBe(200);
-    expect(m.providers["anthropic"].totalLatencyMs).toBe(400);
+    expect(m.providers.ollama.successCount).toBe(1);
+    expect(m.providers.anthropic.successCount).toBe(1);
+    expect(m.providers.ollama.totalLatencyMs).toBe(200);
+    expect(m.providers.anthropic.totalLatencyMs).toBe(400);
   });
 });
 
@@ -151,21 +151,21 @@ describe("recordFailure()", () => {
   it("increments failureCount", () => {
     recordFailure("anthropic", 2);
     const m = loadMetrics();
-    expect(m.providers["anthropic"].failureCount).toBe(1);
+    expect(m.providers.anthropic.failureCount).toBe(1);
   });
 
   it("does not touch successCount or abortCount", () => {
     recordFailure("ollama", 1);
     const m = loadMetrics();
-    expect(m.providers["ollama"].successCount).toBe(0);
-    expect(m.providers["ollama"].abortCount).toBe(0);
+    expect(m.providers.ollama.successCount).toBe(0);
+    expect(m.providers.ollama.abortCount).toBe(0);
   });
 
   it("accumulates multiple failures", () => {
     recordFailure("ollama", 1);
     recordFailure("ollama", 1);
     const m = loadMetrics();
-    expect(m.providers["ollama"].failureCount).toBe(2);
+    expect(m.providers.ollama.failureCount).toBe(2);
   });
 });
 
@@ -177,22 +177,22 @@ describe("recordAbort()", () => {
   it("increments both abortCount and failureCount", () => {
     recordAbort("ollama", 1);
     const m = loadMetrics();
-    expect(m.providers["ollama"].abortCount).toBe(1);
-    expect(m.providers["ollama"].failureCount).toBe(1);
+    expect(m.providers.ollama.abortCount).toBe(1);
+    expect(m.providers.ollama.failureCount).toBe(1);
   });
 
   it("does not touch successCount", () => {
     recordAbort("hosted", 3);
     const m = loadMetrics();
-    expect(m.providers["hosted"].successCount).toBe(0);
+    expect(m.providers.hosted.successCount).toBe(0);
   });
 
   it("accumulates multiple aborts", () => {
     recordAbort("ollama", 1);
     recordAbort("ollama", 1);
     const m = loadMetrics();
-    expect(m.providers["ollama"].abortCount).toBe(2);
-    expect(m.providers["ollama"].failureCount).toBe(2);
+    expect(m.providers.ollama.abortCount).toBe(2);
+    expect(m.providers.ollama.failureCount).toBe(2);
   });
 });
 
@@ -204,20 +204,20 @@ describe("averageLatencyMs()", () => {
   it("returns 0 when there are no successes", () => {
     recordFailure("ollama", 1);
     const m = loadMetrics();
-    expect(averageLatencyMs(m.providers["ollama"])).toBe(0);
+    expect(averageLatencyMs(m.providers.ollama)).toBe(0);
   });
 
   it("returns the correct average", () => {
     recordSuccess("ollama", 1, 100);
     recordSuccess("ollama", 1, 300);
     const m = loadMetrics();
-    expect(averageLatencyMs(m.providers["ollama"])).toBe(200);
+    expect(averageLatencyMs(m.providers.ollama)).toBe(200);
   });
 
   it("returns exact value for a single success", () => {
     recordSuccess("anthropic", 2, 750);
     const m = loadMetrics();
-    expect(averageLatencyMs(m.providers["anthropic"])).toBe(750);
+    expect(averageLatencyMs(m.providers.anthropic)).toBe(750);
   });
 });
 
@@ -243,21 +243,21 @@ describe("successRate()", () => {
     recordSuccess("ollama", 1, 100);
     recordSuccess("ollama", 1, 200);
     const m = loadMetrics();
-    expect(successRate(m.providers["ollama"])).toBe(1);
+    expect(successRate(m.providers.ollama)).toBe(1);
   });
 
   it("returns 0.5 for equal successes and failures", () => {
     recordSuccess("ollama", 1, 100);
     recordFailure("ollama", 1);
     const m = loadMetrics();
-    expect(successRate(m.providers["ollama"])).toBe(0.5);
+    expect(successRate(m.providers.ollama)).toBe(0.5);
   });
 
   it("returns 0 when all attempts failed", () => {
     recordFailure("anthropic", 2);
     recordFailure("anthropic", 2);
     const m = loadMetrics();
-    expect(successRate(m.providers["anthropic"])).toBe(0);
+    expect(successRate(m.providers.anthropic)).toBe(0);
   });
 });
 

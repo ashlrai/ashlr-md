@@ -22,7 +22,92 @@
     <meta property="og:url" content="https://md.ashlr.ai/" />
     <meta property="og:image" content="https://md.ashlr.ai/og.png" />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:image" content="og.png" />
+    <meta name="twitter:title" content="Ashlr MD: Markdown, finally beautiful" />
+    <meta
+      name="twitter:description"
+      content="The open-source Markdown app for macOS, Windows, and Linux. Agents install one command and drive the live document over MCP."
+    />
+    <meta name="twitter:image" content="https://md.ashlr.ai/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="Ashlr MD: a rendered Markdown plan with an on-device AI assistant"
+    />
+    <meta property="og:locale" content="en_US" />
+    <meta name="robots" content="index, follow, max-image-preview:large" />
+    <meta name="theme-color" content="#fbfaf6" />
+    <meta name="author" content="Ashlr MD contributors" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "Ashlr MD",
+        "applicationCategory": "DeveloperApplication",
+        "operatingSystem": "macOS, Windows, Linux",
+        "url": "https://md.ashlr.ai/",
+        "downloadUrl": "https://github.com/ashlrai/ashlr-md/releases/latest",
+        "codeRepository": "https://github.com/ashlrai/ashlr-md",
+        "license": "https://opensource.org/licenses/MIT",
+        "description": "An open-source Markdown app for macOS, Windows, and Linux. Read, edit, and export .md files, and let coding agents drive the live document over MCP.",
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+        "featureList": [
+          "GitHub Flavored Markdown rendering",
+          "WYSIWYG and source editing",
+          "PDF, DOCX, HTML, and EPUB export",
+          "On-device AI",
+          "MCP server for Claude Code, Cursor, and Codex"
+        ]
+      }
+    </script>
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "FAQPage",
+        "mainEntity": [
+          {
+            "@type": "Question",
+            "name": "What is Ashlr MD?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "A desktop Markdown app for macOS, Windows, and Linux, plus the mdopen command and the mdopener-mcp server. People read and edit files. Agents open, edit, export, and ask for a review."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "How does an agent install it?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "From a checkout on macOS or Linux, run SKIP_APP_BUILD=1 bash scripts/install.sh. That builds the CLI and the MCP server. The desktop app is a separate download from GitHub Releases."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "How do Claude, Cursor, and Codex connect?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "After install, run the three commands in the Start section, or open Preferences, AI agents (MCP), and use Connect to Claude Code, Connect to Cursor, or Connect to Codex."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Does the model upload my documents?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Apple's on-device model and a loopback Ollama stay on the machine. A cloud model runs only after you add a key or turn on a hosted option. Offline mode in ~/.ashlr/config.json refuses cloud calls."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Which computers have a release build?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Apple Silicon Macs, Windows x64, and Linux x86_64. The current release is unsigned. On macOS, right-click the app and choose Open the first time. Windows may show a SmartScreen warning. Intel Macs build from source."
+            }
+          }
+        ]
+      }
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -385,12 +470,19 @@
         font-size: 12px;
         font-weight: 600;
       }
-      .win-modes span {
+      .win-modes span,
+      .win-modes button {
         padding: 3px 10px;
         border-radius: 6px;
+        border: 0;
+        background: transparent;
+        font: inherit;
+        font-weight: 600;
         color: var(--win-muted, var(--muted));
+        cursor: pointer;
       }
-      .win-modes span.on {
+      .win-modes span.on,
+      .win-modes button.on {
         background: var(--win-bg, #fff);
         color: var(--win-ink, var(--ink));
         box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
@@ -1224,9 +1316,158 @@
         }
       }
 
+      .nav-toggle {
+        display: none;
+        margin-left: auto;
+        height: 38px;
+        padding: 0 12px;
+        border-radius: 10px;
+        border: 1px solid var(--line-strong);
+        background: var(--surface);
+        font: inherit;
+        font-weight: 650;
+        cursor: pointer;
+      }
+      .steps {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 14px;
+      }
+      .step {
+        text-align: left;
+        font: inherit;
+        color: inherit;
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        padding: 18px 18px 16px;
+        cursor: pointer;
+        box-shadow: var(--shadow-sm);
+      }
+      .step[aria-selected="true"] {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px var(--accent-soft);
+      }
+      .step b {
+        display: block;
+        font-size: 13px;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--accent);
+        margin-bottom: 8px;
+      }
+      .step-panel {
+        margin-top: 18px;
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        padding: 22px 24px;
+      }
+      .step-panel[hidden] {
+        display: none;
+      }
+      .cmd {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px;
+        margin: 14px 0 0;
+        padding: 14px 16px;
+        border-radius: 12px;
+        background: var(--ink);
+        color: #f4f1e8;
+        font-family: var(--mono);
+        font-size: 13.5px;
+        line-height: 1.55;
+        overflow: auto;
+      }
+      .cmd button {
+        flex: 0 0 auto;
+        border: 0;
+        border-radius: 8px;
+        background: #2a3340;
+        color: #fff;
+        font: inherit;
+        font-size: 13px;
+        font-weight: 650;
+        padding: 6px 10px;
+        cursor: pointer;
+      }
+      .faq {
+        max-width: 760px;
+        margin: 0 auto;
+        display: grid;
+        gap: 10px;
+      }
+      .faq-item {
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        box-shadow: var(--shadow-sm);
+      }
+      .faq-item button {
+        width: 100%;
+        text-align: left;
+        background: transparent;
+        border: 0;
+        font: inherit;
+        font-weight: 700;
+        font-size: 17px;
+        padding: 16px 18px;
+        cursor: pointer;
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        color: inherit;
+      }
+      .faq-item .a {
+        padding: 0 18px 16px;
+        color: var(--ink-soft);
+      }
+      .faq-item .a[hidden] {
+        display: none;
+      }
+      button.theme-card {
+        font: inherit;
+        color: inherit;
+        text-align: left;
+        width: 100%;
+        cursor: pointer;
+        background: transparent;
+        border: 0;
+        padding: 0;
+      }
+      button.theme-card.active .tprev {
+        outline: 3px solid var(--accent);
+        outline-offset: 3px;
+      }
+
       @media (max-width: 920px) {
+        .nav-toggle {
+          display: inline-flex;
+          align-items: center;
+        }
         .nav-links {
           display: none;
+          position: absolute;
+          top: 70px;
+          left: 0;
+          right: 0;
+          flex-direction: column;
+          gap: 0;
+          margin: 0;
+          padding: 8px 18px 16px;
+          background: var(--paper);
+          border-bottom: 1px solid var(--line);
+        }
+        .nav-links.open {
+          display: flex;
+        }
+        .nav-links a {
+          padding: 12px 4px;
+        }
+        .steps {
+          grid-template-columns: 1fr 1fr;
         }
         .grid,
         .themes-grid,
@@ -1263,13 +1504,14 @@
     <nav id="nav">
       <div class="wrap nav-inner">
         <a class="brand" href="#top"><span class="mark">M</span> Ashlr MD</a>
-                  <div class="nav-links">
+                  <div class="nav-links" id="nav-links">
+          <a href="#start">Start</a>
           <a href="#features">Features</a>
-          <a href="#ai">On-device AI</a>
           <a href="#agents">For agents</a>
-          <a href="#shortcuts">Shortcuts</a>
+          <a href="#faq">FAQ</a>
           <a href="#themes">Themes</a>
         </div>
+        <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="nav-links">Menu</button>
         <div class="nav-cta">
           <a class="btn btn-ghost btn-sm" href="https://github.com/ashlrai/ashlr-md">
             <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 .5C5.7.5.5 5.7.5 12c0 5.1 3.3 9.4 7.9 10.9.6.1.8-.3.8-.6v-2c-3.2.7-3.9-1.4-3.9-1.4-.5-1.3-1.3-1.7-1.3-1.7-1.1-.7.1-.7.1-.7 1.2 0 1.8 1.2 1.8 1.2 1 1.8 2.7 1.3 3.4 1 0-.8.4-1.3.7-1.6-2.6-.3-5.3-1.3-5.3-5.7 0-1.3.5-2.3 1.2-3.1-.1-.3-.5-1.5.1-3.1 0 0 1-.3 3.3 1.2a11.4 11.4 0 0 1 6 0C17.3 4.7 18.3 5 18.3 5c.6 1.6.2 2.8.1 3.1.8.8 1.2 1.8 1.2 3.1 0 4.4-2.7 5.4-5.3 5.7.4.4.8 1.1.8 2.2v3.3c0 .3.2.7.8.6 4.6-1.5 7.9-5.8 7.9-10.9C23.5 5.7 18.3.5 12 .5Z"/></svg>
@@ -1319,9 +1561,13 @@
             <div class="win-bar">
               <div class="lights"><i></i><i></i><i></i></div>
               <div class="win-title">PLAN.md</div>
-              <div class="win-modes"><span class="on">Read</span><span>Edit</span><span>Source</span></div>
+              <div class="win-modes">
+                <button type="button" class="on" data-view="read">Read</button>
+                <button type="button" data-view="edit">Edit</button>
+                <button type="button" data-view="source">Source</button>
+              </div>
             </div>
-            <div class="win-body">
+            <div class="win-body" data-view-panel="read">
               <span class="badge-kind">✓ PLAN · 2/4</span>
               <h2 class="doc">Launch Plan</h2>
               <p class="doc-sub">Generated by Claude Code · 2 min read</p>
@@ -1341,6 +1587,26 @@
 <span class="t-fn">mdopen</span> <span class="t-str">PLAN.md</span></pre>
               </div>
             </div>
+            <div class="win-body" data-view-panel="edit" hidden>
+              <h2 class="doc" contenteditable="true" spellcheck="false">Launch Plan</h2>
+              <p class="doc-sub">Click the heading and type. This preview stays in the browser.</p>
+              <ul class="tasks">
+                <li class="done"><span class="box done">✓</span><span contenteditable="true" spellcheck="false">Scaffold the project</span></li>
+                <li><span class="box"></span><span contenteditable="true" spellcheck="false">Wire up export</span></li>
+              </ul>
+            </div>
+            <div class="win-body" data-view-panel="source" hidden>
+              <div class="codecard">
+                <div class="ch"><span>PLAN.md</span><span>Source</span></div>
+                <pre><span class="t-fn"># Launch Plan</span>
+
+<span class="t-str">&gt; [!NOTE]</span>
+<span class="t-str">&gt; Generated by an AI agent.</span>
+
+- [x] Scaffold the project
+- [ ] Wire up export</pre>
+              </div>
+            </div>
             <div class="theme-switch" aria-label="Preview theme">
               <span class="lbl">Theme</span>
               <button class="sw-paper active" data-t="paper" title="Paper"></button>
@@ -1357,6 +1623,44 @@
         </div>
       </div>
     </header>
+
+    <section id="start">
+      <div class="wrap">
+        <div class="sec-head reveal">
+          <div class="kicker">60 seconds</div>
+          <h2 class="title">Agents start with <em>one command.</em></h2>
+          <p>
+            From a checkout on macOS or Linux. This builds <code style="font-family: var(--mono)">mdopen</code> and
+            <code style="font-family: var(--mono)">mdopener-mcp</code>, links both onto your PATH, and registers Claude Code when
+            <code style="font-family: var(--mono)">claude</code> is already installed.
+          </p>
+        </div>
+        <div class="steps reveal" role="tablist" aria-label="How an agent uses Ashlr MD">
+          <button class="step" type="button" role="tab" aria-selected="true" data-step="install"><b>1. Install</b>Build the CLI and the MCP server.</button>
+          <button class="step" type="button" role="tab" aria-selected="false" data-step="json"><b>2. Check</b>Print JSON and exit.</button>
+          <button class="step" type="button" role="tab" aria-selected="false" data-step="connect"><b>3. Connect</b>Claude, Cursor, or Codex.</button>
+          <button class="step" type="button" role="tab" aria-selected="false" data-step="open"><b>4. Open</b>Put the file in the window.</button>
+        </div>
+        <div class="step-panel reveal" data-step-panel="install">
+          <p style="margin:0">Run this from the repository root. Add <code style="font-family: var(--mono)">export PATH="$HOME/.local/bin:$PATH"</code> if the linker used that directory.</p>
+          <div class="cmd"><code id="cmd-install">SKIP_APP_BUILD=1 bash scripts/install.sh</code><button type="button" data-copy="cmd-install">Copy</button></div>
+        </div>
+        <div class="step-panel" data-step-panel="json" hidden>
+          <p style="margin:0">These commands exit on their own. They do not download a model and they do not write config.</p>
+          <div class="cmd"><code id="cmd-json">mdopener-mcp doctor --json</code><button type="button" data-copy="cmd-json">Copy</button></div>
+        </div>
+        <div class="step-panel" data-step-panel="connect" hidden>
+          <p style="margin:0">Each command uses the <code style="font-family: var(--mono)">mdopener-mcp</code> that is on PATH.</p>
+          <div class="cmd"><code id="cmd-claude">claude mcp add --scope user ashlr-md "$(command -v mdopener-mcp)"</code><button type="button" data-copy="cmd-claude">Copy</button></div>
+          <div class="cmd"><code id="cmd-codex">codex mcp add ashlr-md -- "$(command -v mdopener-mcp)"</code><button type="button" data-copy="cmd-codex">Copy</button></div>
+          <div class="cmd"><code id="cmd-cursor">python3 scripts/connect-cursor.py</code><button type="button" data-copy="cmd-cursor">Copy</button></div>
+        </div>
+        <div class="step-panel" data-step-panel="open" hidden>
+          <p style="margin:0">The window needs the desktop app. The JSON commands above do not.</p>
+          <div class="cmd"><code id="cmd-open">mdopen samples/agent-plan.md</code><button type="button" data-copy="cmd-open">Copy</button></div>
+        </div>
+      </div>
+    </section>
 
     <section id="why">
       <div class="wrap">
@@ -1421,7 +1725,7 @@ mdopen PLAN.md
           <div class="feat reveal">
             <div class="ficon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3v11m0 0 4-4m-4 4-4-4M5 21h14" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
             <h3>Export anywhere</h3>
-            <p>One click to a polished <b>PDF</b>, a <b>Word</b> doc, or a self-contained <b>HTML</b> page. Fully offline. No Pandoc, no accounts.</p>
+            <p>One click to a polished <b>PDF</b>, a <b>Word</b> doc, a self-contained <b>HTML</b> page, or an <b>EPUB</b> eBook. Fully offline. No Pandoc, no accounts.</p>
           </div>
           <div class="feat reveal">
             <div class="ficon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 11l2 2 4-4M4 6h16v12H4z" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
@@ -1536,18 +1840,18 @@ mdopen PLAN.md
           <p>Pick a mood and the whole document (text, code, diagrams, chrome) follows. Try them live in the preview above.</p>
         </div>
         <div class="themes-grid">
-          <div class="theme-card reveal">
+          <button class="theme-card reveal" type="button" data-t="paper">
             <div class="tprev paper"><div class="ttl">Paper</div><div class="ln a"></div><div class="ln"></div><div class="ln" style="width:80%"></div></div>
             <div class="tname">Paper <small>clean light</small></div>
-          </div>
-          <div class="theme-card reveal">
+          </button>
+          <button class="theme-card reveal" type="button" data-t="sepia">
             <div class="tprev sepia"><div class="ttl">Sepia</div><div class="ln a"></div><div class="ln"></div><div class="ln" style="width:80%"></div></div>
             <div class="tname">Sepia <small>warm reading</small></div>
-          </div>
-          <div class="theme-card reveal">
+          </button>
+          <button class="theme-card reveal" type="button" data-t="midnight">
             <div class="tprev midnight"><div class="ttl">Midnight</div><div class="ln a"></div><div class="ln"></div><div class="ln" style="width:80%"></div></div>
             <div class="tname">Midnight <small>true dark</small></div>
-          </div>
+          </button>
         </div>
       </div>
     </section>
@@ -1580,11 +1884,43 @@ mdopen PLAN.md
       </div>
     </section>
 
+    <section id="faq">
+      <div class="wrap">
+        <div class="sec-head reveal">
+          <div class="kicker">Questions</div>
+          <h2 class="title">Short answers, <em>no detour.</em></h2>
+        </div>
+        <div class="faq">
+          <div class="faq-item reveal">
+            <button type="button" aria-expanded="false">What is Ashlr MD?<span aria-hidden="true">+</span></button>
+            <div class="a" hidden>A desktop Markdown app for macOS, Windows, and Linux, plus the <code style="font-family: var(--mono)">mdopen</code> command and the <code style="font-family: var(--mono)">mdopener-mcp</code> server. People read and edit files. Agents open, edit, export, and ask for a review.</div>
+          </div>
+          <div class="faq-item reveal">
+            <button type="button" aria-expanded="false">How does an agent install it?<span aria-hidden="true">+</span></button>
+            <div class="a" hidden>From a checkout on macOS or Linux, run <code style="font-family: var(--mono)">SKIP_APP_BUILD=1 bash scripts/install.sh</code>. That builds the CLI and the MCP server. The desktop app is a separate download from GitHub Releases.</div>
+          </div>
+          <div class="faq-item reveal">
+            <button type="button" aria-expanded="false">How do Claude, Cursor, and Codex connect?<span aria-hidden="true">+</span></button>
+            <div class="a" hidden>After install, run the three commands in the Start section, or open Preferences, AI agents (MCP), and use Connect to Claude Code, Connect to Cursor, or Connect to Codex.</div>
+          </div>
+          <div class="faq-item reveal">
+            <button type="button" aria-expanded="false">Does the model upload my documents?<span aria-hidden="true">+</span></button>
+            <div class="a" hidden>Apple's on-device model and a loopback Ollama stay on the machine. A cloud model runs only after you add a key or turn on a hosted option. Offline mode in <code style="font-family: var(--mono)">~/.ashlr/config.json</code> refuses cloud calls.</div>
+          </div>
+          <div class="faq-item reveal">
+            <button type="button" aria-expanded="false">Which computers have a release build?<span aria-hidden="true">+</span></button>
+            <div class="a" hidden>Apple Silicon Macs, Windows x64, and Linux x86_64. The current release is unsigned: on macOS, right-click the app and choose Open the first time. Windows may show a SmartScreen warning. Intel Macs build from source.</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <section id="download" style="padding-bottom: 20px">
       <div class="wrap">
         <div class="cta reveal">
           <div class="mark">M</div>
           <h2>Open Markdown.<br />Instantly beautiful.</h2>
+          <p style="margin-top:0">If this is the window you want agents to open, <a href="https://github.com/ashlrai/ashlr-md/stargazers" style="color: var(--accent); font-weight: 700">star ashlrai/ashlr-md</a>.</p>
           <p>Free, open source, and local-first, on macOS, Windows, and Linux. Make Ashlr MD your default <code style="font-family: var(--mono)">.md</code> handler and never dread a Markdown file again.</p>
           <div class="hero-cta">
 <!-- fresh:begin site-download -->
@@ -1606,10 +1942,10 @@ mdopen PLAN.md
           Ashlr MD
         </div>
         <div class="foot-links">
+          <a href="#start">Start</a>
           <a href="#features">Features</a>
-          <a href="#ai">AI</a>
           <a href="#agents">Agents</a>
-          <a href="#shortcuts">Shortcuts</a>
+          <a href="#faq">FAQ</a>
           <a href="https://github.com/ashlrai/ashlr-md">GitHub</a>
         </div>
         <div>
@@ -1657,6 +1993,89 @@ mdopen PLAN.md
         { threshold: 0.14 },
       );
       for (const el of document.querySelectorAll(".reveal")) io.observe(el);
+
+      const menu = document.getElementById("nav-links");
+      const menuButton = document.querySelector(".nav-toggle");
+      menuButton.addEventListener("click", () => {
+        const open = menu.classList.toggle("open");
+        menuButton.setAttribute("aria-expanded", String(open));
+        menuButton.textContent = open ? "Close" : "Menu";
+      });
+      for (const link of menu.querySelectorAll("a")) {
+        link.addEventListener("click", () => {
+          menu.classList.remove("open");
+          menuButton.setAttribute("aria-expanded", "false");
+          menuButton.textContent = "Menu";
+        });
+      }
+
+      function setTheme(name) {
+        userTouched = true;
+        win.dataset.theme = name;
+        for (const x of document.querySelectorAll(".theme-switch button, .theme-card")) {
+          x.classList.toggle("active", x.dataset.t === name);
+        }
+      }
+      for (const card of document.querySelectorAll(".theme-card")) {
+        card.addEventListener("click", () => setTheme(card.dataset.t));
+      }
+
+      for (const button of document.querySelectorAll(".win-modes button")) {
+        button.addEventListener("click", () => {
+          for (const peer of document.querySelectorAll(".win-modes button")) {
+            peer.classList.toggle("on", peer === button);
+          }
+          for (const panel of document.querySelectorAll("[data-view-panel]")) {
+            panel.hidden = panel.dataset.viewPanel !== button.dataset.view;
+          }
+        });
+      }
+
+      for (const tab of document.querySelectorAll(".step")) {
+        tab.addEventListener("click", () => {
+          for (const peer of document.querySelectorAll(".step")) {
+            peer.setAttribute("aria-selected", String(peer === tab));
+          }
+          for (const panel of document.querySelectorAll("[data-step-panel]")) {
+            panel.hidden = panel.dataset.stepPanel !== tab.dataset.step;
+          }
+        });
+      }
+
+      for (const item of document.querySelectorAll(".faq-item")) {
+        const button = item.querySelector("button");
+        const answer = item.querySelector(".a");
+        button.addEventListener("click", () => {
+          const open = button.getAttribute("aria-expanded") === "true";
+          button.setAttribute("aria-expanded", String(!open));
+          answer.hidden = open;
+          button.querySelector("span").textContent = open ? "+" : "x";
+        });
+      }
+
+      async function copyText(text, button) {
+        try {
+          await navigator.clipboard.writeText(text);
+        } catch {
+          const area = document.createElement("textarea");
+          area.value = text;
+          document.body.appendChild(area);
+          area.select();
+          document.execCommand("copy");
+          area.remove();
+        }
+        const previous = button.textContent;
+        button.textContent = "Copied";
+        setTimeout(() => {
+          button.textContent = previous;
+        }, 1200);
+      }
+      for (const button of document.querySelectorAll("[data-copy]")) {
+        button.addEventListener("click", () => {
+          const node = document.getElementById(button.dataset.copy);
+          copyText(node.textContent, button);
+        });
+      }
     </script>
   </body>
 </html>

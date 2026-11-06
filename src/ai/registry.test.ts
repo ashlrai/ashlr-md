@@ -163,7 +163,7 @@ describe("HostedProvider — generate() streaming", () => {
     expect(fetchSpy).toHaveBeenCalledOnce();
     const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
     expect(url).toBe(HOSTED_API_URL);
-    expect((init.headers as Record<string, string>)["Authorization"]).toBe(
+    expect((init.headers as Record<string, string>).Authorization).toBe(
       "Bearer tok-stream-test",
     );
     const body = JSON.parse(init.body as string) as {
