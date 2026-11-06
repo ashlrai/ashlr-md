@@ -282,6 +282,29 @@ describe("autofix: undescribed image at document start", () => {
   });
 });
 
+describe("autofix: undescribed image at the start of a line", () => {
+  it.each([
+    "\n",
+    "\r\n",
+  ])("preserves the rest of the line with %j line endings", (nl) => {
+    const rules = [ruleMissingAltText];
+    const image = '![](images/chart.png?v=2#top "Chart")';
+    const tail = " — caption, [guide](./guide.md), and café.";
+    const doc = `Introduction.${nl}${image}${tail}${nl}Next line.${nl}`;
+    const expected = `Introduction.${nl}![TODO: describe image](images/chart.png?v=2#top "Chart")${tail}${nl}Next line.${nl}`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const { from, to } = violations[0].range!;
+    expect(from.line).toBe(2);
+    expect(from.col).toBe(0);
+    expect(doc.slice(from.offset, to.offset)).toBe(image);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+});
+
 describe("autofix: undescribed image idempotence", () => {
   it.each([
     "\n",
