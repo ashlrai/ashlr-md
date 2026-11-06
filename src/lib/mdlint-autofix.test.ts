@@ -242,6 +242,26 @@ describe("rule:orphaned-heading", () => {
   });
 });
 
+describe("autofix: undescribed image at document start", () => {
+  it("adds a description while preserving subsequent text and mixed line endings", () => {
+    const rules = [ruleMissingAltText];
+    const image = '![](images/chart.png?v=2#top "Chart")';
+    const tail = " Caption.\r\n\r\nNext paragraph: café & notes.\nFinal line.";
+    const doc = image + tail;
+    const expected = `![TODO: describe image](images/chart.png?v=2#top "Chart")${tail}`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    expect(violations[0].range!.from.offset).toBe(0);
+    expect(doc.slice(0, violations[0].range!.to.offset)).toBe(image);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+});
+
 describe("autofix: undescribed image idempotence", () => {
   it.each([
     "\n",
