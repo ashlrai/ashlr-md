@@ -24,6 +24,10 @@ gh workflow run release.yml -R ashlrai/ashlr-md -f version=X.Y.Z   # build exist
 (section 4) is still a separate maintainer step. The full-suite gate accepts a
 successful `ci.yml` run on the exact tag commit from either `workflow_dispatch`
 or the post-merge push to `main`.
+It waits up to 15 minutes for that exact-SHA CI to finish, since the tag can
+arrive before the full suites complete. API errors or malformed evidence stop
+the gate immediately. This build gate does not replace the separate manual CI
+evidence required for assembly in section 4.
 
 ---
 
