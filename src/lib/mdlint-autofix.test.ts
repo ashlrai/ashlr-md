@@ -243,6 +243,25 @@ describe("rule:orphaned-heading", () => {
   });
 });
 
+describe("autofix: described image preservation", () => {
+  it.each([
+    "\n",
+    "\r\n",
+  ])("preserves the entire described image with %j line endings", (nl) => {
+    const rules = [ruleMissingAltText, ruleInvalidLinkTarget];
+    const image = '![Café chart — 東京](images/caf%C3%A9.png?v=2#top "Chart")';
+    const doc = `Before ${image} and [draft]().${nl}`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(lintDocument(image, { rules })).toEqual([]);
+    expect(applyAllFixes(image, lintDocument(image, { rules }))).toBe(image);
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(`Before ${image} and [draft](TODO).${nl}`);
+    expect(fixed.replace("[draft](TODO)", "[draft]()")).toBe(doc);
+  });
+});
+
 describe("autofix: undescribed image at document start", () => {
   it("adds a description while preserving subsequent text and mixed line endings", () => {
     const rules = [ruleMissingAltText];
