@@ -24484,3 +24484,77 @@ describe("invalid-link autofix: whitespace-only href in a table cell", () => {
     expect(lintDocument(expected, { rules })).toEqual([]);
   });
 });
+
+describe("invalid-link-target autofix: invalid link in a blockquote — marker variants", () => {
+  const rules = [ruleInvalidLinkTarget];
+
+  it.each([
+    ["one leading space", " > "],
+    ["three leading spaces", "   > "],
+    ["a tab after the marker", ">\t"],
+    ["triple-nested tight markers", ">>> "],
+    ["triple-nested spaced markers", "> > > "],
+    ["a quote inside a list item", "- > "],
+  ])("puts TODO on the quoted link and keeps the %s marker byte-for-byte (%j)", (_name, marker) => {
+    for (const nl of ["\n", "\r\n"]) {
+      const doc = `Intro.${nl}${nl}${marker}See [the guide]() now.${nl}${marker}Next line.${nl}${nl}Outro.${nl}`;
+      const expected = `Intro.${nl}${nl}${marker}See [the guide](TODO) now.${nl}${marker}Next line.${nl}${nl}Outro.${nl}`;
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+      expect(violations[0].fix).not.toBeNull();
+      // The range covers only the link — never the marker that opens the line.
+      const { from, to } = violations[0].range!;
+      expect(doc.slice(from.offset, to.offset)).toBe("[the guide]()");
+
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      // The marker opens both quoted lines after the fix, exactly as before.
+      expect(fixed).toContain(
+        `${nl}${marker}See [the guide](TODO) now.${nl}${marker}Next line.${nl}`,
+      );
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+      expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+    }
+  });
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("keeps a > inside the link label and a > in the quoted prose (%j line endings)", (nl) => {
+    const doc = `> Ratio: 2 > 1, see [a > b]() above.${nl}> Next.${nl}`;
+    const expected = `> Ratio: 2 > 1, see [a > b](TODO) above.${nl}> Next.${nl}`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe("[a > b]()");
+
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // Neither the prose `>` nor the label's `>` is a marker: both survive.
+    expect(fixed).toContain("2 > 1");
+    expect(fixed).toContain("[a > b](TODO)");
+    expect(fixed.split(nl).filter((line) => line.startsWith("> "))).toHaveLength(2);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it("fixes only the quoted occurrence when an identical link sits in an earlier fenced block", () => {
+    const doc = "```\n[guide]() inside code.\n```\n\n> Quote: [guide]() ends.\n";
+    const expected =
+      "```\n[guide]() inside code.\n```\n\n> Quote: [guide](TODO) ends.\n";
+    const violations = lintDocument(doc, { rules });
+
+    // The fence's contents are masked, so only the quoted link is reported and
+    // the offset-anchored fix cannot rewrite the code line above.
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain("[guide]() inside code.");
+    expect(fixed).toContain("> Quote: [guide](TODO)");
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
