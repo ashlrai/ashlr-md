@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { isAbsolute, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const root = resolve(import.meta.dirname, "../..");
@@ -16,7 +16,8 @@ describe("llms.txt", () => {
     expect(links.length).toBeGreaterThan(0);
     for (const link of links) {
       const path = link.startsWith(prefix) ? link.slice(prefix.length) : link;
-      expect(path, link).not.toMatch(/^(?:[a-z][a-z\d+.-]*:|\/)/i);
+      expect(path, link).not.toMatch(/^[a-z][a-z\d+.-]*:/i);
+      expect(isAbsolute(path), link).toBe(false);
       expect(path).not.toMatch(/(?:^|\/)\.\.(?:\/|$)/);
       expect(existsSync(resolve(root, path)), path).toBe(true);
     }

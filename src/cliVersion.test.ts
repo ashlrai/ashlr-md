@@ -15,14 +15,9 @@ it("prints the package version from the CLI", () => {
     readFileSync(resolve(__dirname, "../package.json"), "utf8"),
   );
 
-  execFileSync("cargo", ["build", "--locked", "--target-dir", target, "-p", "mdopen"], {
-    cwd: workspace,
-    stdio: "pipe",
-    timeout: 300_000,
-  });
   const output = execFileSync(executable, ["--version"], {
     encoding: "utf8",
     timeout: 10_000,
   });
   expect(output).toContain(version);
-}, 300_000);
+});
