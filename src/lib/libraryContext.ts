@@ -72,8 +72,14 @@ export interface LibraryContext {
 /** Extract up to 6 meaningful query terms (lowercased, stopwords removed). */
 function keywords(query: string): string[] {
   const seen = new Set<string>();
-  for (const w of query.toLowerCase().split(/[^a-z0-9]+/)) {
-    if (w.length > 2 && !STOPWORDS.has(w)) {
+  for (const w of query.toLowerCase().split(/[^\p{L}\p{N}]+/u)) {
+    // ASCII words need 3+ letters to be worth a full-text search. A token
+    // carrying a non-ASCII letter qualifies at 2+ characters: 検索 or café is
+    // a whole word where "ab" is noise, and splitting on [^a-z0-9] used to
+    // mangle it ("café" searched as "caf", a CJK query found no terms at
+    // all, so library retrieval silently returned nothing).
+    const longEnough = w.length > 2 || (w.length > 1 && /[^\p{ASCII}]/u.test(w));
+    if (longEnough && !STOPWORDS.has(w)) {
       seen.add(w);
       // Break only once 6 REAL terms are collected (not after 6 stopword tokens).
       if (seen.size >= 6) break;
