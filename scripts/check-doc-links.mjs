@@ -150,6 +150,12 @@ export function maskCode(src) {
  */
 export function linkTargets(src, masked = maskCode(src)) {
   const links = [];
+  // Prefix parity avoids rescanning an entire backslash run at every
+  // character while looking backwards for the opening bracket.
+  const escaped = new Uint8Array(src.length);
+  for (let at = 1; at < src.length; at++) {
+    if (src[at - 1] === '\\') escaped[at] = escaped[at - 1] ^ 1;
+  }
   const lineOf = (at) => {
     let line = 1;
     for (let k = src.indexOf('\n'); k >= 0 && k < at; k = src.indexOf('\n', k + 1)) line++;
@@ -157,12 +163,12 @@ export function linkTargets(src, masked = maskCode(src)) {
   };
   let i = -1;
   while ((i = src.indexOf('](', i + 1)) !== -1) {
-    if (masked[i] || masked[i + 1]) continue;
+    if (masked[i] || masked[i + 1] || escaped[i]) continue;
     // The `[` that opened this `]`, over nested balanced brackets.
     let depth = 0;
     let open = -1;
     for (let k = i - 1; k >= 0; k--) {
-      if (masked[k]) continue;
+      if (masked[k] || escaped[k]) continue;
       if (src[k] === ']') depth++;
       else if (src[k] === '[') {
         if (depth === 0) {
