@@ -12,6 +12,17 @@ All notable changes to Ashlr MD are documented here. This project adheres to
 Released 2026-06-06. [Release notes and downloads](https://github.com/ashlrai/ashlr-md/releases/tag/v0.4.0).
 <!-- fresh:end -->
 
+## [0.7.4] - 2026-11-07
+
+### Fixed
+- Convert official Ubuntu mirror URLs in apt-mirrors.txt to HTTPS as well as configured APT sources.
+- Handle escaped brackets when checking Markdown documentation links.
+- Restrict auto-tag CI completion events to runs from this repository.
+- Validate release provenance against the exact CI attempt and required jobs and steps, accepting qualifying main-push full CI as well as manual full CI.
+
+### Tests
+- Expand Markdown autofix, CLI, documentation link and release provenance regression coverage.
+
 ## [0.7.3] - 2026-11-06
 
 ### Fixed
