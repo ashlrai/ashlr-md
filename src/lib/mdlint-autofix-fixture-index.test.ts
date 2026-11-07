@@ -19,12 +19,16 @@ function countCalls(describeName: string): number {
   return (body.match(/^ {2}it(?:\.each)?\(/gm) ?? []).length;
 }
 
+function fixtureName(line: string): string | undefined {
+  return line.match(/^- (?:\[table\] )?"(.*)"$/)?.[1].replace(/`([^`]+)`/g, "$1");
+}
+
 function sections(): Map<string, string[]> {
   const result = new Map<string, string[]>();
   for (const part of indexDoc.split(/^## /m).slice(1)) {
     const [heading, ...rest] = part.split("\n");
     const names = rest
-      .map((line) => line.match(/^- (?:\[table\] )?"(.*)"$/)?.[1])
+      .map(fixtureName)
       .filter((name): name is string => name !== undefined);
     result.set(heading.replace(/ \(\d+\)$/, ""), names);
   }
@@ -33,6 +37,12 @@ function sections(): Map<string, string[]> {
 
 describe("mdlint autofix fixture index", () => {
   const byHeading = sections();
+
+  it("reads literal Markdown examples in fixture names", () => {
+    expect(fixtureName('- "preserves `[section](#section)` and `[draft]()`"')).toBe(
+      "preserves [section](#section) and [draft]()",
+    );
+  });
 
   it.each([
     ["Link fixtures", "rule:invalid-link-target"],
