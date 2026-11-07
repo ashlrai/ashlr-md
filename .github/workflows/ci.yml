@@ -72,6 +72,11 @@ jobs:
       - name: Check npm script file paths
         run: node --test scripts/package-scripts.test.mjs
 
+      - name: Generated release documentation freshness
+        run: |
+          node --test scripts/freshness/freshness.test.mjs
+          node scripts/freshness/check.mjs
+
       # Tauri's version (bundle + updater) must match package.json.
       - name: Tauri and package.json versions match
         run: bun run check:version
