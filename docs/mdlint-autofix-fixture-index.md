@@ -15,6 +15,7 @@ the quoted name to find the fixture.
 
 `describe("rule:invalid-link-target")`: `invalid-link-target` detection, the `TODO` destination fix, and preservation of surrounding text.
 
+```text
 - "fixes the selected identical link in each list item without changing either marker"
 - [table] "fixes a destination inside a %s list item without changing its surroundings"
 - "passes on valid links"
@@ -305,11 +306,13 @@ the quoted name to find the fixture.
 - [table] "replaces the invalid destination %j of a link that fills the final line without adding a newline"
 - [table] "replaces the invalid destination with TODO and keeps the %s byte-identical"
 - [table] "replaces invalid destinations %j and %j with TODO when each link fills its own line"
+```
 
 ## Image fixtures (113)
 
 `describe("rule:missing-alt-text")`: `missing-alt-text` detection, the `TODO` alt fix, and preservation of image sources.
 
+```text
 - [table] "leaves an already-described image untouched, markup and destination (%s)"
 - "autofixes an undescribed image at the start of a document"
 - [table] "autofixes the first-character undescribed image (%s) with the default rule set, keeping the destination and following text"
@@ -423,11 +426,13 @@ the quoted name to find the fixture.
 - [table] "fixes several undescribed images separated only by punctuation in %j"
 - [table] "inserts the placeholder into an undescribed image followed by %s, leaving the punctuation byte-for-byte"
 - [table] "inserts the documented placeholder for an undescribed image touching punctuation with no space between them (%s)"
+```
 
 ## Mixed-rule fixtures (21)
 
 `describe("chained violations and multi-line fixes")`: links, images and fences combined in one document.
 
+```text
 - [table] "fixes identical links outside a %s fence while preserving the example"
 - [table] "preserves a bracketed word at the end of a paragraph and its final newline %j"
 - [table] "keeps interleaved link and image fixes unchanged on a second pass with newline %j"
@@ -449,11 +454,13 @@ the quoted name to find the fixture.
 - [table] "applies the image fix over the link fix nested inside it for destination %j, preserving the prose"
 - [table] "leaves a complete document with a valid link and a described image unchanged with %j line endings"
 - [table] "keeps a valid link byte-for-byte unchanged while fixes on either side rewrite the document (%j line endings)"
+```
 
 ## Mixed-rule fixtures in other blocks (7)
 
 Mixed-rule cases that live in `LinterToast violation history` and `edge cases`.
 
+```text
 - [table] "leaves a valid link and image unchanged with %j line endings"
 - "preserves a valid link and surrounding text while fixing images on both sides"
 - "Fix all preserves both image sources while fixing an empty alt and a later link"
@@ -461,6 +468,7 @@ Mixed-rule cases that live in `LinterToast violation history` and `edge cases`.
 - "missing-alt-text does not flag a markdown link (only images)"
 - "invalid-link-target does not flag image tags"
 - "all four default rules can run together on a messy document"
+```
 
 ## Keeping the index current
 
