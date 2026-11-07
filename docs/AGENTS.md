@@ -313,7 +313,9 @@ source by `python3 scripts/check-docs.py`.
 
 The bridge in `src/mcp/bridge.ts` wires these listeners into the live window.
 These are internal app events, not additional tools in `tools/list`.
+The table is generated from the handler registrations by `bun run doclive:sync`.
 
+<!-- doclive:begin mcp-events -->
 | Event | Handler module |
 |---|---|
 | `mcp://open` | `conversation.ts` |
@@ -324,6 +326,7 @@ These are internal app events, not additional tools in `tools/list`.
 | `mcp://stream-edit` | `edit.ts` |
 | `mcp://stream-edit-apply` | `edit.ts` |
 | `mcp://export` | `export.ts` |
+<!-- doclive:end -->
 
 ## MCP tool reference
 

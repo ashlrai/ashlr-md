@@ -22,6 +22,9 @@
     "fresh:sync": "node scripts/freshness/sync.mjs",
     "fresh:check": "node scripts/freshness/check.mjs",
     "test:freshness": "node --test scripts/freshness/freshness.test.mjs",
+    "doclive:check": "node scripts/doclive/check.mjs",
+    "doclive:sync": "node scripts/doclive/sync.mjs",
+    "test:doclive": "node --test scripts/doclive/doclive.test.mjs",
     "test:dispatch": "node --test scripts/ci/validate-dispatch.test.mjs",
     "bench:render": "NODE_ENV=production vitest run --config bench/vitest.config.ts"
   },

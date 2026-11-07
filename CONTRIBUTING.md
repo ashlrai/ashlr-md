@@ -44,6 +44,7 @@ bun run test             # Vitest unit tests
 bun run check:crypto     # classical-only crypto policy
 bun run check:doc-links  # relative links in the repo's Markdown resolve
 bun run test:freshness && bun run fresh:check  # generated release blocks
+bun run test:doclive && bun run doclive:check  # doc claims vs code + generated docs blocks
 bun run check:version    # package.json, tauri.conf.json and Cargo.toml versions agree
 bun run check:workflow-bash  # bash -n every bash/sh run block in .github/workflows
 python3 scripts/check-docs.py  # docs/AGENTS.md matches tool_registry() and the CLI HELP

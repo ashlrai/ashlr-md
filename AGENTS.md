@@ -51,3 +51,5 @@ Agents are first-class users of Ashlr MD.
 - After moving or renaming docs or headings, run `bun run check:doc-links`:
   it fails on any relative link or `#anchor` in the repository's Markdown that
   points nowhere (`--external` also probes remote URLs).
+
+<!-- doclive: symbol src-tauri/bins/mdopener-mcp/src/lib.rs#tool_registry -->
