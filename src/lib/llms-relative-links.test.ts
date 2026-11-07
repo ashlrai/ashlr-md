@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { stripVTControlCharacters } from "node:util";
 import { afterAll, describe, expect, it } from "vitest";
 
 const root = resolve(import.meta.dirname, "../..");
@@ -38,13 +39,13 @@ describe("llms.txt link validation", () => {
         [resolve(root, "node_modules/vitest/vitest.mjs"), "run", "--root", fixture],
         {
           cwd: fixture,
-          env: { ...process.env, HOME: fixtureHome, FORCE_COLOR: "0" },
+          env: { ...process.env, HOME: fixtureHome, CI: "true", GITHUB_ACTIONS: "true" },
           encoding: "utf8",
         },
       );
       expect(result.error).toBeUndefined();
       expect(result.status, result.stdout + result.stderr).toBe(valid ? 0 : 1);
-      expect(result.stdout + result.stderr).toContain(
+      expect(stripVTControlCharacters(result.stdout + result.stderr)).toContain(
         valid ? "2 passed" : "1 failed | 1 passed",
       );
     },
