@@ -24,7 +24,12 @@ function sections(): Map<string, string[]> {
   for (const part of indexDoc.split(/^## /m).slice(1)) {
     const [heading, ...rest] = part.split("\n");
     const names = rest
-      .map((line) => line.match(/^- (?:\[table\] )?"(.*)"$/)?.[1])
+      .map((line) =>
+        line
+          .match(/^- (?:\[table\] )?(?:"(.*)"|`"(.*)"`)$/)
+          ?.slice(1)
+          .find((name) => name !== undefined),
+      )
       .filter((name): name is string => name !== undefined);
     result.set(heading.replace(/ \(\d+\)$/, ""), names);
   }
