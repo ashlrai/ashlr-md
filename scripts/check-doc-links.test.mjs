@@ -116,6 +116,26 @@ test('external links, `[t](a b)` and non-link brackets are not checked', () => {
   rmSync(root, { recursive: true });
 });
 
+test('escaped brackets are literal, while an escaped backslash permits a link', () => {
+  assert.deepEqual(linkTargets(String.raw`\[literal](missing) \\[real](target) [x\]](other)`), [
+    { dest: 'target', line: 1 },
+    { dest: 'other', line: 1 },
+  ]);
+});
+
+test('odd closing-bracket escapes are literal and even escapes still permit a link', () => {
+  assert.deepEqual(linkTargets(String.raw`[one\](missing) [two\\](target) [three\\\](missing) [four\\\\](other)`), [
+    { dest: 'target', line: 1 },
+    { dest: 'other', line: 1 },
+  ]);
+});
+
+test('a long backslash label keeps the same literal-link semantics', () => {
+  assert.deepEqual(linkTargets('[' + '\\'.repeat(16_000) + '](target)'), [
+    { dest: 'target', line: 1 },
+  ]);
+});
+
 test('reference definitions are checked, footnote definitions are not', () => {
   const root = fixture({
     'docs/a.md': '[x]: ./missing.md "t"\n[^1]: ./footnote.md\nSee [x] and [^1].\n',
