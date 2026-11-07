@@ -54,7 +54,7 @@ mdopener-mcp --ashlr-handshake --json
 mdopener-mcp --export-tool-schema
 ```
 
-Connect the server. Each command uses the `mdopener-mcp` that is on `PATH`.
+Connect the server. Each command uses the `mdopener-mcp` that is on `PATH`. The Cursor command requires a checkout of this repository.
 
 ```bash
 claude mcp add --scope user ashlr-md "$(command -v mdopener-mcp)"
@@ -78,7 +78,9 @@ For the desktop app, without a terminal.
 2. Double-click any `.md` file, or run `mdopen notes.md` after **Preferences → Command-line tool → Install mdopen** (the app's installers leave `mdopen` off your `PATH`; see [docs/AGENTS.md](./docs/AGENTS.md#install)).
 3. Ask the AI sidebar about it. On a Mac with Apple Silicon and macOS 26 or later, the built-in on-device model needs no account and no API key: turn on Apple Intelligence in System Settings, then restart Ashlr MD. On Windows and Linux, install [Ollama](https://ollama.com) for free local AI, or add an Anthropic API key in Preferences.
 
-<img src="./docs/readme/hero.png" width="820" alt="Ashlr MD showing a rendered plan, an on-device agent panel, and an Approve button" />
+<img src="./docs/readme/hero.png" width="820" alt="Illustration of a rendered plan, agent panel, and Approve button" />
+
+Illustration of the review flow; the app interface may differ.
 
 ## How it works
 
@@ -87,7 +89,7 @@ For the desktop app, without a terminal.
 1. `scripts/install.sh` builds `mdopen` and `mdopener-mcp` and links them onto `PATH`.
 2. Claude Code, Cursor, or Codex launches `mdopener-mcp` over stdio.
 3. `open_file` is the tool that starts the desktop app. The other tools use the document that is already open, or read a Markdown file from disk.
-4. `request_review` waits for Approve, Request changes, or Dismiss. The agent gets that verdict as JSON.
+4. `request_review` waits for a decision, returning JSON. If the call returns `pending`, resume it with the returned `reviewId`; reviews can also time out or be superseded.
 
 The server talks to the app on `127.0.0.1` with a token in `~/.mdopener/`. Full contract: [docs/AGENTS.md](./docs/AGENTS.md).
 
@@ -98,10 +100,10 @@ The server talks to the app on `127.0.0.1` with a token in `~/.mdopener/`. Full 
 - **Render.** GitHub Flavored Markdown, highlighted code, Mermaid, KaTeX, callouts, tables, and footnotes.
 - **Edit.** A WYSIWYG editor and a source editor. `edit_document` replaces one exact match. `save: true` writes the file.
 - **Export.** PDF, Word, HTML, and EPUB from the app. Call `open_file` with `"mode": "read"` before `export`.
-- **Review.** `request_review` blocks until a person decides. `get_user_annotations` reads the verdict and the task checkboxes later.
+- **Review.** `request_review` waits for a person by default and can return a pending review to resume. `get_user_annotations` reads the verdict and task checkboxes later.
 - **Watch a folder.** The activity drawer (Command-B on macOS, Ctrl-B on Windows and Linux) lists new `.md` files as they appear.
 - **On-device AI.** Apple Foundation Models on macOS 26 or later (Apple Silicon), or Ollama. A cloud model runs only if you opt in. Rules: [docs/local-ai.md](./docs/local-ai.md).
-- **Obsidian, VS Code, and Raycast.** Each one opens the current note through `mdopener://`. Notes: [docs/OBSIDIAN.md](./docs/OBSIDIAN.md), [integrations/vscode](./integrations/vscode/), [integrations/raycast](./integrations/raycast/).
+- **Obsidian, VS Code, and Raycast.** Open notes through `mdopener://`; VS Code can fall back to `mdopen`. Notes: [docs/OBSIDIAN.md](./docs/OBSIDIAN.md), [integrations/vscode](./integrations/vscode/), [integrations/raycast](./integrations/raycast/).
 
 ## Keyboard shortcuts
 

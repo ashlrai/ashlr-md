@@ -26,8 +26,7 @@ successful `ci.yml` run on the exact tag commit from either `workflow_dispatch`
 or the post-merge push to `main`.
 It waits up to 15 minutes for that exact-SHA CI to finish, since the tag can
 arrive before the full suites complete. API errors or malformed evidence stop
-the gate immediately. This build gate does not replace the separate manual CI
-evidence required for assembly in section 4.
+the gate immediately. Assembly independently verifies the full CI evidence in section 4.
 
 ---
 
@@ -139,7 +138,8 @@ canonical `main`. This workflow assembles staging only. It has read access to
 source and original build artifacts, no release-write permission, no OIDC and
 no signing key. It never creates tags or publishes a GitHub Release.
 
-After the exact tagged source has successful manual full CI and its original
+After the exact tagged source has successful full CI from a manual dispatch or
+a canonical push to `main`, and its original
 push release build has completed successfully on attempt 1, dispatch:
 
 ```sh
@@ -170,7 +170,7 @@ Record the actual assembly run ID and require success. The uploaded
 `ashlr-md-assembly-RUN_ID-ATTEMPT` staging contains four updater payloads,
 their original signatures, `latest.json` and `provenance.json`. The latter
 binds the exact source, original build run/attempt, artifact IDs/digests,
-manual CI and selected asset hashes. The workflow downloads original ZIPs
+full CI and selected asset hashes. The workflow downloads original ZIPs
 without repacking, preserves the existing strict live provenance checks,
 uses the reviewed pinned inspection tools and verifies all signatures and
 platform payloads before exposing staging. A failed or skipped check uploads
@@ -196,8 +196,8 @@ qualified on four actual artifacts from one eligible run. It does not publish.
    extracted files or ZIPs from another run. The helper queries GitHub's public
    API itself, binds the reviewed full SHA to the peeled tag and release run,
    checks the push event, successful full-CI gate, all four native jobs and
-   their build/upload steps, and an exact-SHA manual CI run with successful
-   Linux and macOS full-suite jobs. It compares each original ZIP's SHA-256 to
+   their build/upload steps, and an exact-SHA manual or canonical main-push CI run with successful
+   required jobs and full-suite steps. It compares each original ZIP's SHA-256 to
    the live API's artifact digest before privately and safely extracting it.
    The source blob SHA-1 comparison follows Git's legacy object-ID protocol;
    it is not a collision-resistant signature or independent authentication.
