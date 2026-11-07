@@ -145,7 +145,7 @@ jobs:
     name: Linux full suite
     if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-22.04
-    timeout-minutes: 20
+    timeout-minutes: 30
     # Runs bun install and tests (third-party code), so no id-token here.
     # The Codecov OIDC uploads live in the daily/manual-only codecov job.
     permissions:
@@ -227,10 +227,9 @@ jobs:
           workspaces: src-tauri
 
       # Tauri 2 Linux prerequisites — required for tauri-build to compile.
-      # One daily run spent 1466s here on a stalled mirror: bound each fetch and
-      # the step.
+      # Bound stalled fetches and allow time for slow Ubuntu mirrors.
       - name: Install Linux system dependencies
-        timeout-minutes: 8
+        timeout-minutes: 15
         run: |
           sudo python3 scripts/apt-https-sources.py
           apt_opts=(-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30)

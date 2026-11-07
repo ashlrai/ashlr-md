@@ -1,8 +1,8 @@
-import { execFileSync, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
-import { beforeAll, expect, it } from "vitest";
+import { expect, it } from "vitest";
 
 // `mdopen` must refuse a flag it does not know: exit non-zero with a plain
 // message on stderr, instead of opening something or exiting 0 in silence.
@@ -15,14 +15,6 @@ const executable = resolve(
   "debug",
   `mdopen${process.platform === "win32" ? ".exe" : ""}`,
 );
-
-beforeAll(() => {
-  execFileSync("cargo", ["build", "--locked", "--target-dir", target, "-p", "mdopen"], {
-    cwd: workspace,
-    stdio: "pipe",
-    timeout: 300_000,
-  });
-}, 300_000);
 
 it("exits non-zero with a plain message for an unknown flag", () => {
   const home = mkdtempSync(resolve(tmpdir(), "mdopen-home-"));
