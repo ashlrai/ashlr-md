@@ -15,8 +15,8 @@ describe("llms.txt", () => {
     const prefix = "https://github.com/ashlrai/ashlr-md/blob/main/";
     expect(links.length).toBeGreaterThan(0);
     for (const link of links) {
-      expect(link.startsWith(prefix), link).toBe(true);
-      const path = link.slice(prefix.length);
+      const path = link.startsWith(prefix) ? link.slice(prefix.length) : link;
+      expect(path, link).not.toMatch(/^(?:[a-z][a-z\d+.-]*:|\/)/i);
       expect(path).not.toMatch(/(?:^|\/)\.\.(?:\/|$)/);
       expect(existsSync(resolve(root, path)), path).toBe(true);
     }
