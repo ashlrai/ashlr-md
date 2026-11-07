@@ -2393,7 +2393,7 @@ dependencies = [
 
 [[package]]
 name = "mdopen"
-version = "0.7.3"
+version = "0.7.4"
 dependencies = [
  "serde_json",
  "urlencoding",
@@ -2401,7 +2401,7 @@ dependencies = [
 
 [[package]]
 name = "mdopener-mcp"
-version = "0.7.3"
+version = "0.7.4"
 dependencies = [
  "dirs 5.0.1",
  "libc",

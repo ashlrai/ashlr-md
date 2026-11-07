@@ -27,9 +27,9 @@ function extractCargoVersion(filePath) {
   return versionMatch[1] || undefined;
 }
 
-function checkVersions(dir) {
+function checkVersions(dir, cargoPath = "src-tauri/Cargo.toml") {
   const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
-  const cargoVer = extractCargoVersion(join(dir, "src-tauri/Cargo.toml"));
+  const cargoVer = extractCargoVersion(join(dir, cargoPath));
   const packageVersion = pkg.version;
   const ok =
     typeof packageVersion === "string" &&
@@ -39,7 +39,7 @@ function checkVersions(dir) {
     packageVersion === cargoVer;
   const message = ok
     ? `ok: ${packageVersion}`
-    : `version mismatch: package.json is ${JSON.stringify(packageVersion)} but src-tauri/Cargo.toml package.version is ${JSON.stringify(cargoVer)}. Set both to the same version.`;
+    : `version mismatch: package.json is ${JSON.stringify(packageVersion)} but ${cargoPath} package.version is ${JSON.stringify(cargoVer)}. Set both to the same version.`;
   return { ok, message };
 }
 
@@ -53,9 +53,11 @@ function fixture(pkgVersion, cargoVersion) {
   return dir;
 }
 
-test("the repo's package.json and Cargo.toml [package] version match", () => {
-  const r = checkVersions(root);
-  assert.equal(r.ok, true, r.message);
+test("the repo's package.json and workspace Cargo package versions match", () => {
+  for (const path of ["src-tauri/Cargo.toml", "src-tauri/bins/mdopen/Cargo.toml", "src-tauri/bins/mdopener-mcp/Cargo.toml"]) {
+    const r = checkVersions(root, path);
+    assert.equal(r.ok, true, r.message);
+  }
 });
 
 test("matching versions pass", () => {
