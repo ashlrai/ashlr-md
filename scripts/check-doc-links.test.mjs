@@ -29,6 +29,22 @@ function fixture(files) {
   return root;
 }
 
+test('consecutive fixture index additions cannot introduce live example links', () => {
+  const root = fixture({ 'docs/index.md': '# Fixtures\n' });
+  const index = join(root, 'docs/index.md');
+  try {
+    for (const example of ['[section](#section)', '[draft]()']) {
+      const previous = readFileSync(index, 'utf8');
+      writeFileSync(index, `${previous}- "example ${example}"\n`);
+      assert.equal(report(scan(root)).failed, true);
+      writeFileSync(index, `${previous}- "example \`${example}\`"\n`);
+      assert.equal(report(scan(root)).failed, false);
+    }
+  } finally {
+    rmSync(root, { recursive: true });
+  }
+});
+
 test('links to files, directories and anchors of the same page pass', () => {
   const root = fixture({
     'docs/a.md': [

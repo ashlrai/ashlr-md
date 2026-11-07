@@ -7,7 +7,8 @@ adds no tests to that file. For grouping by behavior see the
 [docs index](README.md); for what the fixes do see
 the [autofix guide](mdlint-autofix-guide.md).
 
-Names are verbatim. `[table]` marks an `it.each` call: it expands to one case
+Names are verbatim; Markdown link examples in names use inline code so they
+remain literal. `[table]` marks an `it.each` call: it expands to one case
 per table row, and `%j` / `%s` are its placeholders. Search the test file for
 the quoted name to find the fixture.
 
@@ -43,8 +44,8 @@ the quoted name to find the fixture.
 - [table] "control: autofix leaves a link with nonempty destination %j unchanged"
 - [table] "preserves a valid relative link's href and text exactly (%s)"
 - [table] "preserves a relative link with CRLF endings (%s)"
-- "preserves a valid fragment link [section](#section) alongside its target heading"
-- "leaves a [section](#section) link unchanged while autofix repairs an unrelated violation"
+- "preserves a valid fragment link `[section](#section)` alongside its target heading"
+- "leaves a `[section](#section)` link unchanged while autofix repairs an unrelated violation"
 - [table] "leaves a link to a nonempty fragment unchanged (%s)"
 - [table] "preserves the link and fragment %j exactly while fixing a sibling empty link"
 - [table] "leaves a valid fragment link with %s byte-identical under autofix"
@@ -66,7 +67,7 @@ the quoted name to find the fixture.
 - "preserves bracketed prose beside an invalid link while repairing only the link"
 - [table] "repairs the invalid link and keeps a bracketed number [1] verbatim (%s)"
 - "fixes only the invalid link when [1] is prose beside it and also the link's own label"
-- "keeps [1] prose and a [draft]() literal in the frontmatter while repairing the same link in the body"
+- "keeps [1] prose and a `[draft]()` literal in the frontmatter while repairing the same link in the body"
 - "replaces an invalid href while preserving punctuation and surrounding text"
 - [table] "gives every invalid href its own TODO placeholder across several lines and keeps all surrounding text (%s)"
 - "fixes an invalid href in a CRLF document without changing its line endings"

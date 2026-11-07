@@ -62,6 +62,11 @@ test('full job predicates select main push/daily/manual, never PR or queue', () 
   assert.match(job('fast'), /run: node --test scripts\/ci\/gate\.test\.mjs/);
 });
 
+test('required fast job checks documentation links before merge', () => {
+  assert.match(job('fast'), /- name: Check documentation links\n        run: bun run check:doc-links\n/);
+  assert.doesNotMatch(job('fast').match(/- name: Check documentation links\n([\s\S]*?)(?=\n      - name:|\n  [a-z][a-z-]*:)/)?.[1] ?? '', /continue-on-error|\n        if:/);
+});
+
 for (const event of ['push', 'merge_group', 'schedule', 'workflow_dispatch', 'pull_request']) {
   test(`${event}: actual gate accepts intended successes/skips and rejects every required failure`, () => {
     expectGate(event, needs(event), true);

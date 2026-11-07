@@ -72,6 +72,9 @@ jobs:
       - name: Check npm script file paths
         run: node --test scripts/package-scripts.test.mjs
 
+      - name: Check documentation links
+        run: bun run check:doc-links
+
       # Tauri's version (bundle + updater) must match package.json.
       - name: Tauri and package.json versions match
         run: bun run check:version
