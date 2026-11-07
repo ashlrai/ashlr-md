@@ -40,5 +40,5 @@ before any file is written. The existing generated sections are required exactly
 in their respective files; removing or duplicating their markers fails the check.
 Update the required block inventory in `sync.mjs` when deliberately moving one.
 CRLF line endings are preserved. Check and sync use
-the same rendering and validation code. No CI workflows are changed here;
-existing CI can invoke `bun run fresh:check` when ready.
+the same rendering and validation code. Run `bun run test:freshness` and
+`bun run fresh:check` locally; CI does not run them yet.
