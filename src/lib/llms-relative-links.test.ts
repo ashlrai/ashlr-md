@@ -38,7 +38,7 @@ describe("llms.txt link validation", () => {
         [resolve(root, "node_modules/vitest/vitest.mjs"), "run", "--root", fixture],
         {
           cwd: fixture,
-          env: { ...process.env, HOME: fixtureHome },
+          env: { ...process.env, HOME: fixtureHome, FORCE_COLOR: "0" },
           encoding: "utf8",
         },
       );
