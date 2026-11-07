@@ -58,6 +58,14 @@ test("the repo's package.json and Cargo.toml [package] version match", () => {
   assert.equal(r.ok, true, r.message);
 });
 
+test("the CLI package versions match package.json", () => {
+  const { version } = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+  for (const name of ["mdopen", "mdopener-mcp"]) {
+    const manifest = join(root, "src-tauri", "bins", name, "Cargo.toml");
+    assert.equal(extractCargoVersion(manifest), version, `${name} version must match package.json`);
+  }
+});
+
 test("matching versions pass", () => {
   const dir = fixture("1.2.3", "1.2.3");
   try {
