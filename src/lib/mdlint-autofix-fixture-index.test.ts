@@ -25,7 +25,8 @@ function sections(): Map<string, string[]> {
     const [heading, ...rest] = part.split("\n");
     const names = rest
       .map((line) => line.match(/^- (?:\[table\] )?"(.*)"$/)?.[1])
-      .filter((name): name is string => name !== undefined);
+      .filter((name): name is string => name !== undefined)
+      .map((name) => name.replace(/`([^`]*)`/g, "$1"));
     result.set(heading.replace(/ \(\d+\)$/, ""), names);
   }
   return result;
@@ -50,6 +51,16 @@ describe("mdlint autofix fixture index", () => {
           !testSource.includes(`"${name}"`) && !testSource.includes(`\`${name}\``),
       );
     expect(missing).toEqual([]);
+  });
+
+  it("reads literal Markdown examples in indexed names", () => {
+    expect(byHeading.get("Link fixtures")).toEqual(
+      expect.arrayContaining([
+        "preserves a valid fragment link [section](#section) alongside its target heading",
+        "leaves a [section](#section) link unchanged while autofix repairs an unrelated violation",
+        "keeps [1] prose and a [draft]() literal in the frontmatter while repairing the same link in the body",
+      ]),
+    );
   });
 
   it("has no duplicate names within the index", () => {
