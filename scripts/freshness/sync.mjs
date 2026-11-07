@@ -4,6 +4,13 @@ import { fileURLToPath } from 'node:url';
 
 export const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const releaseUrl = 'https://github.com/ashlrai/ashlr-md/releases/tag/v';
+const requiredBlocks = {
+  'README.md': 'version-badge',
+  'CHANGELOG.md': 'version-table',
+  'landing/index.html': 'site-download',
+  'docs/INSTALL.md': 'install-snippet',
+  'samples/agent-plan.md': 'example-release-page',
+};
 
 export async function sources(directory) {
   const pkg = JSON.parse(await readFile(resolve(directory, 'package.json'), 'utf8'));
@@ -51,6 +58,7 @@ export function regenerate(content, templates, path) {
   const newline = content.includes('\r\n') ? '\r\n' : '\n';
   const lines = content.split(/\r?\n/);
   const output = [];
+  const found = [];
   let active;
   for (const line of lines) {
     const begin = /^<!-- fresh:begin ([a-z-]+) -->$/.exec(line);
@@ -58,6 +66,7 @@ export function regenerate(content, templates, path) {
     if (begin) {
       if (active) throw new Error(`${path}: nested freshness block`);
       active = begin[1];
+      found.push(active);
       if (!Object.hasOwn(templates, active)) throw new Error(`${path}: unknown freshness block ${active}`);
       output.push(line, templates[active]);
     } else if (end) {
@@ -70,12 +79,19 @@ export function regenerate(content, templates, path) {
     }
   }
   if (active) throw new Error(`${path}: unclosed freshness block`);
+  const required = requiredBlocks[path];
+  if (required && found.filter((name) => name === required).length !== 1) {
+    throw new Error(`${path}: expected exactly one ${required} freshness block`);
+  }
   return output.join('\n').replaceAll('\n', newline);
 }
 
 export async function run(directory = root, check = false) {
   const templates = blocks(await sources(directory));
   const paths = ['README.md', 'CHANGELOG.md', 'landing/index.html', ...await markdown(directory, 'docs'), ...await markdown(directory, 'samples')].sort((a, b) => a < b ? -1 : Number(a > b));
+  for (const path of Object.keys(requiredBlocks)) {
+    if (!paths.includes(path)) throw new Error(`${path}: required freshness file missing`);
+  }
   const changes = [];
   // Validate every file before writing any changes.
   for (const path of paths) {

@@ -45,8 +45,8 @@ async function fixture(t) {
   await writeFile(resolve(directory, 'scripts/freshness/published.json'), '{"version":"0.4.0"}\n');
   await writeFile(resolve(directory, 'CHANGELOG.md'), '# Changelog\n<!-- fresh:begin version-table -->\nstale\n<!-- fresh:end -->\n\n## [0.4.0] - 2026-06-06\n');
   await writeFile(resolve(directory, 'README.md'), '<!-- fresh:begin version-badge -->\nstale\n<!-- fresh:end -->\n');
-  await writeFile(resolve(directory, 'docs/nested/install.md'), '<!-- fresh:begin install-snippet -->\nstale\n<!-- fresh:end -->\n');
-  await writeFile(resolve(directory, 'samples/plan.md'), '<!-- fresh:begin example-release-page -->\nstale\n<!-- fresh:end -->\n');
+  await writeFile(resolve(directory, 'docs/INSTALL.md'), '<!-- fresh:begin install-snippet -->\nstale\n<!-- fresh:end -->\n');
+  await writeFile(resolve(directory, 'samples/agent-plan.md'), '<!-- fresh:begin example-release-page -->\nstale\n<!-- fresh:end -->\n');
   await writeFile(resolve(directory, 'landing/index.html'), '<!-- fresh:begin site-download -->\nstale\n<!-- fresh:end -->\n');
   return directory;
 }
@@ -77,8 +77,8 @@ test('a dated future source build does not publish it or change runtime version'
   const html = await read('landing/index.html');
   assert.match(html, /href="https:\/\/github\.com\/ashlrai\/ashlr-md\/releases\/tag\/v0\.4\.0"/);
   assert.doesNotMatch(html, /0\.5\.0/);
-  assert.match(await read('docs/nested/install.md'), /Ashlr_MD_X\.Y\.Z_x64-setup\.exe/);
-  assert.doesNotMatch(await read('samples/plan.md'), /0\.4\.0|0\.5\.0/);
+  assert.match(await read('docs/INSTALL.md'), /Ashlr_MD_X\.Y\.Z_x64-setup\.exe/);
+  assert.doesNotMatch(await read('samples/agent-plan.md'), /0\.4\.0|0\.5\.0/);
   assert.equal(JSON.parse(await read('package.json')).version, '0.5.0');
   assert.equal(JSON.parse(await read('src-tauri/tauri.conf.json')).version, '0.5.0');
   assert.equal(JSON.parse(await read('server.json')).version, '0.5.0');
@@ -121,4 +121,26 @@ test('invalid blocks and source disagreement prevent all writes', async (t) => {
   await writeFile(resolve(directory, 'package.json'), '{"version":"0.5.0"}');
   await assert.rejects(run(directory), /disagree/);
   assert.equal(await readFile(readmePath, 'utf8'), '<!-- fresh:end -->');
+});
+
+
+test('missing or duplicate required blocks fail before any write', async (t) => {
+  const directory = await fixture(t);
+  await run(directory);
+  const readmePath = resolve(directory, 'README.md');
+  const original = await readFile(readmePath, 'utf8');
+  const changelogPath = resolve(directory, 'CHANGELOG.md');
+  const stale = (await readFile(changelogPath, 'utf8')).replace('| Desktop app | 0.4.0 |', '| Desktop app | stale |');
+  await writeFile(changelogPath, stale);
+  for (const changed of [original.replace(/<!-- fresh:begin version-badge -->\n|<!-- fresh:end -->\n/g, ''), original + original]) {
+    await writeFile(readmePath, changed);
+    await assert.rejects(run(directory, true), /README.md: expected exactly one version-badge/);
+    await assert.rejects(run(directory), /README.md: expected exactly one version-badge/);
+    assert.equal(await readFile(changelogPath, 'utf8'), stale);
+  }
+  await writeFile(readmePath, original);
+  await rm(resolve(directory, 'docs/INSTALL.md'));
+  await assert.rejects(run(directory, true), /docs\/INSTALL.md: required freshness file missing/);
+  await assert.rejects(run(directory), /docs\/INSTALL.md: required freshness file missing/);
+  assert.equal(await readFile(changelogPath, 'utf8'), stale);
 });
