@@ -12,6 +12,15 @@ All notable changes to Ashlr MD are documented here. This project adheres to
 Released 2026-06-06. [Release notes and downloads](https://github.com/ashlrai/ashlr-md/releases/tag/v0.4.0).
 <!-- fresh:end -->
 
+## Unreleased
+
+### Fixed
+- Release assembly provenance accepts qualifying exact-commit full CI from a canonical main push as well as a manual dispatch, and verifies the selected run attempt and required jobs and steps.
+- The Markdown link checker recognizes links with escaped brackets in their labels.
+
+### Tests
+- CLI tests share a workspace setup that builds the binaries before the tests run.
+
 ## [0.7.3] - 2026-11-06
 
 ### Fixed
