@@ -57,7 +57,9 @@ test('a dated future source build does not publish it or change runtime version'
   const cli = (name) => spawnSync(process.execPath, [resolve(directory, `scripts/freshness/${name}.mjs`)], { encoding: 'utf8', cwd: tmpdir() });
   // Each node subprocess pays ~1.5 s of startup; exercise the CLI contract on
   // the first check/sync/check round and verify later transitions in-process.
-  { const result = cli('check'); assert.equal(result.status, 1); assert.match(result.stderr, /Freshness drift/); }
+  const staleReadme = await read('README.md');
+  { const result = cli('check'); assert.equal(result.status, 1); assert.match(result.stderr, /Freshness drift:.*README\.md/); }
+  assert.equal(await read('README.md'), staleReadme, 'check must not rewrite stale files');
   { const result = cli('sync'); assert.equal(result.status, 0, result.stderr); }
   assert.equal(cli('check').status, 0);
   assert.deepEqual(await run(directory, true), []);
