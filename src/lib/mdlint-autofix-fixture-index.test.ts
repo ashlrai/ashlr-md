@@ -24,9 +24,12 @@ function sections(): Map<string, string[]> {
   for (const part of indexDoc.split(/^## /m).slice(1)) {
     const [heading, ...rest] = part.split("\n");
     const names = rest
+      // Code spans keep Markdown-looking fixture names literal in the guide.
+      // Normalize only a complete fenced quoted name; the existing exact-name,
+      // count and duplicate assertions below still validate the original names.
+      .map((line) => line.replace(/^(- (?:\[table\] )?)(`+)(".*")\2$/, "$1$3"))
       .map((line) => line.match(/^- (?:\[table\] )?"(.*)"$/)?.[1])
-      .filter((name): name is string => name !== undefined)
-      .map((name) => name.replace(/`([^`]*)`/g, "$1"));
+      .filter((name): name is string => name !== undefined);
     result.set(heading.replace(/ \(\d+\)$/, ""), names);
   }
   return result;

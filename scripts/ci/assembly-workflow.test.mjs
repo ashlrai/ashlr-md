@@ -90,10 +90,10 @@ test('dependency probe retains exactly the ten explicit full-CI prerequisites', 
 test('Linux CI upgrades source URIs from its checked-out source before the unchanged install', () => {
   const ci = readFileSync(new URL('../../.github/workflows/ci.yml', import.meta.url), 'utf8');
   const linux = ci.slice(ci.indexOf('    name: Linux full suite'), ci.indexOf('  macos:'));
-  assert.match(linux, /timeout-minutes: 20/);
+  assert.match(linux, /timeout-minutes: 30/);
   assert.match(linux, /uses: actions\/checkout@[a-f0-9]{40}/);
   const step = extractRuns(linux).find(item => item.name === 'Install Linux system dependencies');
-  assert.match(linux, /name: Install Linux system dependencies\n\s+timeout-minutes: 8/);
+  assert.match(linux, /name: Install Linux system dependencies\n\s+timeout-minutes: 15/);
   assert.match(step.run, /^sudo python3 scripts\/apt-https-sources\.py\n/);
   assert.match(step.run, /Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30/);
   assert.match(step.run, /sudo apt-get "\$\{apt_opts\[@\]\}" update/);
