@@ -25,7 +25,8 @@ function sections(): Map<string, string[]> {
     const [heading, ...rest] = part.split("\n");
     const names = rest
       .map((line) => line.match(/^- (?:\[table\] )?"(.*)"$/)?.[1])
-      .filter((name): name is string => name !== undefined);
+      .filter((name): name is string => name !== undefined)
+      .map((name) => name.replace(/`([^`]*)`/g, "$1"));
     result.set(heading.replace(/ \(\d+\)$/, ""), names);
   }
   return result;
