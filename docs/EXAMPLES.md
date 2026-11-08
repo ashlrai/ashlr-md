@@ -48,6 +48,8 @@ What you get back:
 | `--ashlr-handshake --json` | one JSON object, `"kind": "ashlr.handshake"` |
 | `--export-tool-schema` | tool names and input schemas as JSON |
 
+To resume a pending review, pass the returned `reviewId` as the `review_id` input to `request_review`; see [the review loop](./AGENTS.md#human-review-loop).
+
 `mdopener-mcp doctor --apply` without `--fix` is refused and exits 2. Repair rules: [doctor-fix.md](./doctor-fix.md). Handshake fields: [ashlr-handshake.md](./ashlr-handshake.md).
 
 ## Open a file
