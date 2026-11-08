@@ -16,7 +16,7 @@ People get a rendered page instead of raw syntax. Agents get `mdopen`, `mdopener
 
 [![CI](https://github.com/ashlrai/ashlr-md/actions/workflows/ci.yml/badge.svg)](https://github.com/ashlrai/ashlr-md/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-0969da.svg)](./LICENSE)
-[![GitHub stars](https://img.shields.io/github/stars/ashlrai/ashlr-md?style=social)](https://github.com/ashlrai/ashlr-md/stargazers)
+[![GitHub stars](https://img.shields.io/github/stars/ashlrai/ashlr-md?style=social)](https://github.com/ashlrai/ashlr-md)
 [![Platform: macOS · Windows · Linux](https://img.shields.io/badge/platform-macOS%20%C2%B7%20Windows%20%C2%B7%20Linux-1a1a17.svg)](#download)
 [![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-24c8db.svg)](https://tauri.app)
 
@@ -159,7 +159,7 @@ Apple Silicon Macs, Windows x64, and Linux x86_64. The current release is unsign
 
 If an agent on your machine should open Markdown in a real window, star the repo so the next person can find it.
 
-[Star ashlrai/ashlr-md on GitHub](https://github.com/ashlrai/ashlr-md/stargazers)
+[Star ashlrai/ashlr-md on GitHub](https://github.com/ashlrai/ashlr-md)
 
 ## One-click agent setup
 
