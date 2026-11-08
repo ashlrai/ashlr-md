@@ -1,14 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const invokeMock = vi.fn();
+const checkMock = vi.fn();
+const askMock = vi.fn();
+const relaunchMock = vi.fn();
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: (...args: unknown[]) => invokeMock(...args),
 }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({
-  ask: vi.fn(),
+  ask: (...args: unknown[]) => askMock(...args),
   save: vi.fn(),
   message: vi.fn(),
 }));
+vi.mock("@tauri-apps/plugin-updater", () => ({ check: () => checkMock() }));
+vi.mock("@tauri-apps/plugin-process", () => ({ relaunch: () => relaunchMock() }));
 vi.mock("../store/recentStore", () => ({
   isMissingFileError: () => false,
   useRecentStore: { getState: () => ({ add: vi.fn(), remove: vi.fn() }) },
@@ -27,6 +32,7 @@ import {
   startKeepingBuffers,
   writeBuffers,
 } from "./unsavedBuffers";
+import { checkForUpdates } from "./updater";
 
 function tab(id: string, over: Partial<Tab> = {}): Tab {
   return {
@@ -75,6 +81,9 @@ beforeEach(() => {
   reset();
   disk = {};
   invokeMock.mockReset();
+  checkMock.mockReset();
+  askMock.mockReset();
+  relaunchMock.mockReset();
   invokeMock.mockImplementation(async (cmd: string, args: { path?: string }) => {
     if (cmd === "read_markdown_file") {
       const path = args.path as string;
@@ -278,6 +287,60 @@ describe("startKeepingBuffers", () => {
     expect(readBuffers()).toEqual([
       { path: "/d/a.md", fileName: "a.md", content: "edited more", base: "hello" },
     ]);
+    k.stop();
+  });
+
+  it("retries a failed debounced write before the updater relaunches", async () => {
+    vi.useFakeTimers();
+    disk["/d/a.md"] = "hello";
+    await openPath("/d/a.md");
+    const k = startKeepingBuffers();
+    const setItem = vi.spyOn(localStorage, "setItem").mockImplementationOnce(() => {
+      throw new DOMException("full", "QuotaExceededError");
+    });
+    useDocumentStore.getState().setContent("edited");
+    vi.advanceTimersByTime(600);
+    expect(readBuffers()).toEqual([]);
+
+    const install = vi.fn().mockResolvedValue(undefined);
+    checkMock.mockResolvedValue({ version: "1.2.3", downloadAndInstall: install });
+    askMock.mockResolvedValue(true);
+    let atRelaunch: ReturnType<typeof readBuffers> | undefined;
+    relaunchMock.mockImplementation(() => {
+      atRelaunch = readBuffers();
+    });
+    await checkForUpdates();
+    expect(relaunchMock).toHaveBeenCalledOnce();
+    expect(install).toHaveBeenCalledOnce();
+    expect(install.mock.invocationCallOrder[0]).toBeLessThan(
+      relaunchMock.mock.invocationCallOrder[0],
+    );
+    expect(atRelaunch).toEqual([
+      { path: "/d/a.md", fileName: "a.md", content: "edited", base: "hello" },
+    ]);
+    expect(setItem).toHaveBeenCalledTimes(2);
+    k.stop();
+  });
+
+  it("retries a failed removal on pagehide so stale edits are not restored", async () => {
+    vi.useFakeTimers();
+    disk["/d/a.md"] = "hello";
+    await openPath("/d/a.md");
+    const k = startKeepingBuffers();
+    useDocumentStore.getState().setContent("edited");
+    flushBuffers();
+    const removeItem = vi
+      .spyOn(localStorage, "removeItem")
+      .mockImplementationOnce(() => {
+        throw new DOMException("unavailable", "SecurityError");
+      });
+    useDocumentStore.getState().setContent("hello");
+    vi.advanceTimersByTime(600);
+    expect(readBuffers()).toHaveLength(1);
+
+    globalThis.dispatchEvent(new Event("pagehide"));
+    expect(readBuffers()).toEqual([]);
+    expect(removeItem).toHaveBeenCalledTimes(2);
     k.stop();
   });
 
