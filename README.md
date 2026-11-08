@@ -37,7 +37,7 @@ From a checkout, on macOS or Linux. One command builds the CLI and the MCP serve
 SKIP_APP_BUILD=1 bash scripts/install.sh
 ```
 
-No checkout yet:
+No checkout yet? The script clones the repository into `~/ashlr-md` (or updates an existing clone there). Git, curl, Rust, Cargo, and Bun are required.
 
 ```bash
 SKIP_APP_BUILD=1 bash <(curl -fsSL https://raw.githubusercontent.com/ashlrai/ashlr-md/main/scripts/install.sh)
@@ -89,7 +89,7 @@ Illustration of the review flow; the app interface may differ.
 1. `scripts/install.sh` builds `mdopen` and `mdopener-mcp` and links them onto `PATH`.
 2. Claude Code, Cursor, or Codex launches `mdopener-mcp` over stdio.
 3. `open_file` is the tool that starts the desktop app. The other tools use the document that is already open, or read a Markdown file from disk.
-4. `request_review` waits for a decision, returning JSON. If the call returns `pending`, resume it with the returned `reviewId`; reviews can also time out or be superseded.
+4. `request_review` waits for a decision, returning JSON. If the call returns `pending`, resume it by passing the returned `reviewId` as `review_id`; reviews can also time out or be superseded.
 
 The server talks to the app on `127.0.0.1` with a token in `~/.mdopener/`. Full contract: [docs/AGENTS.md](./docs/AGENTS.md).
 
@@ -102,6 +102,7 @@ The server talks to the app on `127.0.0.1` with a token in `~/.mdopener/`. Full 
 - **Export.** PDF, Word, HTML, and EPUB from the app. Call `open_file` with `"mode": "read"` before `export`.
 - **Review.** `request_review` waits for a person by default and can return a pending review to resume. `get_user_annotations` reads the verdict and task checkboxes later.
 - **Watch a folder.** The activity drawer (Command-B on macOS, Ctrl-B on Windows and Linux) lists new `.md` files as they appear.
+- **Search your library.** The AI sidebar can retrieve relevant text from Markdown files in watched folders, using keyword search and optional embeddings. See [docs/local-ai.md](./docs/local-ai.md).
 - **On-device AI.** Apple Foundation Models on macOS 26 or later (Apple Silicon), or Ollama. A cloud model runs only if you opt in. Rules: [docs/local-ai.md](./docs/local-ai.md).
 - **Obsidian, VS Code, and Raycast.** Open notes through `mdopener://`; VS Code can fall back to `mdopen`. Notes: [docs/OBSIDIAN.md](./docs/OBSIDIAN.md), [integrations/vscode](./integrations/vscode/), [integrations/raycast](./integrations/raycast/).
 
@@ -209,6 +210,8 @@ bun run lint
 bun run test
 bun run check:doc-links
 bun run check:version
+bun run fresh:check
+bun run doclive:check
 bun run check:workflow-bash
 python3 scripts/check-docs.py
 python3 scripts/test-mcp-setup.py
