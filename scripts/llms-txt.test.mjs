@@ -100,6 +100,18 @@ test('llms.txt links the README and the main docs', () => {
   assert.ok(targets.length >= 10);
 });
 
+// landing/README.md documents that the deployed copies match the repo-root
+// files; a stale copy ships an old manual to md.ashlr.ai.
+test('the landing copies of llms.txt and llms-full.txt match the repo-root files', () => {
+  for (const name of ['llms.txt', 'llms-full.txt']) {
+    assert.equal(
+      readFileSync(join(REPO_ROOT, 'landing', name), 'utf8'),
+      readFileSync(join(REPO_ROOT, name), 'utf8'),
+      `landing/${name} must match ${name} (sync it with \`cp ${name} landing/\`)`,
+    );
+  }
+});
+
 test('the checker flags a missing target, a bad anchor, and bad structure', () => {
   const root = mkdtempSync(join(tmpdir(), 'llmstxt-'));
   try {

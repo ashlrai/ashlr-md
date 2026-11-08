@@ -90,6 +90,8 @@ mdopener://open?path=/absolute/path/to/file.md&mode=edit
 
 `mdopener-mcp --export-tool-schema` is the source for arguments. Order in `tools/list`:
 
+<!-- doclive: seq src-tauri/bins/mdopener-mcp/src/lib.rs#tool_registry /^\s+name: "([a-z_]+)",$/ vs /^\d+\. `([a-z_]+)`/ -->
+
 1. `open_file` starts the app. `path` is required. `mode` is `read` or `edit`.
 2. `get_current_content` returns the open document. Error when none is open.
 3. `list_recent` lists recent files. The app must already be running.
@@ -186,7 +188,7 @@ Threat model: https://github.com/ashlrai/ashlr-md/blob/main/SECURITY.md
 |---|---|
 | `src/` | React frontend |
 | `src-tauri/src/` | Rust app core |
-| `src-tauri/bins/` | `mdopen`, `mdopener-mcp`, Swift sidecar |
+| `src-tauri/bins/` | `mdopen`, `mdopener-mcp`, macOS Swift sidecars |
 | `docs/AGENTS.md` | MCP tool contract |
 | `docs/EXAMPLES.md` | pasteable commands |
 | `landing/` | marketing site |

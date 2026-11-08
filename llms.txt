@@ -82,3 +82,4 @@ python3 scripts/connect-cursor.py
 
 - [Landing page readme](landing/README.md): landing page development.
 - [Historical Linux probe](docs/NATIVE-QA-PROPOSAL.md): a bounded historical qualification proposal.
+- [Historical Windows qualification](docs/WINDOWS-NATIVE-QA.md): a bounded historical qualification proposal.
