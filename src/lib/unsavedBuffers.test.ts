@@ -93,6 +93,8 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 const openPath = (p: string) => useDocumentStore.getState().openPath(p);
@@ -149,6 +151,23 @@ describe("readBuffers", () => {
     expect(readBuffers()).toEqual([]);
     writeBuffers([]);
     expect(localStorage.getItem(BUFFERS_KEY)).toBeNull();
+  });
+});
+
+describe("writeBuffers", () => {
+  it("reports whether the write happened", () => {
+    const b = [{ path: "/d/a.md", fileName: "a.md", content: "a2", base: "x" }];
+    expect(writeBuffers(b)).toBe(true);
+    expect(writeBuffers([])).toBe(true);
+    const setItem = vi.spyOn(localStorage, "setItem").mockImplementationOnce(() => {
+      throw new DOMException("full", "QuotaExceededError");
+    });
+    expect(writeBuffers(b)).toBe(false);
+    expect(writeBuffers(b)).toBe(true);
+    setItem.mockRestore();
+    vi.stubGlobal("localStorage", undefined);
+    expect(writeBuffers(b)).toBe(false);
+    vi.unstubAllGlobals();
   });
 });
 
@@ -213,6 +232,52 @@ describe("startKeepingBuffers", () => {
     const b = useDocumentStore.getState().tabs.find((t) => t.path === "/d/b.md") as Tab;
     expect(b.content).toBe("b edited");
     expect(b.isDirty).toBe(true);
+    k.stop();
+  });
+
+  it("a failed write is not taken as done: the flush before a relaunch retries it", async () => {
+    vi.useFakeTimers();
+    disk["/d/a.md"] = "hello";
+    await openPath("/d/a.md");
+    const k = startKeepingBuffers();
+    useDocumentStore.getState().setContent("edited");
+
+    // The write fails (storage full, say): nothing is kept.
+    const setItem = vi.spyOn(localStorage, "setItem").mockImplementationOnce(() => {
+      throw new DOMException("full", "QuotaExceededError");
+    });
+    flushBuffers();
+    expect(localStorage.getItem(BUFFERS_KEY)).toBeNull();
+
+    // Storage works again: the next flush stores the text. The failure used
+    // to be remembered as a write, and this flush was skipped.
+    flushBuffers();
+    expect(readBuffers()).toEqual([
+      { path: "/d/a.md", fileName: "a.md", content: "edited", base: "hello" },
+    ]);
+    setItem.mockRestore();
+    k.stop();
+  });
+
+  it("a failed debounced write is retried on the next change", async () => {
+    vi.useFakeTimers();
+    disk["/d/a.md"] = "hello";
+    await openPath("/d/a.md");
+    const k = startKeepingBuffers();
+    const setItem = vi.spyOn(localStorage, "setItem").mockImplementation(() => {
+      throw new DOMException("full", "QuotaExceededError");
+    });
+    useDocumentStore.getState().setContent("edited");
+    vi.advanceTimersByTime(600);
+    expect(localStorage.getItem(BUFFERS_KEY)).toBeNull();
+
+    // Storage works again: the next edit's flush keeps the new text.
+    setItem.mockRestore();
+    useDocumentStore.getState().setContent("edited more");
+    vi.advanceTimersByTime(600);
+    expect(readBuffers()).toEqual([
+      { path: "/d/a.md", fileName: "a.md", content: "edited more", base: "hello" },
+    ]);
     k.stop();
   });
 

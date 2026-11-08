@@ -9,7 +9,9 @@
  * banner offers the disk version too. A text whose file cannot be opened
  * (deleted, moved, unreadable) is put back in a tab of its own, flagged as
  * gone, so the banner offers Save As: it used to be reported and dropped.
- * Close Without Saving forgets the copy.
+ * Close Without Saving forgets the copy. A write storage refuses (full,
+ * unavailable) is not taken as done: the next flush tries it again, so the
+ * one on pagehide or before a relaunch still keeps the text.
  *
  * Limits: a document over {@link MAX_BUFFER_CHARS} characters is not kept,
  * nor any past {@link MAX_TOTAL_CHARS} in all (localStorage holds a few MB).
@@ -60,15 +62,20 @@ function storage(): Storage | null {
   }
 }
 
-/** Write `buffers` (none: remove the key). Never throws. */
-export function writeBuffers(buffers: KeptBuffer[]): void {
+/**
+ * Write `buffers` (none: remove the key). Never throws; returns whether the
+ * write happened, so a caller can try it again rather than take it as done.
+ */
+export function writeBuffers(buffers: KeptBuffer[]): boolean {
   try {
     const ls = storage();
-    if (!ls) return;
+    if (!ls) return false;
     if (buffers.length === 0) ls.removeItem(BUFFERS_KEY);
     else ls.setItem(BUFFERS_KEY, JSON.stringify({ version: 1, buffers }));
+    return true;
   } catch {
     // Full or unavailable: the edits are still in the window.
+    return false;
   }
 }
 
@@ -130,8 +137,9 @@ export function startKeepingBuffers(): { stop: () => void; discard: () => void }
       const buffers = collectBuffers(useDocumentStore.getState());
       const key = JSON.stringify(buffers);
       if (key === last) return;
-      last = key;
-      writeBuffers(buffers);
+      // A failed write is not taken as done: the next flush — on pagehide,
+      // or the one before a relaunch — tries it again.
+      if (writeBuffers(buffers)) last = key;
     },
   };
   keeper = self;
