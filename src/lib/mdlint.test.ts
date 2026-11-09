@@ -665,6 +665,50 @@ describe("rule:missing-alt-text", () => {
   });
 
   it.each([
+    "\n",
+    "\r\n",
+  ])("reports each empty-alt image at its own location with %j line endings", (newline) => {
+    const image = "![](same.png)";
+    const doc = [
+      "Intro",
+      `See ${image} here`,
+      `  ${image}`,
+      "![described](same.png)",
+    ].join(newline);
+    const firstOffset = doc.indexOf(image);
+    const secondOffset = doc.indexOf(image, firstOffset + image.length);
+    const violations = lintDocument(doc, { rules: [ruleMissingAltText] });
+
+    expect(
+      violations.map(({ ruleId, message, severity, range }) => ({
+        ruleId,
+        message,
+        severity,
+        range,
+      })),
+    ).toEqual([
+      {
+        ruleId: "missing-alt-text",
+        message: "Image is missing alt text: same.png",
+        severity: "warning",
+        range: {
+          from: { offset: firstOffset, line: 2, col: 4 },
+          to: { offset: firstOffset + image.length, line: 2, col: 4 + image.length },
+        },
+      },
+      {
+        ruleId: "missing-alt-text",
+        message: "Image is missing alt text: same.png",
+        severity: "warning",
+        range: {
+          from: { offset: secondOffset, line: 3, col: 2 },
+          to: { offset: secondOffset + image.length, line: 3, col: 2 + image.length },
+        },
+      },
+    ]);
+  });
+
+  it.each([
     "A red kite above a field",
     "  A red kite above a field  ",
   ])("accepts descriptive alt text %j while reporting empty alt text", (alt) => {
