@@ -635,6 +635,22 @@ describe("rule:no-consecutive-blank-lines", () => {
 });
 
 describe("rule:missing-alt-text", () => {
+  it("reports an image whose alt text contains only whitespace", () => {
+    const image = "![ \t ](chart.png)";
+    const violations = lintDocument(image).filter(
+      (v) => v.ruleId === "missing-alt-text",
+    );
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0]).toMatchObject({
+      message: "Image is missing alt text: chart.png",
+      severity: "warning",
+    });
+    expect(
+      image.slice(violations[0].range!.from.offset, violations[0].range!.to.offset),
+    ).toBe(image);
+  });
+
   it("accepts a described image when running the built-in rules", () => {
     const doc = "![A red kite above a field](kite.png)\n";
     const violations = lintDocument(doc);
