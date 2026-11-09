@@ -662,6 +662,13 @@ describe("rule:missing-alt-text", () => {
         to: { offset: prefix.length + image.length, line: 2, col: 4 + image.length },
       },
     });
+    const fixed = applyFix(doc, violations[0]);
+    expect(fixed).toBe(
+      `${prefix}![TODO: describe image](clouds.png) for details.${newline}`,
+    );
+    expect(lintDocument(fixed).filter((v) => v.ruleId === "missing-alt-text")).toEqual(
+      [],
+    );
   });
 
   it.each([
