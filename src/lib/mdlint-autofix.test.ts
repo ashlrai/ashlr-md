@@ -45,6 +45,18 @@ describe("invalid link beside ordinary text", () => {
       "Please read [the guide](TODO) before continuing.\n",
     );
   });
+
+  it.each(["", "#", "  "])("is unchanged by a second autofix for destination %j", (href) => {
+    const rules = [ruleInvalidLinkTarget];
+    const doc = `Please read [the guide](${href}) before continuing.\n`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    const once = applyAllFixes(doc, violations);
+    expect(once).toBe("Please read [the guide](TODO) before continuing.\n");
+    const twice = applyAllFixes(once, lintDocument(once, { rules }));
+    expect(twice).toBe(once);
+  });
 });
 
 describe("autofix preserves multiple bracketed prose annotations", () => {
