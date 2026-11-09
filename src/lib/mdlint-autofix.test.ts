@@ -30094,6 +30094,24 @@ describe("two undescribed images on one line", () => {
   });
 });
 
+describe("two undescribed images in one paragraph", () => {
+  it.each(["\n", "\r\n"])("fixes images on separate lines and preserves their sources (%j)", (newline) => {
+    const first = '![](images/before.png?view=1#top "Before")';
+    const second = '![](images/after.svg "After")';
+    const doc = `Compare ${first}${newline}with ${second} in the report.${newline}`;
+    const expected = `Compare ![TODO: describe image](images/before.png?view=1#top "Before")${newline}with ![TODO: describe image](images/after.svg "After") in the report.${newline}`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text", "missing-alt-text"]);
+    expect(violations.map(({ range }) => doc.slice(range!.from.offset, range!.to.offset))).toEqual([first, second]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+});
+
 describe("undescribed image wrapped in punctuation", () => {
   it.each([
     ["empty alt, parentheses", "", "(", ")"],
