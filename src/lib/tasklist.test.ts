@@ -141,6 +141,24 @@ describe("toggleTaskAtLine follows the renderer's task rule", () => {
     expect(marks[3]).toEqual({ checked: true, text: "b", offset: doc.indexOf("[X]") });
     expect(marks.filter(Boolean)).toHaveLength(2);
   });
+
+  it("counts checked and unchecked tasks separately in one document", () => {
+    const doc = [
+      "# Tasks",
+      "- [ ] first",
+      "- [x] done",
+      "  - [ ] nested",
+      "1. [X] also done",
+      "- [ ] last",
+      "```",
+      "- [x] example, not a task",
+      "```",
+    ].join("\n");
+    const marks = taskMarks(doc);
+
+    expect(marks.filter((mark) => mark?.checked === true)).toHaveLength(2);
+    expect(marks.filter((mark) => mark?.checked === false)).toHaveLength(3);
+  });
 });
 
 describe("taskMarks reads footnotes and HTML blocks as the renderer does", () => {
