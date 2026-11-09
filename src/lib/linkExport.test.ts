@@ -98,6 +98,36 @@ describe("applyLinkExport", () => {
     }
   });
 
+  it("preserves brackets in a link label and its destination in exported HTML", async () => {
+    const content = "See [the [setup] guide](https://example.com/guide#setup).";
+    useDocumentStore.setState({ content });
+    const body = document.createElement("div");
+    body.className = "markdown-body";
+    body.innerHTML =
+      '<p>See <a href="https://example.com/guide#setup">the [setup] guide</a>.</p>';
+    document.body.appendChild(body);
+    invokeMock.mockResolvedValueOnce("html").mockResolvedValue(undefined);
+
+    try {
+      await applyLinkExport("/notes/a.md");
+      expect(useUiStore.getState().exportOpen).toBe(true);
+      expect(useDocumentStore.getState().content).toBe(content);
+      await expect(exportHtml("a", "/notes/a.html")).resolves.toBe(true);
+
+      const write = invokeMock.mock.calls.find(
+        ([command]) => command === "write_file_bytes",
+      );
+      expect(write).toBeDefined();
+      const html = new TextDecoder().decode(write?.[1]);
+      const exported = new DOMParser().parseFromString(html, "text/html");
+      const link = exported.querySelector(".markdown-body a");
+      expect(link?.textContent).toBe("the [setup] guide");
+      expect(link?.getAttribute("href")).toBe("https://example.com/guide#setup");
+    } finally {
+      body.remove();
+    }
+  });
+
   it("exports plain text without inventing a link", async () => {
     const content = "Just some plain text.\nAnother line of prose.";
     useDocumentStore.setState({ content });
