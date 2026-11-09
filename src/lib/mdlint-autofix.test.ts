@@ -132,6 +132,25 @@ describe("undescribed image on the last line", () => {
   });
 });
 
+describe("two undescribed images on separate lines", () => {
+  it.each(["\n", "\r\n"])("fixes both images in their original order (%j)", (nl) => {
+    const doc = ["First: ![](first.png)", "Between images.", "Second: ![](second.svg)", ""].join(nl);
+    const expected = [
+      "First: ![TODO: describe image](first.png)",
+      "Between images.",
+      "Second: ![TODO: describe image](second.svg)",
+      "",
+    ].join(nl);
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text", "missing-alt-text"]);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(fixAllViolations(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+});
+
 describe("two undescribed images on one line", () => {
   it.each(["\n", "\r\n"])("fills both alt texts without changing destinations (%j)", (nl) => {
     const rules = [ruleMissingAltText];
