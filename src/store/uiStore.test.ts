@@ -11,6 +11,7 @@ function reset() {
     searchOpen: false,
     findOpen: false,
     zenMode: false,
+    otDebugOpen: false,
   });
 }
 
@@ -109,5 +110,16 @@ describe("uiStore", () => {
     expect(useUiStore.getState().commandPaletteOpen).toBe(true);
     useUiStore.getState().toggleCommandPalette();
     expect(useUiStore.getState().commandPaletteOpen).toBe(false);
+  });
+
+  it.each([
+    false,
+    true,
+  ])("toggleOtDebug twice restores its initial value (%s)", (initial) => {
+    useUiStore.setState({ otDebugOpen: initial });
+    useUiStore.getState().toggleOtDebug();
+    expect(useUiStore.getState().otDebugOpen).toBe(!initial);
+    useUiStore.getState().toggleOtDebug();
+    expect(useUiStore.getState().otDebugOpen).toBe(initial);
   });
 });
