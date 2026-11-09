@@ -183,6 +183,26 @@ describe("invalid-link autofix beside a valid link", () => {
   });
 });
 
+describe("invalid link immediately followed by a valid link", () => {
+  it.each(["\n", "\r\n"])("fixes only the invalid destination (%j)", (nl) => {
+    const rules = [ruleInvalidLinkTarget];
+    const valid = '[reference](./reference.md?view=full#section "Reference")';
+    const doc = `Read [draft](#)${valid} next.${nl}`;
+    const expected = `Read [draft](TODO)${valid} next.${nl}`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    expect(doc.slice(violations[0].range!.from.offset, violations[0].range!.to.offset)).toBe(
+      "[draft](#)",
+    );
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain(valid);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
+
 describe("invalid-link autofix preserves surrounding punctuation", () => {
   it("retains punctuation and neighboring text for single and multiple fixes", () => {
     const doc = 'See ("[draft]()"), then [guide](#)! Keep [valid](./guide.md).\r\n';
