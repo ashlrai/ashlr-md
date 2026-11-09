@@ -750,12 +750,18 @@ describe("rule:invalid-link-target", () => {
     expect(violations).toHaveLength(1);
     expect(violations[0]).toMatchObject({
       severity: "warning",
+      message: "Invalid link target: [draft]( \t )",
       range: {
         from: { offset: 13, line: 3, col: 4 },
         to: { offset: 25, line: 3, col: 16 },
       },
     });
     expect(doc.slice(13, 25)).toBe("[draft]( \t )");
+    const fixed = applyFix(doc, violations[0]);
+    expect(fixed).toBe("# Notes\n\nSee [draft](TODO) and [guide](./guide.md).\n");
+    expect(
+      lintDocument(fixed).filter((v) => v.ruleId === "invalid-link-target"),
+    ).toEqual([]);
   });
 
   it.each([
