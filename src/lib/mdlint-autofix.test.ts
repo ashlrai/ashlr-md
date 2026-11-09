@@ -29662,3 +29662,24 @@ describe("original PR 1222: undescribed image destination punctuation", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+describe("autofix: Unicode image paths", () => {
+  it.each(["\n", "\r\n"])("preserves the exact path and surrounding text (%j)", (nl) => {
+    const rules = [ruleMissingAltText];
+    const path = "images/東京/cafe\u0301-🚀.png";
+    const image = `![](${path} "図")`;
+    const doc = `Café ${image} — caption.${nl}`;
+    const expected = `Café ![TODO: describe image](${path} "図") — caption.${nl}`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(image);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.replace("TODO: describe image", "")).toBe(doc);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+});
