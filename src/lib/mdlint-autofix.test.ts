@@ -2012,6 +2012,16 @@ describe("autofix: undescribed image idempotence (fix twice == fix once)", () =>
     expect(lintDocument(once, { rules })).toEqual([]);
   });
 
+  it("keeps the exact first-pass result across repeated fix passes for every empty-alt form", () => {
+    const doc = 'Intro ![](a.png) and ![ ](b.png "T") then ![\t](<c d.png>)\n\n![](c.png)\n';
+    const once = fixOnce(doc);
+    expect(once).toBe(
+      'Intro ![TODO: describe image](a.png) and ![TODO: describe image](b.png "T") then ![TODO: describe image](<c d.png>)\n\n![TODO: describe image](c.png)\n',
+    );
+    expect(fixOnce(once)).toBe(once);
+    expect(fixOnce(fixOnce(once))).toBe(once);
+  });
+
   it("replaces every undescribed image on the first pass and changes nothing on the second", () => {
     const doc = "![](a.png) and ![ ](b.png)\n\n![](c.png)\n";
     const once = fixOnce(doc);
