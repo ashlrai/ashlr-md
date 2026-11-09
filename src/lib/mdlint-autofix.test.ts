@@ -50,6 +50,20 @@ describe("empty or whitespace-only image description", () => {
   });
 });
 
+describe("image with descriptive alt text", () => {
+  it("preserves the description and destination while fixing another violation", () => {
+    const image = '![Revenue by quarter](images/revenue%20chart.png?year=2026#q4 "Revenue")';
+    const doc = `See ${image} and [the draft](#).\n`;
+    const rules = [ruleMissingAltText, ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(`See ${image} and [the draft](TODO).\n`);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
+
 describe("missing image alt text autofix idempotence", () => {
   it.each(["", " \t "])("changes missing alt %j on the first pass only", (alt) => {
     const rules = [ruleMissingAltText];
