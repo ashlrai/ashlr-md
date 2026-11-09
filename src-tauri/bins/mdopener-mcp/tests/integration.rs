@@ -19245,3 +19245,24 @@ fn export_text_keeps_a_bracketed_marker_alone_on_its_line() {
         );
     }
 }
+
+#[test]
+fn export_text_preserves_unicode_adjacent_to_bracketed_prose() {
+    for text in [
+        "日本語[note]مرحبا",
+        "cafe\u{301}[draft]👩\u{200d}💻",
+        "🦀[注記]é",
+    ] {
+        let markdown = format!("{text}\n");
+        let result = run_export_text_on(&markdown);
+        assert_eq!(result["text"], text, "file: {text:?}");
+
+        let ipc = MockIpc::new().on_get(
+            "/content",
+            Ok(json!({ "path": "/docs/unicode.md", "content": markdown })),
+        );
+        let response = tool_export_text(id(1), &json!({}), &ipc);
+        assert!(response.error.is_none(), "ipc: {text:?}");
+        assert_eq!(content_text(&response)["text"], text, "ipc: {text:?}");
+    }
+}
