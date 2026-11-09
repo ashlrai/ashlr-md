@@ -70,6 +70,34 @@ describe("applyLinkExport", () => {
     }
   });
 
+  it("preserves Unicode link text in exported HTML", async () => {
+    const linkText = "日本語 café 🚀 e\u0301";
+    const content = `See [${linkText}](https://example.com/guide).`;
+    useDocumentStore.setState({ content });
+    const body = document.createElement("div");
+    body.className = "markdown-body";
+    body.innerHTML = `<p>See <a href="https://example.com/guide">${linkText}</a>.</p>`;
+    document.body.appendChild(body);
+    invokeMock.mockResolvedValueOnce("html").mockResolvedValue(undefined);
+
+    try {
+      await applyLinkExport("/notes/a.md");
+      expect(useUiStore.getState().exportOpen).toBe(true);
+      await expect(exportHtml("a", "/notes/a.html")).resolves.toBe(true);
+      const write = invokeMock.mock.calls.find(
+        ([command]) => command === "write_file_bytes",
+      );
+      expect(write).toBeDefined();
+      const html = new TextDecoder().decode(write?.[1]);
+      const exported = new DOMParser().parseFromString(html, "text/html");
+      const link = exported.querySelector(".markdown-body a");
+      expect(link?.textContent).toBe(linkText);
+      expect(link?.getAttribute("href")).toBe("https://example.com/guide");
+    } finally {
+      body.remove();
+    }
+  });
+
   it("exports plain text without inventing a link", async () => {
     const content = "Just some plain text.\nAnother line of prose.";
     useDocumentStore.setState({ content });
