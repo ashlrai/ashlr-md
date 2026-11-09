@@ -826,6 +826,13 @@ describe("rule:invalid-link-target", () => {
     expect(
       doc.slice(violations[0].range!.from.offset, violations[0].range!.to.offset),
     ).toBe("[draft]()");
+    const expected =
+      "See [documentation](https://example.com/guide) and [draft](TODO).\n";
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(
+      lintDocument(expected).filter((v) => v.ruleId === "invalid-link-target"),
+    ).toEqual([]);
   });
 });
 
