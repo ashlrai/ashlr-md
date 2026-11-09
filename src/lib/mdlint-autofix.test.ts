@@ -50,6 +50,21 @@ describe("whitespace-only image description", () => {
   });
 });
 
+describe("missing image alt text autofix idempotence", () => {
+  it.each(["", " \t "])("changes missing alt %j on the first pass only", (alt) => {
+    const rules = [ruleMissingAltText];
+    const doc = `Before ![${alt}](images/chart.png "Chart") after.\r\n`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const once = applyAllFixes(doc, violations);
+    expect(once).toBe('Before ![TODO: describe image](images/chart.png "Chart") after.\r\n');
+    const remaining = lintDocument(once, { rules });
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(once, remaining)).toBe(once);
+  });
+});
+
 describe("invalid link target surrounded by prose", () => {
   it.each(["", "#", "?"])("replaces only the target %j", (target) => {
     const doc = `Before the link, read [the guide](${target}) for details. Afterwards, continue reading.\n`;
