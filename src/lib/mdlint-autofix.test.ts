@@ -76,6 +76,39 @@ describe("empty link and image description on separate lines", () => {
   );
 });
 
+describe("link and image fixes in separate paragraphs", () => {
+  it.each(["\n", "\r\n"].flatMap((nl) => [true, false].map((linkFirst) => [nl, linkFirst] as const)))(
+    "preserves paragraph breaks and unrelated prose (%j, link first %s)",
+    (nl, linkFirst) => {
+      const rules = [ruleInvalidLinkTarget, ruleMissingAltText];
+      const link = "Read [the draft](#) before continuing.";
+      const image = 'The results appear in ![](chart.png "Results") below.';
+      const fixedLink = "Read [the draft](TODO) before continuing.";
+      const fixedImage = 'The results appear in ![TODO: describe image](chart.png "Results") below.';
+      const paragraphs = (first: string, second: string) =>
+        ["Introduction with unrelated prose.", first, "A separate middle paragraph.", second, "Conclusion stays intact."].join(nl + nl) + nl;
+      const doc = paragraphs(...(linkFirst ? [link, image] : [image, link]) as [string, string]);
+      const expected = paragraphs(...(linkFirst ? [fixedLink, fixedImage] : [fixedImage, fixedLink]) as [string, string]);
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map(({ ruleId }) => ruleId).sort()).toEqual([
+        "invalid-link-target",
+        "missing-alt-text",
+      ]);
+      for (const violation of violations) {
+        const singleExpected = violation.ruleId === "invalid-link-target"
+          ? doc.replace(link, fixedLink)
+          : doc.replace(image, fixedImage);
+        expect(applyFix(doc, violation)).toBe(singleExpected);
+      }
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+      expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+    },
+  );
+});
+
 describe("invalid link at end of file without a final newline", () => {
   it.each(["\n", "\r\n"])("replaces the destination and preserves line endings (%j)", (newline) => {
     const rules = [ruleInvalidLinkTarget];
