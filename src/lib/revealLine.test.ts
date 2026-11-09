@@ -169,6 +169,23 @@ describe("revealLine", () => {
     }
   });
 
+  it("reveals the first line of a single-line source document", async () => {
+    const view = new EditorView({
+      state: EditorState.create({ doc: "Only line" }),
+      parent: host,
+    });
+    try {
+      view.dispatch({ selection: { anchor: view.state.doc.length } });
+      revealLine(1);
+      await vi.waitFor(() => {
+        expect(view.state.selection.main.head).toBe(0);
+      });
+      expect(view.state.doc.lineAt(view.state.selection.main.head).number).toBe(1);
+    } finally {
+      view.destroy();
+    }
+  });
+
   it("clamps a line beyond the document to the last source line", async () => {
     const view = new EditorView({
       state: EditorState.create({ doc: DOC }),
