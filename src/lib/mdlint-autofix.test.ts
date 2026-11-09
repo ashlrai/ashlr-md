@@ -29688,3 +29688,30 @@ describe("original PR 1222: undescribed image destination punctuation", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+describe("autofix idempotence for an undescribed reference-style image", () => {
+  it.each([
+    ["\n", "full reference", "![][chart]"],
+    ["\r\n", "full reference", "![][chart]"],
+    ["\n", "collapsed reference", "![chart][]"],
+    ["\n", "shortcut reference", "![chart]"],
+  ])("a second autofix equals the first with %j line endings (%s)", (nl, _name, image) => {
+    const rules = [ruleMissingAltText];
+    const doc = `Before ${image} after.${nl}${nl}[chart]: images/chart.png "Chart"${nl}`;
+
+    const once = applyAllFixes(doc, lintDocument(doc, { rules }));
+    const twice = applyAllFixes(once, lintDocument(once, { rules }));
+    expect(twice).toBe(once);
+
+    // The reference definition must never be altered by the fix.
+    expect(once.endsWith(`[chart]: images/chart.png "Chart"${nl}`)).toBe(true);
+  });
+
+  it("is also stable under the full built-in rule set", () => {
+    // Valid front matter keeps the unrelated frontmatter-required autofix out of the comparison.
+    const doc = `---\ntitle: T\ntags: []\n---\n\n# T\n\nSee ![][chart] here.\n\n[chart]: images/chart.png\n`;
+    const once = applyAllFixes(doc, lintDocument(doc, { rules: BUILTIN_RULES }));
+    const twice = applyAllFixes(once, lintDocument(once, { rules: BUILTIN_RULES }));
+    expect(twice).toBe(once);
+  });
+});
