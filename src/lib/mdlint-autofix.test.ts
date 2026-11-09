@@ -852,6 +852,22 @@ describe("autofix: undescribed image at the start of a line", () => {
 });
 
 describe("autofix: undescribed image idempotence", () => {
+  it.each(["\n", "\r\n"])("remains stable after fixing an image and a neighboring link (%j)", (nl) => {
+    const rules = [ruleMissingAltText, ruleInvalidLinkTarget];
+    const doc = `See ![](chart.png "Chart") and [report]().${nl}`;
+    const violations = lintDocument(doc, { rules });
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+      "missing-alt-text",
+      "invalid-link-target",
+    ]);
+
+    const once = applyAllFixes(doc, violations);
+    expect(once).toBe(`See ![TODO: describe image](chart.png "Chart") and [report](TODO).${nl}`);
+    const remaining = lintDocument(once, { rules });
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(once, remaining)).toBe(once);
+  });
+
   it("remains unchanged after fixing multiple missing descriptions", () => {
     const rules = [ruleMissingAltText];
     const doc = "First ![](one.png), then ![  ](two.png).\n";
