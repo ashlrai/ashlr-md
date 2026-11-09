@@ -197,7 +197,11 @@ describe("applyLinkExport", () => {
 
   it("does nothing when the link asked for no export", async () => {
     invokeMock.mockResolvedValue(null);
-    await applyLinkExport("/notes/a.md");
+    await applyLinkExport("/notes/b.md");
+    expect(invokeMock).toHaveBeenCalledWith("take_link_export", {
+      path: "/notes/b.md",
+    });
+    expect(useDocumentStore.getState().path).toBe("/notes/a.md");
     expect(useUiStore.getState().exportOpen).toBe(false);
   });
 
