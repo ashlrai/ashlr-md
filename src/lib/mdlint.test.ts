@@ -649,6 +649,10 @@ describe("rule:missing-alt-text", () => {
     expect(
       doc.slice(violations[0].range!.from.offset, violations[0].range!.to.offset),
     ).toBe(missing);
+    expect(violations[0].fix).not.toBeNull();
+    const fixed = applyFix(doc, violations[0]);
+    expect(fixed).toBe(`${described}\n![TODO: describe image](clouds.png)\n`);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
 
