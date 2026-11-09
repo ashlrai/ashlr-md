@@ -198,14 +198,19 @@ describe("undescribed image surrounded by ordinary prose", () => {
 });
 
 describe("valid image alt text during autofix", () => {
-  it.each(["\n", "\r\n"])("preserves the described image and surrounding text while fixing a neighboring image (%j)", (nl) => {
+  it.each(["\n", "\r\n"].flatMap((nl) => [true, false].map((validFirst) => [nl, validFirst] as const)))("preserves the described image while fixing its neighbor (newline %j, valid first %s)", (nl, validFirst) => {
     const rules = [ruleMissingAltText];
     const described = '![Quarterly revenue chart](charts/revenue.png "Revenue")';
-    const doc = `First, ${described}; then compare ![](charts/costs.png) below.${nl}`;
-    const expected = `First, ${described}; then compare ![TODO: describe image](charts/costs.png) below.${nl}`;
+    const missing = "![](charts/costs.png)";
+    const repaired = "![TODO: describe image](charts/costs.png)";
+    const doc = `Compare ${validFirst ? `${described} and ${missing}` : `${missing} and ${described}`} below.${nl}`;
+    const expected = `Compare ${validFirst ? `${described} and ${repaired}` : `${repaired} and ${described}`} below.${nl}`;
     const violations = lintDocument(doc, { rules });
 
     expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(missing);
+    expect(applyFix(doc, violations[0])).toBe(expected);
     const fixed = applyAllFixes(doc, violations);
     expect(fixed).toBe(expected);
     expect(lintDocument(fixed, { rules })).toEqual([]);
