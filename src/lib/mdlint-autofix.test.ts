@@ -54,6 +54,23 @@ describe("autofix preserves [sic] in prose", () => {
 
 describe("autofix preserves [TODO] in prose", () => {
   it.each([
+    "",
+    "#",
+    "?",
+  ])("preserves prose notes on both sides of an invalid href %j", (href) => {
+    const rules = [ruleInvalidLinkTarget];
+    const doc = `Before [TODO], see [draft](${href}); after [TODO].\n`;
+    const expected = "Before [TODO], see [draft](TODO); after [TODO].\n";
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
     "\n",
     "\r\n",
   ])("leaves the bracketed note unchanged while fixing the link and image (%j)", (nl) => {
