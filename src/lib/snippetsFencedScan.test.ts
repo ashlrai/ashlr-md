@@ -29,6 +29,14 @@ describe("isInsideFencedCode reads up to the cursor's line", () => {
     expect(mock.mock.calls[0][0]).toBe(doc.slice(0, doc.indexOf("\n", pos)));
   });
 
+  it("detects a cursor inside a tilde-fenced block", () => {
+    const doc = "Before\n~~~js\nconst value = 1;\n~~~\nAfter\n";
+    const pos = doc.indexOf("value") + 2;
+
+    expect(isInsideFencedCode(doc, pos)).toBe(true);
+    expect(isInsideFencedCode(doc, pos)).toBe(readAll(doc, pos));
+  });
+
   it("answers as a full read does", () => {
     const pieces = [
       "---",
