@@ -36,6 +36,36 @@ describe("frontmatter", () => {
     expect(joinFrontmatter(frontmatter, body)).toBe(raw);
   });
 
+  it("preserves Unicode in frontmatter and body without normalization", () => {
+    // These visually similar forms must remain distinct code point sequences.
+    const composed = "caf\u00e9";
+    const decomposed = "cafe\u0301";
+    expect(composed).not.toBe(decomposed);
+    for (const newline of ["\n", "\r\n"]) {
+      const frontmatter = [
+        "\uFEFF---",
+        `title: ${composed} / ${decomposed} 日本語`,
+        "author: مرحبا 👩🏽‍💻",
+        "...",
+        "",
+      ].join(newline);
+      const body = [`# ${decomposed} / ${composed}`, "שלום 🌍 👨‍👩‍👧‍👦", ""].join(
+        newline,
+      );
+      const raw = frontmatter + body;
+      const split = splitFrontmatter(raw);
+      expect(split).toEqual({ frontmatter, body });
+      expect(joinFrontmatter(split.frontmatter, split.body)).toBe(raw);
+    }
+  });
+
+  it("preserves Unicode body text when there is no frontmatter", () => {
+    const body = "# こんにちは 🌸\n\ncaf\u00e9 cafe\u0301 مرحبا\n";
+    const split = splitFrontmatter(body);
+    expect(split).toEqual({ frontmatter: "", body });
+    expect(joinFrontmatter(split.frontmatter, split.body)).toBe(body);
+  });
+
   it("join with empty frontmatter returns the body unchanged", () => {
     expect(joinFrontmatter("", "x")).toBe("x");
   });
