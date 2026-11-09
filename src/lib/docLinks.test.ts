@@ -129,7 +129,13 @@ describe("linkTarget", () => {
   });
 
   it("leaves web and mail links to the opener plugin", () => {
-    for (const h of ["https://x.org/a", "HTTP://x.org", "mailto:a@b.c", "tel:+1"]) {
+    for (const h of [
+      "https://x.org/a",
+      "HTTP://x.org",
+      "hTtPs://x.org",
+      "mailto:a@b.c",
+      "tel:+1",
+    ]) {
       expect(linkTarget(h, doc)).toEqual({ kind: "external" });
     }
   });
