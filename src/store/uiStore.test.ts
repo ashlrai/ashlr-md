@@ -2,21 +2,47 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { useUiStore } from "./uiStore";
 
 function reset() {
-  useUiStore.setState({
-    exportOpen: false,
-    settingsOpen: false,
-    commandPaletteOpen: false,
-    activityOpen: false,
-    outlineOpen: false,
-    searchOpen: false,
-    findOpen: false,
-    zenMode: false,
-    otDebugOpen: false,
-  });
+  useUiStore.setState(useUiStore.getInitialState(), true);
 }
 
 describe("uiStore", () => {
   beforeEach(reset);
+
+  it("reset restores all UI state defaults after changes", () => {
+    useUiStore.setState({
+      exportOpen: true,
+      exportFormat: "pdf",
+      settingsOpen: true,
+      shortcutsOpen: true,
+      commandPaletteOpen: true,
+      activityOpen: true,
+      outlineOpen: true,
+      searchOpen: true,
+      findOpen: true,
+      zenMode: true,
+      otDebugOpen: true,
+      currentDocType: "PLAN",
+    });
+
+    reset();
+
+    expect(useUiStore.getState()).toMatchObject({
+      exportOpen: false,
+      exportFormat: null,
+      settingsOpen: false,
+      shortcutsOpen: false,
+      commandPaletteOpen: false,
+      activityOpen: false,
+      outlineOpen: false,
+      searchOpen: false,
+      findOpen: false,
+      zenMode: false,
+      otDebugOpen: false,
+      currentDocType: "GENERIC",
+    });
+    useUiStore.getState().openSettings();
+    expect(useUiStore.getState().settingsOpen).toBe(true);
+  });
 
   // ── Settings panel ──────────────────────────────────────────────────────
 
