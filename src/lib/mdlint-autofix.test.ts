@@ -953,6 +953,45 @@ describe("autofix: undescribed image idempotence", () => {
   });
 });
 
+describe("autofix: missing-image-alt fix applied twice", () => {
+  const PLACEHOLDER = "TODO: describe image";
+
+  it.each([
+    ["a lone image", "![](a.png)\n", 1],
+    ["whitespace-only alt", "![ \t ](a.png)\n", 1],
+    ["several images on separate lines", "![](a.png)\n\n![](b.png)\n\ntext ![](c.png)\n", 3],
+    ["an image inside a link", "[![](badge.svg)](https://example.com)\n", 1],
+    ["no trailing newline", "tail ![](a.png)", 1],
+    ["a described image beside an undescribed one", "![ok](a.png) ![](b.png)\n", 1],
+    ["an image inside a fenced code block", "```md\n![](a.png)\n```\n", 0],
+    ["no images at all", "# Title\n\nJust prose.\n", 0],
+  ])("second application is a no-op for %s", (_kind, doc, expectedFixes) => {
+    const rules = [ruleMissingAltText];
+    for (const text of [doc, doc.replace(/\n/g, "\r\n")]) {
+      const first = lintDocument(text, { rules });
+      expect(first).toHaveLength(expectedFixes);
+      const once = applyAllFixes(text, first);
+      expect(once.split(PLACEHOLDER).length - 1).toBe(
+        expectedFixes + (text.match(new RegExp(PLACEHOLDER, "g")) ?? []).length,
+      );
+
+      const second = lintDocument(once, { rules });
+      expect(second).toEqual([]);
+      const twice = applyAllFixes(once, second);
+      expect(twice).toBe(once);
+    }
+  });
+
+  it("a second pass over multiple fixed images leaves the text unchanged", () => {
+    const rules = [ruleMissingAltText];
+    const doc = "A ![](a.png) and ![](b.png).\n";
+    const violations = lintDocument(doc, { rules });
+    const once = applyAllFixes(doc, violations);
+    expect(once).toBe(`A ![${PLACEHOLDER}](a.png) and ![${PLACEHOLDER}](b.png).\n`);
+    expect(applyAllFixes(once, lintDocument(once, { rules }))).toBe(once);
+  });
+});
+
 describe("autofix: undescribed image with a Unicode source", () => {
   it("inserts the placeholder while preserving the source exactly", () => {
     const rules = [ruleMissingAltText];
