@@ -30155,3 +30155,23 @@ describe("autofix idempotence for an undescribed reference-style image", () => {
     expect(twice).toBe(once);
   });
 });
+
+describe("undescribed image followed by a described image", () => {
+  it.each(["\n", "\r\n"])("fixes only the first image and preserves both sources (%j)", (nl) => {
+    const rules = [ruleMissingAltText];
+    const first = '![](images/before.png?v=1#top "Before")';
+    const second = '![After chart](<images/after chart.svg> "After")';
+    const doc = `Compare ${first} with ${second}.${nl}`;
+    const expected = `Compare ![TODO: describe image](images/before.png?v=1#top "Before") with ${second}.${nl}`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(first);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+});
