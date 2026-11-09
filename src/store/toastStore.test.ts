@@ -163,6 +163,28 @@ describe("toastStore", () => {
     expect(useToastStore.getState().toasts).toHaveLength(0);
   });
 
+  it("expires staggered toasts according to their own lifetimes", () => {
+    const firstId = useToastStore.getState().push({ message: "first", timeout: 1000 });
+    vi.advanceTimersByTime(400);
+    const secondId = useToastStore.getState().push({ message: "second", timeout: 800 });
+
+    vi.advanceTimersByTime(599);
+    expect(useToastStore.getState().toasts.map((toast) => toast.id)).toEqual([
+      firstId,
+      secondId,
+    ]);
+    vi.advanceTimersByTime(1);
+    expect(useToastStore.getState().toasts.map((toast) => toast.id)).toEqual([
+      secondId,
+    ]);
+    vi.advanceTimersByTime(199);
+    expect(useToastStore.getState().toasts.map((toast) => toast.id)).toEqual([
+      secondId,
+    ]);
+    vi.advanceTimersByTime(1);
+    expect(useToastStore.getState().toasts).toEqual([]);
+  });
+
   // ── Cap / eviction ──────────────────────────────────────────────────────
 
   it("evicts the oldest toast when the MAX_TOASTS (4) cap is exceeded", () => {
