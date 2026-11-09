@@ -35,6 +35,21 @@ import {
   ruleWikilinkTargetsExist,
 } from "./mdlint";
 
+describe("invalid-link autofix with a whitespace-only href", () => {
+  it.each([" ", "  \t "])("replaces %j with TODO and preserves the label", (href) => {
+    const rules = [ruleInvalidLinkTarget];
+    const doc = `Read [**the guide**](${href}) now.\n`;
+    const expected = "Read [**the guide**](TODO) now.\n";
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
+
 describe("autofix preserves [sic] in prose", () => {
   it.each(["\n", "\r\n"])("preserves prose beside an undescribed image (%j)", (nl) => {
     const rules = [ruleInvalidLinkTarget, ruleMissingAltText];
