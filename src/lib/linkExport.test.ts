@@ -70,6 +70,35 @@ describe("applyLinkExport", () => {
     }
   });
 
+  it("exports plain text without inventing a link", async () => {
+    const content = "Just some plain text.\nAnother line of prose.";
+    useDocumentStore.setState({ content });
+    const body = document.createElement("div");
+    body.className = "markdown-body";
+    body.innerHTML = `<p>${content}</p>`;
+    document.body.appendChild(body);
+    invokeMock.mockResolvedValueOnce("html").mockResolvedValue(undefined);
+
+    try {
+      await applyLinkExport("/notes/a.md");
+      expect(useUiStore.getState().exportOpen).toBe(true);
+      expect(useDocumentStore.getState().content).toBe(content);
+      await expect(exportHtml("a", "/notes/a.html")).resolves.toBe(true);
+
+      const write = invokeMock.mock.calls.find(
+        ([command]) => command === "write_file_bytes",
+      );
+      expect(write).toBeDefined();
+      const html = new TextDecoder().decode(write?.[1]);
+      const exported = new DOMParser().parseFromString(html, "text/html");
+      const paragraph = exported.querySelector(".markdown-body p");
+      expect(paragraph?.textContent).toBe(content);
+      expect(exported.querySelectorAll("a")).toHaveLength(0);
+    } finally {
+      body.remove();
+    }
+  });
+
   it("retains a link's fragment in the exported target", async () => {
     const content = "See [setup](https://example.com/guide#setup) first.\n";
     const rendered =
