@@ -51,6 +51,24 @@ describe("invalid link at document start", () => {
   });
 });
 
+describe("undescribed image on the last line", () => {
+  it.each([
+    "\n",
+    "\r\n",
+  ])("inserts only the placeholder without a trailing newline (%j)", (nl) => {
+    const doc = `Introduction.${nl}${nl}See ![](images/chart.png "Chart")`;
+    const expected = `Introduction.${nl}${nl}See ![TODO: describe image](images/chart.png "Chart")`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.replace("TODO: describe image", "")).toBe(doc);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+});
+
 describe("undescribed image surrounded by Unicode prose", () => {
   it.each(["\n", "\r\n"])("preserves the prose exactly with %j line endings", (nl) => {
     const rules = [ruleMissingAltText];
