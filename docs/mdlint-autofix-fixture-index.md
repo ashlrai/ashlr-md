@@ -19,7 +19,7 @@ the quoted name to find the fixture.
 - "fixes the selected identical link in each list item without changing either marker"
 - [table] "fixes a destination inside a %s list item without changing its surroundings"
 - "passes on valid links"
-- "fills an empty link destination with TODO and preserves the surrounding prose"
+- [table] "fills an empty destination and preserves surrounding prose (%j)"
 - [table] "sets an empty href to TODO and keeps a label with %s verbatim"
 - [table] "turns a link with a multiword label (%s) and empty href into the same label with a TODO href"
 - [table] "keeps the label and title of a titled link with %s while TODO-fixing its untitled neighbour"
