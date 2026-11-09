@@ -51,6 +51,18 @@ describe("whitespace-only image description", () => {
 });
 
 describe("invalid link target surrounded by prose", () => {
+  it.each(["", "#", "?"])("reaches a fixed point after repairing destination %j", (target) => {
+    const rules = [ruleInvalidLinkTarget];
+    const doc = `Read [the guide](${target}) before continuing.\n`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    const once = applyAllFixes(doc, violations);
+    expect(once).toBe("Read [the guide](TODO) before continuing.\n");
+    const twice = applyAllFixes(once, lintDocument(once, { rules }));
+    expect(twice).toBe(once);
+  });
+
   it.each(["", "#", "?"])("replaces only the target %j", (target) => {
     const doc = `Before the link, read [the guide](${target}) for details. Afterwards, continue reading.\n`;
     const expected = "Before the link, read [the guide](TODO) for details. Afterwards, continue reading.\n";
