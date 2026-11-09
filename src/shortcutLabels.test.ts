@@ -57,6 +57,33 @@ describe("shortcut labels", () => {
     expect(formatShortcut("x")).toBe("X");
   });
 
+  it("falls back deterministically for an unsupported shortcut name", () => {
+    const mod = formatShortcut("mod+x");
+    const modPrefix = mod.slice(0, -1);
+    for (const name of [
+      "Hyperspace",
+      "mod+NotAKey",
+      "mod+shift+Hyperspace",
+      "",
+      "+",
+      "mod+",
+    ]) {
+      let first = "";
+      expect(() => {
+        first = formatShortcut(name);
+      }).not.toThrow();
+      // Same input, same label, every time (parse results are cached).
+      expect(formatShortcut(name)).toBe(first);
+      expect(typeof first).toBe("string");
+    }
+    // Unknown multi-character names pass through lowercased, not rewritten.
+    expect(formatShortcut("Hyperspace")).toBe("hyperspace");
+    expect(formatShortcut("mod+NotAKey")).toBe(`${modPrefix}notakey`);
+    // Missing key: only the modifiers are shown.
+    expect(formatShortcut("mod+")).toBe(modPrefix);
+    expect(formatShortcut("")).toBe("");
+  });
+
   it("no UI string hard-codes a mac modifier glyph", () => {
     expect(Object.keys(sources)).toContain("./components/layout/TitleBar.tsx");
     const found = Object.entries(sources).flatMap(([f, src]) => glyphStrings(f, src));
