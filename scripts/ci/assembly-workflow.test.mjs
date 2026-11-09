@@ -99,3 +99,12 @@ test('Linux CI upgrades source URIs from its checked-out source before the uncha
   assert.match(step.run, /sudo apt-get "\$\{apt_opts\[@\]\}" update/);
   assert.doesNotMatch(step.run, /no-install-recommends/);
 });
+
+test('every setup-bun step pins an exact Bun version instead of resolving latest', () => {
+  for (const file of ['ci.yml', 'release.yml']) {
+    const text = readFileSync(new URL(`../../.github/workflows/${file}`, import.meta.url), 'utf8');
+    const pins = [...text.matchAll(/bun-version:\s*(\S+)/g)].map(m => m[1]);
+    assert.ok(pins.length >= 1, `${file} installs Bun`);
+    for (const pin of pins) assert.match(pin, /^\d+\.\d+\.\d+$/, `${file} must not float on ${pin}`);
+  }
+});
