@@ -58,6 +58,14 @@ describe("revealLine", () => {
       expect(blockForLine(12, body())?.textContent).toBe("End.");
     });
 
+    it("finds the fenced code block for lines inside it", () => {
+      const codeBlock = body().querySelector(".code-block")?.parentElement;
+      expect(codeBlock).not.toBeNull();
+      expect(codeBlock?.querySelector("pre")?.textContent).toContain("const a = 1;");
+      expect(blockForLine(8, body())).toBe(codeBlock);
+      expect(blockForLine(9, body())).toBe(codeBlock);
+    });
+
     it("scrolls to the block once it is rendered", async () => {
       vi.useFakeTimers();
       const seen: Element[] = [];

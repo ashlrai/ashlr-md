@@ -350,18 +350,24 @@ function heading(level: number, props: HeadingProps) {
 
 const components: Components = {
   // Replace the default <pre> with our themed code block / mermaid renderer.
-  pre({ children }) {
+  pre({ children, node }) {
     const child = Array.isArray(children) ? children[0] : children;
     if (isValidElement(child)) {
       const props = child.props as { className?: string; children?: ReactNode };
       const match = /language-([\w+#-]+)/.exec(props.className ?? "");
       const lang = match?.[1]?.toLowerCase() ?? "text";
       const code = textOf(props.children).replace(/\n$/, "");
-      if (lang === "mermaid") return <MermaidBlock code={code} />;
-      if (lang === "diff") return <DiffBlock code={code} />;
-      return <CodeBlock code={code} lang={lang} />;
+      const block =
+        lang === "mermaid" ? (
+          <MermaidBlock code={code} />
+        ) : lang === "diff" ? (
+          <DiffBlock code={code} />
+        ) : (
+          <CodeBlock code={code} lang={lang} />
+        );
+      return <div data-source-line={node?.properties?.dataSourceLine}>{block}</div>;
     }
-    return <pre>{children}</pre>;
+    return <pre data-source-line={node?.properties?.dataSourceLine}>{children}</pre>;
   },
   // Open links in a new context; strip the react-markdown `node` prop.
   // All non-wikilink, non-footnote anchors are wrapped in LinkPreviewPopover
