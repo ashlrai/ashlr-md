@@ -69,6 +69,25 @@ describe("undescribed image on the last line", () => {
   });
 });
 
+describe("two undescribed images on one line", () => {
+  it.each(["\n", "\r\n"])("fills both alt texts without changing destinations (%j)", (nl) => {
+    const rules = [ruleMissingAltText];
+    const doc = `Compare ![](images/chart%20one.png?size=2#preview) and ![](../map.svg?view=full#north).${nl}`;
+    const expected = `Compare ![TODO: describe image](images/chart%20one.png?size=2#preview) and ![TODO: describe image](../map.svg?view=full#north).${nl}`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+      "missing-alt-text",
+      "missing-alt-text",
+    ]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.replaceAll("TODO: describe image", "")).toBe(doc);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+});
+
 describe("undescribed image surrounded by Unicode prose", () => {
   it.each(["\n", "\r\n"])("preserves the prose exactly with %j line endings", (nl) => {
     const rules = [ruleMissingAltText];
