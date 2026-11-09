@@ -6612,6 +6612,17 @@ fn export_text_keeps_bracketed_numbers_at_the_start_of_a_paragraph() {
 }
 
 #[test]
+fn export_text_keeps_bracketed_numbers_in_prose() {
+    let expected = "The study [1] supports this finding.";
+    let result = run_export_text_on(expected);
+    assert_eq!(result["text"].as_str().unwrap(), expected);
+    assert_eq!(
+        result["char_count"].as_u64().unwrap() as usize,
+        expected.chars().count()
+    );
+}
+
+#[test]
 fn export_text_preserves_two_adjacent_literal_markers() {
     let result = run_export_text_on("[one] [two]");
     assert_eq!(result["text"].as_str().unwrap(), "[one] [two]");
