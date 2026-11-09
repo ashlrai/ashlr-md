@@ -19245,3 +19245,34 @@ fn export_text_keeps_a_bracketed_marker_alone_on_its_line() {
         );
     }
 }
+
+/// Adjacent `[sic]` and `[TODO]` stay bracketed across a space, a line break,
+/// a blank line and block shapes. A marker that has a reference definition is
+/// a real link and reads as its text; its undefined neighbour keeps brackets.
+#[test]
+fn export_text_keeps_adjacent_sic_and_todo_brackets_beside_definitions() {
+    for (markdown, expected) in [
+        ("A [sic] [TODO] b.\n\n[TODO]: /todo\n", "A [sic] TODO b."),
+        ("A [sic] [TODO] b.\n\n[sic]: /sic\n", "A sic [TODO] b."),
+        (
+            "A [sic]\n[TODO] b.\n\n[sic]: /sic\n[TODO]: /todo\n",
+            "A sic\nTODO b.",
+        ),
+        (
+            "A [TODO] [sic].\n\n[sic] [TODO]\n",
+            "A [TODO] [sic].\n\n[sic] [TODO]",
+        ),
+        (
+            "- [sic] [TODO]\n- [TODO] [sic]\n",
+            "[sic] [TODO]\n[TODO] [sic]",
+        ),
+        (
+            "> [sic][TODO]\n\n# [TODO][sic]\n",
+            "[sic][TODO]\n\n[TODO][sic]",
+        ),
+    ] {
+        let result = run_export_text_on(markdown);
+        assert_eq!(result["text"].as_str().unwrap(), expected, "{markdown:?}");
+        assert_eq!(strip_markdown(markdown), expected, "{markdown:?}");
+    }
+}
