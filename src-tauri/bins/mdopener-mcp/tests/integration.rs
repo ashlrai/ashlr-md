@@ -6672,6 +6672,7 @@ fn export_text_keeps_prose_brackets_beside_formatted_links() {
             "Review [TODO] beside the guide.",
         ),
         ("[TODO][guide](/guide)[TODO]\n", "[TODO]guide[TODO]"),
+        ("[guide](/guide)[draft]\n", "guide[draft]"),
         (
             "[café][**the guide**](/guide)[要確認]\n",
             "[café]the guide[要確認]",
