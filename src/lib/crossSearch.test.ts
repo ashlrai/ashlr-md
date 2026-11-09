@@ -190,6 +190,11 @@ describe("searchFiles — path filtering and early-return", () => {
     expect(out).toEqual([]);
   });
 
+  it("resolves without throwing when the document collection is empty", async () => {
+    await expect(searchFilesOrThrow([], "hello")).resolves.toEqual([]);
+    expect(invokeMock).not.toHaveBeenCalled();
+  });
+
   it("returns [] for empty paths even with a non-empty query", async () => {
     const out = await searchFiles([], "semantic search");
     expect(out).toEqual([]);
