@@ -11524,6 +11524,10 @@ fn export_text_keeps_sic_followed_by_punctuation_in_prose() {
 fn export_text_keeps_bracketed_prose_in_list_items() {
     for (markdown, expected) in [
         (
+            "- Please review [the migration plan] before Friday.\n",
+            "Please review [the migration plan] before Friday.",
+        ),
+        (
             "- The quote says 'definately [sic]' in [the report](/report).\n",
             "The quote says 'definately [sic]' in the report.",
         ),
