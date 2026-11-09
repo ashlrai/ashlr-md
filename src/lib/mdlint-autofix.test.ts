@@ -183,6 +183,24 @@ describe("invalid link beside ordinary text", () => {
   });
 });
 
+describe("invalid link beside a valid link", () => {
+  it.each([true, false])("fixes only the invalid link (invalid first: %s)", (invalidFirst) => {
+    const rules = [ruleInvalidLinkTarget];
+    const valid = '[reference](https://example.com/guide?lang=en#section "Guide")';
+    const invalid = "[draft](#)";
+    const doc = `${invalidFirst ? `${invalid} and ${valid}` : `${valid} and ${invalid}`}\n`;
+    const expected = doc.replace(invalid, "[draft](TODO)");
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain(valid);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
+
 describe("invalid link inside a fenced code block", () => {
   it.each(["\n", "\r\n"])("preserves the example while fixing a link outside the fence (%j)", (nl) => {
     const rules = [ruleInvalidLinkTarget];
