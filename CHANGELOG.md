@@ -12,11 +12,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
 Released 2026-06-06. [Release notes and downloads](https://github.com/ashlrai/ashlr-md/releases/tag/v0.4.0).
 <!-- fresh:end -->
 
-## Unreleased
+## [0.7.5] - 2026-11-09
 
 ### Fixed
 - Preserve Unicode letters and numbers in AI library retrieval queries, including short non-ASCII terms such as CJK words.
 - Align bundled CLI and MCP sidecar versions with the desktop version.
+- Retry a failed unsaved-buffer write (storage full or unavailable) on the next flush instead of treating it as saved.
 
 ### Added
 - Add living documentation checks and generated indexes for documentation and MCP event handlers.
