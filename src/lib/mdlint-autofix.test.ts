@@ -108,6 +108,21 @@ describe("invalid link beside ordinary text", () => {
   });
 });
 
+describe("invalid link inside a fenced code block", () => {
+  it.each(["\n", "\r\n"])("preserves the example while fixing a link outside the fence (%j)", (nl) => {
+    const rules = [ruleInvalidLinkTarget];
+    const example = ["```markdown", "[example]()", "```"].join(nl);
+    const doc = `${example}${nl}${nl}See [guide]() for details.${nl}`;
+    const expected = `${example}${nl}${nl}See [guide](TODO) for details.${nl}`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
+
 describe("invalid link surrounded by Unicode prose", () => {
   it.each(["\n", "\r\n"].flatMap((nl) => ["", "#", "?", " \t "].map((href) => [nl, href])))("preserves Unicode exactly with line ending %j and destination %j", (nl, href) => {
     const before = "👩🏽‍💻 Cafe\u0301 — 日本語：";
