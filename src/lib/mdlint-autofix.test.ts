@@ -295,6 +295,21 @@ describe("autofix preserves a valid link", () => {
   });
 });
 
+describe("autofix preserves a valid link beside ordinary bracketed prose", () => {
+  it.each(["\n", "\r\n"])("leaves both the link and the brackets unchanged (%j)", (nl) => {
+    const body = "He wrote [sic] and [1], then see [guide](./guide.md#intro) [TODO] later.";
+    const doc = ["---", "title: Notes", "---", "", body, ""].join(nl);
+    const rulesets = [{ rules: [ruleInvalidLinkTarget, ruleMissingAltText] }, undefined];
+
+    for (const options of rulesets) {
+      const violations = lintDocument(doc, options);
+
+      expect(violations).toEqual([]);
+      expect(applyAllFixes(doc, violations)).toBe(doc);
+    }
+  });
+});
+
 describe("invalid-link autofix preserves Unicode link text", () => {
   const rules = [ruleInvalidLinkTarget];
 
