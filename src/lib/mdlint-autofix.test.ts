@@ -167,6 +167,16 @@ describe("autofix preserves multiple bracketed prose annotations", () => {
   });
 });
 
+describe("autofix on a document without links or images", () => {
+  it.each(["\n", "\r\n"])("leaves ordinary Markdown unchanged (%j)", (nl) => {
+    const doc = ["---", "title: Notes", "---", "", "# Notes", "", "A paragraph with **emphasis**.", "", "- First item", "- Second item", ""].join(nl);
+    const violations = lintDocument(doc);
+
+    expect(violations).toEqual([]);
+    expect(applyAllFixes(doc, violations)).toBe(doc);
+  });
+});
+
 
 describe("autofix preserves a described image with an absolute URL", () => {
   it.each(["\n", "\r\n"])("leaves the image and surrounding text unchanged (%j)", (nl) => {
