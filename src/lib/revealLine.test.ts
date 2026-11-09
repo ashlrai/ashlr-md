@@ -84,6 +84,22 @@ describe("revealLine", () => {
       expect(blockForLine(0, body())).toBeNull();
     });
 
+    it("does not scroll for a negative line after all retries", async () => {
+      vi.useFakeTimers();
+      const scroll = vi.spyOn(Element.prototype, "scrollIntoView");
+      try {
+        expect(blockForLine(-5, body())).toBeNull();
+        revealLine(-5);
+        await act(async () => {
+          await vi.runAllTimersAsync();
+        });
+        expect(scroll).not.toHaveBeenCalled();
+      } finally {
+        scroll.mockRestore();
+        vi.useRealTimers();
+      }
+    });
+
     it("scrolls to the first block for line 1", async () => {
       vi.useFakeTimers();
       try {
