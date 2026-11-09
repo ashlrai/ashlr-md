@@ -18954,6 +18954,22 @@ fn export_text_keeps_unicode_brackets_for_the_open_document_over_ipc() {
     }
 }
 
+#[test]
+fn export_text_preserves_adjacent_bracketed_prose() {
+    let markdown = "The original reads [sic][TODO] here.\n";
+    let expected = "The original reads [sic][TODO] here.";
+    let result = run_export_text_on(markdown);
+    assert_eq!(result["text"], expected);
+
+    let ipc = MockIpc::new().on_get(
+        "/content",
+        Ok(json!({ "path": "/docs/test.md", "content": markdown })),
+    );
+    let response = tool_export_text(id(1), &json!({}), &ipc);
+    assert!(response.error.is_none());
+    assert_eq!(content_text(&response)["text"], expected);
+}
+
 /// Two bracketed prose spans split by inline syntax keep both pairs and their
 /// contents: inline code, strikethrough, a real link or image between them,
 /// an autolink, a hard break, a nested blockquote and a link whose text holds
