@@ -37,5 +37,8 @@ junit.xml
 # Private local release-assembly output
 /.release-staging/
 
+# Rust build output (src-tauri and standalone script crates)
+target/
+
 # Python bytecode caches
 __pycache__/
