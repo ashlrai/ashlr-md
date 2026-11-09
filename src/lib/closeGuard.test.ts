@@ -195,6 +195,21 @@ describe("decideClose", () => {
 });
 
 describe("installCloseGuard", () => {
+  it("closes a clean document without showing an unsaved-changes prompt", async () => {
+    const discard = vi.fn();
+    const stop = await installCloseGuard({ discard });
+    handler?.({ payload: 3 });
+    await flush();
+
+    expect(calls("close_guard_ack")).toEqual([["close_guard_ack", { id: 3 }]]);
+    expect(calls("close_guard_resolve")).toEqual([
+      ["close_guard_resolve", { id: 3, close: true }],
+    ]);
+    expect(messageMock).not.toHaveBeenCalled();
+    expect(discard).not.toHaveBeenCalled();
+    stop();
+  });
+
   it("reports unsaved state to Rust only once it listens, and on change", async () => {
     const stop = await installCloseGuard();
     expect(listenMock).toHaveBeenCalledWith(CLOSE_REQUEST_EVENT, expect.any(Function));
