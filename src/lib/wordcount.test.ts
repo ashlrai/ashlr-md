@@ -7,6 +7,16 @@ describe("computeDocStats", () => {
   });
 
   it.each([
+    ["multiple spaces", "one   two  three"],
+    ["tabs", "one\t\ttwo\tthree"],
+    ["line breaks", "one\ntwo\r\nthree"],
+    ["mixed whitespace", "one \t two\n\tthree"],
+    ["Unicode whitespace", "one\u00a0\u2003two\u2003three"],
+  ])("does not add words for %s between prose words", (_description, prose) => {
+    expect(computeDocStats(prose)).toEqual({ words: 3, minutes: 1 });
+  });
+
+  it.each([
     ["leading spaces", "  ", ""],
     ["trailing spaces", "", "  "],
     ["leading and trailing blank lines", "\n\n", "\n\n"],
