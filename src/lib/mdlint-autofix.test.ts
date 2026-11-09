@@ -616,6 +616,16 @@ describe("autofix: undescribed image next to a described image", () => {
       "![Logo](logo.png)![TODO: describe image](shot.png)\n",
     ],
     [
+      "same destination, described first",
+      "![Logo](logo.png)![](logo.png)\n",
+      "![Logo](logo.png)![TODO: describe image](logo.png)\n",
+    ],
+    [
+      "same destination, undescribed first",
+      "![](logo.png)![Logo](logo.png)\n",
+      "![TODO: describe image](logo.png)![Logo](logo.png)\n",
+    ],
+    [
       "separated by a blank line, CRLF",
       "![Logo](logo.png)\r\n\r\n![ ](shot.png)\r\n",
       "![Logo](logo.png)\r\n\r\n![TODO: describe image](shot.png)\r\n",
