@@ -6943,6 +6943,37 @@ fn export_text_keeps_brackets_on_repeated_sic_markers() {
     }
 }
 
+/// `[sic]` hard against punctuation on either side, with and without a
+/// space, keeps its brackets and the punctuation: sentence marks, quotes,
+/// dashes, an ellipsis, a slash, a colon after it and a fullwidth stop.
+#[test]
+fn export_text_keeps_sic_brackets_and_neighbouring_punctuation() {
+    for markdown in [
+        "He wrote teh[sic], then left.\n",
+        "He wrote teh [sic], then left.\n",
+        "Really[sic]? Yes[sic]! Fine[sic].\n",
+        "Said \"recieve [sic]\" and 'seperate[sic]'.\n",
+        "\u{201c}recieve [sic]\u{201d} and \u{2018}seperate [sic]\u{2019}.\n",
+        "Wait [sic]\u{2026} no [sic]\u{2014}yes [sic] - ok [sic]/fine.\n",
+        "Note [sic]: the spelling stands; see [sic]; or [sic].\n",
+        "([sic]) and {[sic]} and <[sic]>.\n",
+        "[sic], [sic]. [sic]! [sic]?\n",
+        "Mid-sentence [sic]; [sic]: [sic]\u{2026}\n",
+        "\u{8aa4}\u{690d} [sic]\u{3002}\u{ff01}\n",
+    ] {
+        let result = run_export_text_on(markdown);
+        let text = result["text"].as_str().unwrap();
+        let expected = markdown.trim_end_matches('\n');
+        assert_eq!(text, expected, "{markdown:?}");
+        assert_eq!(strip_markdown(markdown), expected, "{markdown:?}");
+        assert_eq!(
+            result["char_count"].as_u64().unwrap() as usize,
+            expected.chars().count(),
+            "{markdown:?}"
+        );
+    }
+}
+
 /// Repeated `[sic]` in block shapes the other cases leave out: ordered
 /// items, a nested list, a setext heading, inside a code span, escaped, and
 /// hard against punctuation.
