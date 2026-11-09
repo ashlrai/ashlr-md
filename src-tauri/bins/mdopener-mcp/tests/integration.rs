@@ -6588,6 +6588,12 @@ fn export_text_keeps_bracketed_numbers_at_the_start_of_a_paragraph() {
 }
 
 #[test]
+fn export_text_preserves_two_adjacent_literal_markers() {
+    let result = run_export_text_on("[one] [two]");
+    assert_eq!(result["text"].as_str().unwrap(), "[one] [two]");
+}
+
+#[test]
 fn export_text_preserves_adjacent_bracketed_words_in_prose() {
     let md = "Read [first] [second], then [third][fourth]. See [link](https://example.com).\n";
     let result = run_export_text_on(md);
