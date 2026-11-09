@@ -19,6 +19,10 @@ import { MarkdownEditor } from "./MarkdownEditor";
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const DATA_URL = "data:image/png;base64,AA==";
+// Booting Milkdown cold takes ~4.5s on a quiet machine, so the 5s default
+// timed out under CI coverage. The poll below still ends within ~1s once the
+// image resolves; this only bounds the editor boot.
+const EDITOR_BOOT_TIMEOUT_MS = 30_000;
 
 describe("WYSIWYG editor: images", () => {
   let host: HTMLDivElement;
@@ -62,17 +66,25 @@ describe("WYSIWYG editor: images", () => {
     return found;
   }
 
-  it("shows a relative image through Rust, relative to the document", async () => {
-    const found = await srcs("Text\n\n![pic](assets/my%20pic.png)\n");
-    expect(invoke).toHaveBeenCalledWith("read_image_data_url", {
-      path: "/v/notes/assets/my pic.png",
-    });
-    expect(found).toContain(DATA_URL);
-    expect(found.some((s) => s.startsWith("assets"))).toBe(false);
-  });
+  it(
+    "shows a relative image through Rust, relative to the document",
+    async () => {
+      const found = await srcs("Text\n\n![pic](assets/my%20pic.png)\n");
+      expect(invoke).toHaveBeenCalledWith("read_image_data_url", {
+        path: "/v/notes/assets/my pic.png",
+      });
+      expect(found).toContain(DATA_URL);
+      expect(found.some((s) => s.startsWith("assets"))).toBe(false);
+    },
+    EDITOR_BOOT_TIMEOUT_MS,
+  );
 
-  it("shows a web image as written", async () => {
-    const found = await srcs("![web](https://example.com/a.png)\n");
-    expect(found).toContain("https://example.com/a.png");
-  });
+  it(
+    "shows a web image as written",
+    async () => {
+      const found = await srcs("![web](https://example.com/a.png)\n");
+      expect(found).toContain("https://example.com/a.png");
+    },
+    EDITOR_BOOT_TIMEOUT_MS,
+  );
 });
