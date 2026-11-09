@@ -58,6 +58,22 @@ describe("frontmatter", () => {
     expect(joinFrontmatter(frontmatter, body)).toBe(raw);
   });
 
+  it("preserves Unicode in frontmatter and body with their original line endings", () => {
+    for (const [opening, metadata, closing, bodyBreak] of [
+      ["\n", "\n", "\n", "\n"],
+      ["\r\n", "\r\n", "\r\n", "\r\n"],
+      ["\r\n", "\n", "\r\n", "\n"],
+    ]) {
+      const frontmatter = `\uFEFF---${opening}title: café e\u0301 日本語 🧑‍💻${metadata}---${closing}`;
+      const body = `# مرحبا 🌍${bodyBreak}漢字 and 🚀 e\u0301${bodyBreak}`;
+      const raw = frontmatter + body;
+
+      expect(splitFrontmatter(raw)).toEqual({ frontmatter, body });
+      const split = splitFrontmatter(raw);
+      expect(joinFrontmatter(split.frontmatter, split.body)).toBe(raw);
+    }
+  });
+
   it("preserves the final newline when frontmatter has an empty body", () => {
     for (const newline of ["\n", "\r\n"]) {
       const raw = ["---", "title: X", "---", ""].join(newline);
