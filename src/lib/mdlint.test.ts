@@ -636,6 +636,26 @@ describe("rule:no-consecutive-blank-lines", () => {
 
 describe("rule:missing-alt-text", () => {
   it.each([
+    "\n",
+    "\r\n",
+  ])("reports the image location with %j line endings", (newline) => {
+    const prefix = `Introduction.${newline}See `;
+    const image = "![](clouds.png)";
+    const doc = `${prefix}${image} for details.${newline}`;
+    const violations = lintDocument(doc).filter((v) => v.ruleId === "missing-alt-text");
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0]).toMatchObject({
+      message: "Image is missing alt text: clouds.png",
+      severity: "warning",
+      range: {
+        from: { offset: prefix.length, line: 2, col: 4 },
+        to: { offset: prefix.length + image.length, line: 2, col: 4 + image.length },
+      },
+    });
+  });
+
+  it.each([
     "A red kite above a field",
     "  A red kite above a field  ",
   ])("accepts descriptive alt text %j while reporting empty alt text", (alt) => {
