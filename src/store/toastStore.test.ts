@@ -60,7 +60,7 @@ describe("toastStore", () => {
     expect(remaining.map((toast) => toast.id)).toEqual([firstId, lastId]);
     expect(vi.getTimerCount()).toBe(1);
 
-    useToastStore.getState().dismiss(dismissedId);
+    expect(() => useToastStore.getState().dismiss(dismissedId)).not.toThrow();
     expect(useToastStore.getState().toasts).toEqual(remaining);
     expect(vi.getTimerCount()).toBe(1);
 
