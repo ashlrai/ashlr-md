@@ -6846,6 +6846,26 @@ fn export_text_keeps_brackets_on_repeated_sic_markers() {
     }
 }
 
+/// Repeated `[sic]` in block shapes the other cases leave out: ordered
+/// items, a nested list, a setext heading, inside a code span, escaped, and
+/// hard against punctuation.
+#[test]
+fn export_text_keeps_both_sic_brackets_in_more_block_shapes() {
+    for (markdown, expected) in [
+        ("1. a [sic]\n2. b [sic]\n", "a [sic]\nb [sic]"),
+        ("- a [sic]\n  - b [sic]\n", "a [sic]\nb [sic]"),
+        ("Head [sic] one [sic]\n===\n", "Head [sic] one [sic]"),
+        ("(a [sic]) and \"b [sic]\"\n", "(a [sic]) and \"b [sic]\""),
+        ("x `[sic]` y [sic]\n", "x [sic] y [sic]"),
+        ("\\[sic] then [sic]\n", "[sic] then [sic]"),
+    ] {
+        let result = run_export_text_on(markdown);
+        let text = result["text"].as_str().unwrap();
+        assert_eq!(text, expected, "{markdown:?}");
+        assert_eq!(text.matches("[sic]").count(), 2, "{markdown:?}");
+    }
+}
+
 /// Bracketed prose inside a blockquote keeps its brackets and words: nested
 /// quotes, lazy continuation, a phrase wrapped over quoted lines, emphasis
 /// inside the brackets, a link beside them, and a quote after a paragraph.
