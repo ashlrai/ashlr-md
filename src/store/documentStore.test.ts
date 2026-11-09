@@ -222,6 +222,32 @@ describe("documentStore", () => {
     expect(s.activeId).toBe(s.tabs[1].id);
   });
 
+  it("updating one open document leaves the other document unchanged", async () => {
+    readReturnsByPath();
+    await useDocumentStore.getState().openPath("/a.md");
+    useDocumentStore.getState().setContent("unsaved A");
+    useDocumentStore.getState().setViewMode("source");
+    await useDocumentStore.getState().openPath("/b.md");
+
+    const before = useDocumentStore.getState();
+    const otherDocument = structuredClone(before.tabs[0]);
+    const activeId = before.activeId;
+    useDocumentStore.getState().setContent("updated B");
+
+    const after = useDocumentStore.getState();
+    expect(after.tabs).toHaveLength(2);
+    expect(after.tabs[0]).toEqual(otherDocument);
+    expect(after.activeId).toBe(activeId);
+    expect(after.tabs[1].content).toBe("updated B");
+    expect(after.tabs[1].isDirty).toBe(true);
+    expect(after.content).toBe("updated B");
+
+    useDocumentStore.getState().switchTab(otherDocument.id);
+    expect(useDocumentStore.getState().content).toBe("unsaved A");
+    expect(useDocumentStore.getState().isDirty).toBe(true);
+    expect(useDocumentStore.getState().viewMode).toBe("source");
+  });
+
   it("opening an already-open path switches without reloading", async () => {
     readReturnsByPath();
     await useDocumentStore.getState().openPath("/a.md");
