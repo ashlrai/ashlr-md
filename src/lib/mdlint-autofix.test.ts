@@ -948,6 +948,11 @@ describe("autofix: undescribed image next to a described image", () => {
       "![TODO: describe image](logo.png)![Logo](logo.png)\n",
     ],
     [
+      "adjacent images with whitespace-only alt and CRLF",
+      '![Logo](logo.png "Logo")![ \t](logo.png "Logo")\r\n',
+      '![Logo](logo.png "Logo")![TODO: describe image](logo.png "Logo")\r\n',
+    ],
+    [
       "separated by a blank line, CRLF",
       "![Logo](logo.png)\r\n\r\n![ ](shot.png)\r\n",
       "![Logo](logo.png)\r\n\r\n![TODO: describe image](shot.png)\r\n",
