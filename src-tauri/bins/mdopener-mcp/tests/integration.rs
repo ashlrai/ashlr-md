@@ -6649,6 +6649,52 @@ fn export_text_preserves_consecutive_bracketed_fragments_and_intervening_prose()
     }
 }
 
+/// Three or more bracketed prose fragments in one document keep every
+/// fragment and its brackets, in source order, across block shapes: ordered and
+/// task lists, a setext heading, a table row, emphasis and a link between them.
+#[test]
+fn export_text_keeps_every_bracketed_fragment_in_order_across_block_shapes() {
+    for (markdown, fragments) in [
+        (
+            "1. [first]\n2. [second]\n3. [third]\n",
+            vec!["[first]", "[second]", "[third]"],
+        ),
+        (
+            "Setext [one]\n============\n\nBody [two] and [three].\n",
+            vec!["[one]", "[two]", "[three]"],
+        ),
+        (
+            "| a | b |\n|---|---|\n| [x] | [y] |\n| [z] | w |\n",
+            vec!["[x]", "[y]", "[z]"],
+        ),
+        (
+            "*[em]* then [a link](https://example.com) then **[strong]** and [tail]\n",
+            vec!["[em]", "[strong]", "[tail]"],
+        ),
+        (
+            "[alpha] one.\n\n> [beta] two.\n\n- [gamma] three.\n\n[delta] four.\n",
+            vec!["[alpha]", "[beta]", "[gamma]", "[delta]"],
+        ),
+    ] {
+        let result = run_export_text_on(markdown);
+        let text = result["text"].as_str().unwrap();
+        let mut from = 0;
+        for fragment in &fragments {
+            let at = text[from..]
+                .find(fragment)
+                .unwrap_or_else(|| panic!("{fragment} missing or out of order in {text:?}"));
+            from += at + fragment.len();
+        }
+        assert_eq!(
+            text.matches('[').count(),
+            fragments.len(),
+            "{markdown:?} -> {text:?}"
+        );
+        assert_eq!(text.matches(']').count(), fragments.len(), "{text:?}");
+        assert_eq!(strip_markdown(markdown).trim(), text, "{markdown:?}");
+    }
+}
+
 #[test]
 fn export_text_keeps_prose_brackets_beside_formatted_links() {
     for (markdown, expected) in [
