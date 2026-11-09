@@ -1145,6 +1145,22 @@ describe("rule:orphaned-heading", () => {
     ).toBe(true);
   });
 
+  it.each(["\n", "\r\n"])("reports each consecutive orphan without a fix (%j)", (nl) => {
+    const doc = ["Intro.", "", "# First", "", "", "## Second", "", "### Third", "", "Body.", ""].join(nl);
+    const violations = lintDocument(doc, { rules: [ruleOrphanedHeading] });
+
+    expect(violations.map(({ ruleId, range, fix }) => ({
+      ruleId,
+      line: range?.from.line,
+      fix,
+    }))).toEqual([
+      { ruleId: "orphaned-heading", line: 3, fix: null },
+      { ruleId: "orphaned-heading", line: 6, fix: null },
+    ]);
+    for (const violation of violations) expect(applyFix(doc, violation)).toBe(doc);
+    expect(applyAllFixes(doc, violations)).toBe(doc);
+  });
+
   it("has no autofix (user must add content or remove heading)", () => {
     const doc = "# Title\n\n## Section\n\nBody.\n";
     const violations = lintDocument(doc, { rules: [ruleOrphanedHeading] });
