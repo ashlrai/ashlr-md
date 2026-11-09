@@ -110,6 +110,23 @@ describe("autofix preserves [TODO] in prose", () => {
 });
 
 describe("invalid-link autofix across separate lines", () => {
+  it.each(["\n", "\r\n"])("fixes every invalid destination across paragraphs with default rules (%j)", (nl) => {
+    const doc = `---${nl}title: Guide${nl}---${nl}${nl}Read [draft]() before [guide](./guide.md).${nl}${nl}Then compare [draft](   ) with [notes](#) and [end](?).${nl}`;
+    const expected = `---${nl}title: Guide${nl}---${nl}${nl}Read [draft](TODO) before [guide](./guide.md).${nl}${nl}Then compare [draft](TODO) with [notes](TODO) and [end](TODO).${nl}`;
+    const violations = lintDocument(doc);
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+      "invalid-link-target",
+      "invalid-link-target",
+      "invalid-link-target",
+      "invalid-link-target",
+    ]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed)).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed))).toBe(fixed);
+  });
+
   it("repairs both repeated links while preserving mixed line breaks and prose", () => {
     const rules = [ruleInvalidLinkTarget];
     const doc = "Before [draft]() first.\r\nBetween lines.\nAfter [draft]() last.\r\n";
