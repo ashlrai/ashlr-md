@@ -75,6 +75,23 @@ describe("invalid link beside ordinary text", () => {
   });
 });
 
+describe("invalid link surrounded by Unicode prose", () => {
+  it.each(["\n", "\r\n"])("preserves Unicode exactly while replacing the destination (%j)", (nl) => {
+    const before = "👩🏽‍💻 Cafe\u0301 — 日本語：";
+    const after = "؛ مرحبا 🌍 e\u0301 fin";
+    const doc = `${before}[guide](?)${after}${nl}`;
+    const expected = `${before}[guide](TODO)${after}${nl}`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
+
 describe("autofix preserves multiple bracketed prose annotations", () => {
   it.each(["\n", "\r\n"])("leaves [sic] [TODO] [1] unchanged when no fix applies (%j)", (nl) => {
     const doc = ["---", "title: Notes", "---", "", "The annotations [sic] [TODO] [1] remain prose.", ""].join(nl);
