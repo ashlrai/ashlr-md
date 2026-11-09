@@ -621,7 +621,7 @@ describe("autofix: invalid link inside a heading", () => {
     // The href is now exactly TODO, and the label and heading text are untouched.
     expect(fixed).toContain("[the guide](TODO)");
     expect(fixed).not.toContain("[the guide]()");
-    expect(fixed).toContain(headPrefix + "[the guide]");
+    expect(fixed).toContain(`${headPrefix}[the guide]`);
     expect(fixed).toContain(`(TODO)${headSuffix}`);
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
