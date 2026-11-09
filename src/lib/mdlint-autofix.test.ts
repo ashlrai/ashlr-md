@@ -91,10 +91,10 @@ describe("invalid link beside ordinary text", () => {
 });
 
 describe("invalid link surrounded by Unicode prose", () => {
-  it.each(["\n", "\r\n"])("preserves Unicode exactly while replacing the destination (%j)", (nl) => {
+  it.each(["\n", "\r\n"].flatMap((nl) => ["", "#", "?", " \t "].map((href) => [nl, href])))("preserves Unicode exactly with line ending %j and destination %j", (nl, href) => {
     const before = "👩🏽‍💻 Cafe\u0301 — 日本語：";
     const after = "؛ مرحبا 🌍 e\u0301 fin";
-    const doc = `${before}[guide](?)${after}${nl}`;
+    const doc = `${before}[guide](${href})${after}${nl}`;
     const expected = `${before}[guide](TODO)${after}${nl}`;
     const rules = [ruleInvalidLinkTarget];
     const violations = lintDocument(doc, { rules });
