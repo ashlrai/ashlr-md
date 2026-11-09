@@ -115,6 +115,26 @@ describe("documentStore", () => {
     expect(invokeMock).toHaveBeenCalledWith("watch_file", { path: "/a.md" });
   });
 
+  it("stores and retrieves an empty document as content", async () => {
+    readReturns("");
+    await useDocumentStore.getState().openPath("/a.md");
+
+    let state = useDocumentStore.getState();
+    expect(state.content).toBe("");
+    expect(state.diskContent).toBe("");
+    expect(state.tabs[0].content).toBe("");
+    expect(state.missing).toBe(false);
+    expect(state.isDirty).toBe(false);
+
+    state.setContent("draft");
+    state.setContent("");
+    state = useDocumentStore.getState();
+    expect(state.content).toBe("");
+    expect(state.tabs[0].content).toBe("");
+    expect(state.isDirty).toBe(false);
+    expect(state.missing).toBe(false);
+  });
+
   it("marks dirty on edit and clean again on save", async () => {
     readReturns("x");
     await useDocumentStore.getState().openPath("/a.md");
