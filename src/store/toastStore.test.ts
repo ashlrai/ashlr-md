@@ -120,6 +120,28 @@ describe("toastStore", () => {
     expect(useToastStore.getState().toasts).toHaveLength(0);
   });
 
+  it("does not reuse cleared IDs or let stale dismissals affect new toasts", () => {
+    const staleIds = [
+      useToastStore.getState().push({ message: "old", timeout: 500 }),
+      useToastStore.getState().push({ message: "old sticky", timeout: 0 }),
+    ];
+    useToastStore.getState().clear();
+    expect(vi.getTimerCount()).toBe(0);
+
+    const newId = useToastStore.getState().push({ message: "new", timeout: 1000 });
+    expect(staleIds).not.toContain(newId);
+    for (const id of staleIds) useToastStore.getState().dismiss(id);
+    expect(useToastStore.getState().toasts).toEqual([
+      expect.objectContaining({ id: newId, message: "new" }),
+    ]);
+    expect(vi.getTimerCount()).toBe(1);
+
+    vi.advanceTimersByTime(500);
+    expect(useToastStore.getState().toasts.map((toast) => toast.id)).toEqual([newId]);
+    vi.advanceTimersByTime(500);
+    expect(useToastStore.getState().toasts).toEqual([]);
+  });
+
   // ── Auto-dismiss ────────────────────────────────────────────────────────
 
   it("auto-dismisses after the default 2500 ms timeout", () => {
