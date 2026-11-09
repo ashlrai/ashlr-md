@@ -288,6 +288,13 @@ describe("imageSource", () => {
     expect(imageSource(".cache/x.png", doc).kind).toBe("blocked");
     expect(imageSource("x.png", null).kind).toBe("blocked");
   });
+
+  it("refuses a local non-image file even when its query names an image", () => {
+    expect(imageSource("assets/report.pdf?preview=cover.png", doc)).toEqual({
+      kind: "blocked",
+      reason: "Not an image type Ashlr MD shows.",
+    });
+  });
 });
 
 describe("resolveFromDocument on Windows paths", () => {
