@@ -201,6 +201,20 @@ describe("applyLinkExport", () => {
     expect(useUiStore.getState().exportOpen).toBe(false);
   });
 
+  it("returns no result and leaves a document without links unchanged", async () => {
+    const content = "# Notes\n\nPlain prose with no links.\n";
+    useDocumentStore.setState({ content });
+    invokeMock.mockResolvedValue(null);
+
+    await expect(applyLinkExport("/notes/a.md")).resolves.toBeUndefined();
+    expect(invokeMock).toHaveBeenCalledTimes(1);
+    expect(invokeMock).toHaveBeenCalledWith("take_link_export", {
+      path: "/notes/a.md",
+    });
+    expect(useDocumentStore.getState().content).toBe(content);
+    expect(useUiStore.getState().exportOpen).toBe(false);
+  });
+
   it("does not export another active document", async () => {
     invokeMock.mockResolvedValue("pdf");
     await applyLinkExport("/notes/b.md");
