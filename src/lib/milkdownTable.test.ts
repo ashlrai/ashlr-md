@@ -190,9 +190,36 @@ describe("insertTableTransaction", () => {
     expect(inserted?.child(0).child(1).textContent).toBe("Value");
   });
 
-  it("preserves column alignments when inserting and serializing a parsed table", async () => {
-    const source =
-      "| Left | Center | Right |\n| :--- | :---: | ---: |\n| one | two | three |";
+  it.each([
+    {
+      name: "column alignments",
+      source:
+        "| Left | Center | Right |\n| :--- | :---: | ---: |\n| one | two | three |",
+      expected: {
+        headers: ["Left", "Center", "Right"],
+        alignments: ["left", "center", "right"],
+        rows: [["one", "two", "three"]],
+      },
+    },
+    {
+      name: "empty cells in every position",
+      source:
+        "| Left | Center | Right |\n| :--- | :---: | ---: |\n| | middle | end |\n| start | | end |\n| start | middle | |\n| | | |",
+      expected: {
+        headers: ["Left", "Center", "Right"],
+        alignments: ["left", "center", "right"],
+        rows: [
+          ["<br />", "middle", "end"],
+          ["start", "<br />", "end"],
+          ["start", "middle", "<br />"],
+          ["<br />", "<br />", "<br />"],
+        ],
+      },
+    },
+  ])("preserves $name when inserting and serializing a parsed table", async ({
+    source,
+    expected,
+  }) => {
     const root = document.createElement("div");
     document.body.appendChild(root);
     // Milkdown leaves initialization timeouts queued even after they resolve.
@@ -208,15 +235,30 @@ describe("insertTableTransaction", () => {
         const transaction = insertTableTransaction(view.state, parsed);
         if (!transaction) throw new Error("Could not insert table");
         view.dispatch(transaction);
-        return ctx.get(serializerCtx)(view.state.doc);
+        const saved = ctx.get(serializerCtx)(view.state.doc);
+        const reparsed = ctx.get(parserCtx)(saved);
+        if (!reparsed) throw new Error("Could not reparse table");
+        const parsedTable = reparsed.lastChild;
+        expect(parsedTable?.type.name).toBe("table");
+        const cells: string[][] = [];
+        parsedTable?.forEach((row) => {
+          const values: string[] = [];
+          row.forEach((cell) => {
+            values.push(cell.textContent);
+          });
+          cells.push(values);
+        });
+        expect(cells).toEqual([
+          expected.headers,
+          ...expected.rows.map((row) =>
+            row.map((cell) => (cell === "<br />" ? "" : cell)),
+          ),
+        ]);
+        return saved;
       });
       const table = findTableRange(saved, saved.indexOf("| Left"));
       expect(table).not.toBeNull();
-      expect(parseTable(table?.source ?? "")).toEqual({
-        headers: ["Left", "Center", "Right"],
-        alignments: ["left", "center", "right"],
-        rows: [["one", "two", "three"]],
-      });
+      expect(parseTable(table?.source ?? "")).toEqual(expected);
     } finally {
       try {
         await crepe.destroy();
