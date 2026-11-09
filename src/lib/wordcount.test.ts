@@ -115,6 +115,16 @@ describe("computeDocStats", () => {
     expect(computeDocStats("run `npm install foo bar` now").words).toBe(2);
   });
 
+  it("counts prose around multiple inline-code spans in one paragraph", () => {
+    const md =
+      "Run `npm install packages` before `npm run build` and check `build output` afterward";
+    expect(computeDocStats(md)).toEqual({ words: 5, minutes: 1 });
+    expect(computeDocStats("`first hidden words` `second hidden words`")).toEqual({
+      words: 0,
+      minutes: 0,
+    });
+  });
+
   it("reports zero words and minutes for inline code only", () => {
     expect(computeDocStats("`npm install foo bar`")).toEqual({ words: 0, minutes: 0 });
   });
