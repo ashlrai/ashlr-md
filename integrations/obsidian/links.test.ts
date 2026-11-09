@@ -23,6 +23,12 @@ describe("buildUrl", () => {
 		assert.equal(buildUrl("/a.md", "edit"), "mdopener://open?path=%2Fa.md&mode=edit");
 	});
 
+	it("keeps the absolute note target when the link has an empty fragment", () => {
+		const url = new URL(`${buildUrl("/My Vault/note.md")}#`);
+		assert.equal(url.hash, "");
+		assert.equal(url.searchParams.get("path"), "/My Vault/note.md");
+	});
+
 	it("keeps spaces in a link target: encoded as %20, never dropped or turned into +", () => {
 		const target = "/My Vault/Meeting  Notes 2026 final.md";
 		const url = buildUrl(target, "edit");
