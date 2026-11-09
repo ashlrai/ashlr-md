@@ -12,7 +12,7 @@ const renderers = {
   runbook: parseRunbook,
 };
 
-export interface KindDefinition {
+interface KindDefinition {
   name: string;
   renderer: keyof typeof renderers;
   frontmatter: Record<string, string>;

@@ -23,7 +23,7 @@ import { listItem, markdownLines } from "../outline";
 // ---------------------------------------------------------------------------
 
 /** A single file summary entry from the "## Files Changed" section. */
-export interface FileSummary {
+interface FileSummary {
   /** File path as written in the document (e.g. `src/lib/foo.ts`). */
   path: string;
   /** Short description/summary for the file change (may be empty). */
@@ -33,7 +33,7 @@ export interface FileSummary {
 }
 
 /** A single feedback annotation (a comment, suggestion, or note). */
-export interface FeedbackAnnotation {
+interface FeedbackAnnotation {
   /** The heading or bold-lead text that introduced this annotation. */
   label: string;
   /** Full body text of the annotation. */
