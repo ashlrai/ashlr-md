@@ -19145,3 +19145,39 @@ fn export_text_keeps_bracketed_prose_at_the_beginning_of_a_paragraph() {
     assert!(text.starts_with("[draft] "), "{text:?}");
     assert!(text.contains("please review this paragraph."), "{text:?}");
 }
+
+/// Regression: a `[TODO]` marker alone on its line stays bracketed whatever
+/// surrounds that line — text above or below, blank lines, CRLF endings,
+/// up to three spaces of indent, a trailing hard break, or a link nearby —
+/// for both the file path and the open-document IPC path.
+#[test]
+fn export_text_keeps_a_bracketed_marker_alone_on_its_line() {
+    let cases = [
+        (
+            "Intro line\n[TODO]\nOutro line\n",
+            "Intro line\n[TODO]\nOutro line",
+        ),
+        ("Intro\n\n[TODO]\n\nOutro\n", "Intro\n\n[TODO]\n\nOutro"),
+        ("Intro\r\n[TODO]\r\nOutro\r\n", "Intro\n[TODO]\nOutro"),
+        ("   [TODO]\n", "[TODO]"),
+        ("[TODO]\\\nnext line\n", "[TODO]\nnext line"),
+        ("[TODO]\n[link](https://example.com)\n", "[TODO]\nlink"),
+        ("[a link](https://example.com)\n[TODO]\n", "a link\n[TODO]"),
+        ("[TODO]\n\n[TODO]\n", "[TODO]\n\n[TODO]"),
+    ];
+    for (markdown, expected) in cases {
+        let result = run_export_text_on(markdown);
+        assert_eq!(result["text"].as_str().unwrap(), expected, "{markdown:?}");
+        let ipc = MockIpc::new().on_get(
+            "/content",
+            Ok(json!({ "path": "/docs/test.md", "content": markdown })),
+        );
+        let response = tool_export_text(id(3), &json!({}), &ipc);
+        assert!(response.error.is_none(), "{markdown:?}");
+        assert_eq!(
+            content_text(&response)["text"].as_str().unwrap(),
+            expected,
+            "ipc {markdown:?}"
+        );
+    }
+}
