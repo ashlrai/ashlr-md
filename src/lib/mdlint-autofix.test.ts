@@ -444,6 +444,35 @@ describe("autofix preserves a valid link", () => {
   });
 });
 
+describe("autofix repairs an invalid link next to a valid link", () => {
+  const rules = [ruleInvalidLinkTarget];
+
+  it.each([
+    ["valid link first", "[docs](./docs.md) and [guide](#)", "[docs](./docs.md) and [guide](TODO)"],
+    ["invalid link first", "[guide]() and [docs](./docs.md)", "[guide](TODO) and [docs](./docs.md)"],
+    [
+      "adjacent, no separator",
+      "[docs](https://example.com/a)[guide]()",
+      "[docs](https://example.com/a)[guide](TODO)",
+    ],
+    ["valid anchor link between invalid links", "[a]() [b](#top) [c](?)", "[a](TODO) [b](#top) [c](TODO)"],
+  ])("%s", (_name, line, expectedLine) => {
+    for (const nl of ["\n", "\r\n"]) {
+      const doc = `${line}${nl}`;
+      const expected = `${expectedLine}${nl}`;
+      const violations = lintDocument(doc, { rules });
+
+      // Only the broken hrefs are flagged; the valid link is never touched.
+      expect(violations.every(({ ruleId }) => ruleId === "invalid-link-target")).toBe(true);
+      expect(violations.length).toBe((line.match(/\]\((?:|#|\?)\)/g) ?? []).length);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+      expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+    }
+  });
+});
+
 describe("autofix preserves a valid link beside ordinary bracketed prose", () => {
   it.each(["\n", "\r\n"])("leaves both the link and the brackets unchanged (%j)", (nl) => {
     const body = "He wrote [sic] and [1], then see [guide](./guide.md#intro) [TODO] later.";
