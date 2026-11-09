@@ -50,7 +50,7 @@ describe("document link extraction", () => {
     const processor = unified().use(remarkParse).use(remarkWikilinks);
     const tree = processor.runSync(
       processor.parse(
-        "[First](zeta.md) then [[Alpha#Section|alias]] and [Third][ref].\n\n" +
+        "[First](zeta.md#Details) then [[Alpha#Section|alias]] and [Third][ref].\n\n" +
           "![[Middle]] followed by [Last](beta.md).\n\n[ref]: gamma.md\n",
       ),
     );
@@ -61,7 +61,7 @@ describe("document link extraction", () => {
       }
     });
     expect(links).toEqual([
-      expect.objectContaining({ type: "link", url: "zeta.md" }),
+      expect.objectContaining({ type: "link", url: "zeta.md#Details" }),
       expect.objectContaining({
         type: "wikilink",
         data: expect.objectContaining({
@@ -113,6 +113,7 @@ describe("document link extraction", () => {
     ).toMatchObject({
       kind: "document",
       path: "/vault/My Note.md",
+      fragment: "Part 2",
     });
   });
 });
