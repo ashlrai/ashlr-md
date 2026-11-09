@@ -120,6 +120,20 @@ describe("applyLinkExport", () => {
     expect(useUiStore.getState().exportOpen).toBe(false);
   });
 
+  it("returns an empty result for empty input without throwing", async () => {
+    // Empty path, and the backend has no pending export for it.
+    useDocumentStore.setState({ path: "" });
+    invokeMock.mockResolvedValue(null);
+    await expect(applyLinkExport("")).resolves.toBeUndefined();
+    expect(invokeMock).toHaveBeenCalledWith("take_link_export", { path: "" });
+    expect(useUiStore.getState().exportOpen).toBe(false);
+
+    // Empty format string is not a format, even for the matching path.
+    invokeMock.mockResolvedValue("");
+    await expect(applyLinkExport("")).resolves.toBeUndefined();
+    expect(useUiStore.getState().exportOpen).toBe(false);
+  });
+
   it("ignores an unknown format and a failed call", async () => {
     invokeMock.mockResolvedValue("md");
     await applyLinkExport("/notes/a.md");
