@@ -18,10 +18,19 @@ Released 2026-06-06. [Release notes and downloads](https://github.com/ashlrai/as
 - Preserve Unicode letters and numbers in AI library retrieval queries, including short non-ASCII terms such as CJK words.
 - Align bundled CLI and MCP sidecar versions with the desktop version.
 - Retry a failed unsaved-buffer write (storage full or unavailable) on the next flush instead of treating it as saved.
+- Point the README star badge and link at the repository page.
 
 ### Added
 - Add living documentation checks and generated indexes for documentation and MCP event handlers.
 - Check freshness blocks against a separately verified published-release receipt.
+- Add the historical Windows qualification proposal to `llms.txt` and the landing page index, and remove stray planning notes from the repository root.
+- Add a `.devin/wiki.json` DeepWiki configuration.
+
+### Changed
+- Remove unused exports and a stale comment from the runbook, review and spec renderers, and tidy the invalid-link autofix replacement. Behaviour is unchanged.
+
+### Tests
+- Cover consecutive documentation fixture index additions in the link checker, and unsaved-buffer write-failure retry.
 
 ## [0.7.4] - 2026-11-07
 

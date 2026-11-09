@@ -47,6 +47,49 @@ describe("invalid link beside ordinary text", () => {
   });
 });
 
+describe("autofix preserves multiple bracketed prose annotations", () => {
+  it.each(["\n", "\r\n"])("leaves [sic] [TODO] [1] unchanged when no fix applies (%j)", (nl) => {
+    const doc = ["---", "title: Notes", "---", "", "The annotations [sic] [TODO] [1] remain prose.", ""].join(nl);
+    const violations = lintDocument(doc);
+
+    expect(violations).toEqual([]);
+    expect(applyAllFixes(doc, violations)).toBe(doc);
+  });
+});
+
+
+describe("autofix preserves a described image with an absolute URL", () => {
+  it.each(["\n", "\r\n"])("leaves the image and surrounding text unchanged (%j)", (nl) => {
+    const rules = [ruleInvalidLinkTarget, ruleMissingAltText];
+    const image = '![Revenue chart](https://example.com/images/chart.png?year=2026#overview "Results")';
+    const doc = `Before ${image}, see [report]() after.${nl}`;
+    const expected = `Before ${image}, see [report](TODO) after.${nl}`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+    expect(applyAllFixes(expected, lintDocument(expected, { rules }))).toBe(expected);
+  });
+});
+
+
+describe("invalid-link autofix with a whitespace-only href", () => {
+  it.each([" ", "  \t "])("replaces %j with TODO and preserves the label", (href) => {
+    const rules = [ruleInvalidLinkTarget];
+    const doc = `Read [**the guide**](${href}) now.\n`;
+    const expected = "Read [**the guide**](TODO) now.\n";
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
+
+
 describe("autofix preserves [sic] in prose", () => {
   it.each(["\n", "\r\n"])("preserves prose beside an undescribed image (%j)", (nl) => {
     const rules = [ruleInvalidLinkTarget, ruleMissingAltText];
@@ -81,6 +124,23 @@ describe("autofix preserves [sic] in prose", () => {
 });
 
 describe("autofix preserves [TODO] in prose", () => {
+  it.each([
+    "",
+    "#",
+    "?",
+  ])("preserves prose notes on both sides of an invalid href %j", (href) => {
+    const rules = [ruleInvalidLinkTarget];
+    const doc = `Before [TODO], see [draft](${href}); after [TODO].\n`;
+    const expected = "Before [TODO], see [draft](TODO); after [TODO].\n";
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
   it.each([
     "\n",
     "\r\n",
@@ -159,6 +219,23 @@ describe("autofix preserves [TODO] in prose", () => {
 });
 
 describe("invalid-link autofix across separate lines", () => {
+  it.each(["\n", "\r\n"])("fixes every invalid destination across paragraphs with default rules (%j)", (nl) => {
+    const doc = `---${nl}title: Guide${nl}---${nl}${nl}Read [draft]() before [guide](./guide.md).${nl}${nl}Then compare [draft](   ) with [notes](#) and [end](?).${nl}`;
+    const expected = `---${nl}title: Guide${nl}---${nl}${nl}Read [draft](TODO) before [guide](./guide.md).${nl}${nl}Then compare [draft](TODO) with [notes](TODO) and [end](TODO).${nl}`;
+    const violations = lintDocument(doc);
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+      "invalid-link-target",
+      "invalid-link-target",
+      "invalid-link-target",
+      "invalid-link-target",
+    ]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed)).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed))).toBe(fixed);
+  });
+
   it("repairs both repeated links while preserving mixed line breaks and prose", () => {
     const rules = [ruleInvalidLinkTarget];
     const doc = "Before [draft]() first.\r\nBetween lines.\nAfter [draft]() last.\r\n";
@@ -218,27 +295,75 @@ describe("autofix preserves a valid link", () => {
   });
 });
 
+describe("invalid-link autofix preserves Unicode link text", () => {
+  const rules = [ruleInvalidLinkTarget];
+
+  it.each([
+    ["\n", "[日本語ガイド]"],
+    ["\r\n", "[Привет, мир]"],
+    ["\n", "[café ☕ — naïve]"],
+    ["\r\n", "[👩‍💻 docs 🎉]"],
+  ])("replaces the invalid href with TODO and keeps the label (%j, %s)", (nl, label) => {
+    const doc = `Intro ${label}() outro.${nl}`;
+    const expected = `Intro ${label}(TODO) outro.${nl}`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+    // Offsets are UTF-16 code units, so astral/ZWJ text must not shift the range.
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(`${label}()`);
+
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+});
+
 describe("invalid-link autofix beside a valid link", () => {
   it.each([
     true,
     false,
-  ])("changes only the empty href (valid link first: %s)", (validFirst) => {
+  ])("changes only the invalid href (valid link first: %s)", (validFirst) => {
     const rules = [ruleInvalidLinkTarget];
     const valid = '[guide](./guide.md?version=2#intro "Guide")';
-    const invalid = "[guide]()";
     const repaired = "[guide](TODO)";
     for (const nl of ["\n", "\r\n"]) {
-      const doc = `Read ${validFirst ? `${valid} and ${invalid}` : `${invalid} and ${valid}`} next.${nl}`;
-      const expected = `Read ${validFirst ? `${valid} and ${repaired}` : `${repaired} and ${valid}`} next.${nl}`;
-      const violations = lintDocument(doc, { rules });
+      for (const href of ["", "#", " \t "]) {
+        const invalid = `[guide](${href})`;
+        const doc = `Read ${validFirst ? `${valid} and ${invalid}` : `${invalid} and ${valid}`} next.${nl}`;
+        const expected = `Read ${validFirst ? `${valid} and ${repaired}` : `${repaired} and ${valid}`} next.${nl}`;
+        const violations = lintDocument(doc, { rules });
 
-      expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
-      const { from, to } = violations[0].range!;
-      expect(doc.slice(from.offset, to.offset)).toBe(invalid);
-      expect(applyFix(doc, violations[0])).toBe(expected);
-      expect(applyAllFixes(doc, violations)).toBe(expected);
-      expect(lintDocument(expected, { rules })).toEqual([]);
+        expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+        const { from, to } = violations[0].range!;
+        expect(doc.slice(from.offset, to.offset)).toBe(invalid);
+        expect(applyFix(doc, violations[0])).toBe(expected);
+        expect(applyAllFixes(doc, violations)).toBe(expected);
+        expect(lintDocument(expected, { rules })).toEqual([]);
+      }
     }
+  });
+});
+
+describe("invalid link immediately followed by a valid link", () => {
+  it.each(["\n", "\r\n"])("fixes only the invalid destination (%j)", (nl) => {
+    const rules = [ruleInvalidLinkTarget];
+    const valid = '[reference](./reference.md?view=full#section "Reference")';
+    const doc = `Read [draft](#)${valid} next.${nl}`;
+    const expected = `Read [draft](TODO)${valid} next.${nl}`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    expect(doc.slice(violations[0].range!.from.offset, violations[0].range!.to.offset)).toBe(
+      "[draft](#)",
+    );
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain(valid);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
 
@@ -412,6 +537,22 @@ describe("autofix: undescribed image at document start", () => {
     expect(fixed).toBe(expected);
     expect(lintDocument(fixed, { rules })).toEqual([]);
     expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+});
+
+describe("autofix: undescribed image on the second line", () => {
+  it.each(["\n", "\r\n"])("preserves the first line and %j line break", (nl) => {
+    const rules = [ruleMissingAltText];
+    const firstLine = "First line: café 🗺️.";
+    const doc = `${firstLine}${nl}See ![](images/map.png) here.`;
+    const expected = `${firstLine}${nl}See ![TODO: describe image](images/map.png) here.`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    expect(violations[0].range!.from.line).toBe(2);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
   });
 });
 
@@ -669,6 +810,16 @@ describe("autofix: undescribed image next to a described image", () => {
       "directly adjacent with no space",
       "![Logo](logo.png)![](shot.png)\n",
       "![Logo](logo.png)![TODO: describe image](shot.png)\n",
+    ],
+    [
+      "same destination, described first",
+      "![Logo](logo.png)![](logo.png)\n",
+      "![Logo](logo.png)![TODO: describe image](logo.png)\n",
+    ],
+    [
+      "same destination, undescribed first",
+      "![](logo.png)![Logo](logo.png)\n",
+      "![TODO: describe image](logo.png)![Logo](logo.png)\n",
     ],
     [
       "separated by a blank line, CRLF",
@@ -2018,6 +2169,18 @@ describe("autofix: undescribed image inside a list item", () => {
 // ─── 2. Rule: invalid-link-target ────────────────────────────────────────────
 
 describe("rule:invalid-link-target", () => {
+  it.each(["\n", "\r\n"])("fixes a link in a nested blockquote without changing its markers (%j)", (nl) => {
+    const doc = `> Outer quote.${nl}> > Read [guide]() now.${nl}> Back outside.${nl}`;
+    const expected = `> Outer quote.${nl}> > Read [guide](TODO) now.${nl}> Back outside.${nl}`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+
   it("fixes the selected identical link in each list item without changing either marker", () => {
     const doc = "- [guide]()\n  2. [guide]()\n- [valid](./guide.md)\n";
     const rules = [ruleInvalidLinkTarget];
@@ -5121,6 +5284,30 @@ describe("rule:invalid-link-target", () => {
       expect(fixed).toContain(`(${source}`);
     }
     expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
+    ["\n", "on separate lines", "\n"],
+    ["\r\n", "on separate lines", "\r\n"],
+    ["\n", "in one paragraph line", " and "],
+    ["\r\n", "in one paragraph line", " and "],
+  ])("inserts a placeholder for each of two undescribed images and keeps both sources (%j, %s)", (newline, _name, joiner) => {
+    const first = "images/one.png";
+    const second = 'https://example.com/two image.svg?v=2#top "Two"';
+    const doc = `Intro.${newline}${newline}![](${first})${joiner}![](<${second}>)${newline}`;
+    const expected = `Intro.${newline}${newline}![TODO: describe image](${first})${joiner}![TODO: describe image](<${second}>)${newline}`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(2);
+    expect(violations.every((violation) => violation.fix !== null)).toBe(true);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.match(/!\[TODO: describe image\]/g)).toHaveLength(2);
+    expect(fixed).toContain(`(${first})`);
+    expect(fixed).toContain(`(<${second}>)`);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
   });
 
   it.each([
@@ -20203,6 +20390,43 @@ describe("autofix: valid link and described image no-op", () => {
   });
 });
 
+
+describe("missing-alt-text autofix: undescribed image at the start of a paragraph", () => {
+  it.each([
+    [
+      "LF",
+      "![](fig.png) Please read the docs.\n",
+      "![TODO: describe image](fig.png) Please read the docs.\n",
+    ],
+    [
+      "CRLF",
+      "![](fig.png) Please read the docs.\r\n",
+      "![TODO: describe image](fig.png) Please read the docs.\r\n",
+    ],
+    [
+      "preceded by a paragraph",
+      "Previous paragraph.\n\n![](fig.png) Start of *this* paragraph.\n",
+      "Previous paragraph.\n\n![TODO: describe image](fig.png) Start of *this* paragraph.\n",
+    ],
+    [
+      "source with a title",
+      'Intro.\n\n![](images/a b.png "T") Café prose, [link](./ok.md).\n',
+      'Intro.\n\n![TODO: describe image](images/a b.png "T") Café prose, [link](./ok.md).\n',
+    ],
+  ])("inserts the placeholder and preserves following prose (%s)", (_name, doc, expected) => {
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("missing-alt-text");
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
+
 describe("autofix idempotence for undescribed images: headings, tables and fenced decoys", () => {
   const rules = [ruleMissingAltText];
   const fixPass = (text: string) => applyAllFixes(text, lintDocument(text, { rules }));
@@ -29459,6 +29683,20 @@ describe("undescribed image followed by ordinary text", () => {
 describe("two undescribed images on one line", () => {
   const rules = [ruleMissingAltText];
 
+  it("adds a placeholder for each image while preserving both paths", () => {
+    const doc = "Compare ![](images/before.png) with ![](images/after.svg).\n";
+    const expected =
+      "Compare ![TODO: describe image](images/before.png) with ![TODO: describe image](images/after.svg).\n";
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(2);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+
+
   it("preserves adjacent punctuation when fixing either image separately or both together", () => {
     const first = "![](a.png)";
     const second = "![](b.png)";
@@ -29839,6 +30077,55 @@ describe("original PR 1222: undescribed image destination punctuation", () => {
       `Intro.\n\n![TODO: describe image](${destination} "Title") then *prose*.\nTail.\n`,
     );
     expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
+
+
+describe("autofix: valid absolute links", () => {
+  it.each([
+    ["an https URL", "https://example.com/docs/guide?topic=lint&v=2#links"],
+    ["a root-relative path", "/docs/guide.md"],
+    ["a mailto address", "mailto:team@example.com"],
+  ])("leaves %s and its surrounding text unchanged", (_name, href) => {
+    const rules = [ruleInvalidLinkTarget, ruleMissingAltText];
+    const doc = `Intro, *emphasis* and [TODO] prose.\n\nRead [the guide](${href} "Guide"), then continue.\nTail.\n`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toEqual([]);
+    expect(applyAllFixes(doc, violations)).toBe(doc);
+  });
+
+  it("changes only the empty href when an absolute link sits beside it", () => {
+    const rules = [ruleInvalidLinkTarget];
+    const doc = "See [site](https://example.com/a?b=1#c) and [empty]() today.\n";
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe("See [site](https://example.com/a?b=1#c) and [empty](TODO) today.\n");
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
+
+
+describe("autofix: Unicode image paths", () => {
+  it.each(["\n", "\r\n"])("preserves the exact path and surrounding text (%j)", (nl) => {
+    const rules = [ruleMissingAltText];
+    const path = "images/東京/cafe\u0301-🚀.png";
+    const image = `![](${path} "図")`;
+    const doc = `Café ${image} — caption.${nl}`;
+    const expected = `Café ![TODO: describe image](${path} "図") — caption.${nl}`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(image);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.replace("TODO: describe image", "")).toBe(doc);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
   });
 });
 
