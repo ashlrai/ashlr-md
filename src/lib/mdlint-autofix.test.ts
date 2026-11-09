@@ -84,6 +84,23 @@ describe("undescribed image surrounded by Unicode prose", () => {
   });
 });
 
+describe("undescribed image surrounded by ordinary prose", () => {
+  it("adds alt text while preserving the surrounding sentence exactly", () => {
+    const rules = [ruleMissingAltText];
+    const doc = "Before the chart, see ![](chart.png) for the results. After that, continue reading.\n";
+    const expected = "Before the chart, see ![TODO: describe image](chart.png) for the results. After that, continue reading.\n";
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.replace("TODO: describe image", "")).toBe(doc);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+});
+
 describe("invalid link beside ordinary text", () => {
   it("replaces the destination with TODO and preserves the sentence", () => {
     const doc = "Please read [the guide](#) before continuing.\n";
