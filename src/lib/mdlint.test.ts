@@ -635,8 +635,11 @@ describe("rule:no-consecutive-blank-lines", () => {
 });
 
 describe("rule:missing-alt-text", () => {
-  it("accepts a described image while reporting an image with empty alt text", () => {
-    const described = "![A red kite above a field](kite.png)";
+  it.each([
+    "A red kite above a field",
+    "  A red kite above a field  ",
+  ])("accepts descriptive alt text %j while reporting empty alt text", (alt) => {
+    const described = `![${alt}](kite.png)`;
     const missing = "![](clouds.png)";
     const rules = [ruleMissingAltText];
 
