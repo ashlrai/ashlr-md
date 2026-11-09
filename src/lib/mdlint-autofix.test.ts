@@ -157,6 +157,18 @@ describe("valid link beside an invalid link", () => {
 });
 
 describe("invalid link beside ordinary text", () => {
+  it.each(["", "#", "?"])("preserves punctuation in the label when fixing destination %j", (href) => {
+    const rules = [ruleInvalidLinkTarget];
+    const doc = `Read [What's new: v2.0, really?](${href}) next.\n`;
+    const expected = "Read [What's new: v2.0, really?](TODO) next.\n";
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+
   it("replaces the destination with TODO and preserves the sentence", () => {
     const doc = "Please read [the guide](#) before continuing.\n";
     const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
