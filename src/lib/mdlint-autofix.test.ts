@@ -232,6 +232,25 @@ describe("undescribed image beside a valid image", () => {
   });
 });
 
+describe("empty-alt image beside an ordinary link", () => {
+  it.each([true, false])("preserves the link (link first: %s)", (linkFirst) => {
+    const link = '[guide](./guide.md?view=full#start "Guide")';
+    const image = '![](images/chart.png "Chart")';
+    const corrected = '![TODO: describe image](images/chart.png "Chart")';
+    const content = (value: string) => linkFirst ? `${link} ${value}` : `${value} ${link}`;
+    const doc = `See ${content(image)} for details.\n`;
+    const expected = `See ${content(corrected)} for details.\n`;
+    const rules = [ruleMissingAltText, ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
+
 describe("missing alt text with a hyphenated filename", () => {
   it.each(["\n", "\r\n"])("preserves the source while inserting a description (%j)", (nl) => {
     const rules = [ruleMissingAltText];
