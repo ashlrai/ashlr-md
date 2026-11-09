@@ -58,6 +58,21 @@ describe("frontmatter", () => {
     expect(joinFrontmatter(frontmatter, body)).toBe(raw);
   });
 
+  it("round-trips a multiline body after a dot closer", () => {
+    for (const newline of ["\n", "\r\n"]) {
+      for (const ending of ["", newline]) {
+        const frontmatter = ["---", "title: Notes", "...", ""].join(newline);
+        const body =
+          ["# Notes", "", "First paragraph.", "Second line."].join(newline) + ending;
+        const raw = frontmatter + body;
+        const split = splitFrontmatter(raw);
+
+        expect(split).toEqual({ frontmatter, body });
+        expect(joinFrontmatter(split.frontmatter, split.body)).toBe(raw);
+      }
+    }
+  });
+
   it("preserves the final newline when frontmatter has an empty body", () => {
     for (const newline of ["\n", "\r\n"]) {
       const raw = ["---", "title: X", "---", ""].join(newline);
