@@ -35,6 +35,16 @@ import {
   ruleWikilinkTargetsExist,
 } from "./mdlint";
 
+describe("autofix preserves multiple bracketed prose annotations", () => {
+  it.each(["\n", "\r\n"])("leaves [sic] [TODO] [1] unchanged when no fix applies (%j)", (nl) => {
+    const doc = ["---", "title: Notes", "---", "", "The annotations [sic] [TODO] [1] remain prose.", ""].join(nl);
+    const violations = lintDocument(doc);
+
+    expect(violations).toEqual([]);
+    expect(applyAllFixes(doc, violations)).toBe(doc);
+  });
+});
+
 describe("autofix preserves [sic] in prose", () => {
   it.each(["\n", "\r\n"])("preserves the brackets and surrounding prose (%j)", (nl) => {
     const rules = [ruleInvalidLinkTarget];
