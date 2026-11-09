@@ -93,6 +93,28 @@ describe("invalid link target surrounded by prose", () => {
   });
 });
 
+describe("two invalid links on one line", () => {
+  it.each([
+    ["", "#"],
+    ["?", ""],
+    ["#", "?"],
+  ])("repairs destinations %j and %j without changing prose", (first, second) => {
+    const rules = [ruleInvalidLinkTarget];
+    const doc = `Before [the guide](${first}), read the notes and [the draft](${second}) afterwards.\r\n`;
+    const expected = "Before [the guide](TODO), read the notes and [the draft](TODO) afterwards.\r\n";
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+      "invalid-link-target",
+      "invalid-link-target",
+    ]);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(applyAllFixes(doc, [...violations].reverse())).toBe(expected);
+    expect(fixAllViolations(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+});
+
 describe("invalid link beside a valid link", () => {
   it.each(["", "#", "?"].flatMap((href) => [true, false].map((validFirst) => [href, validFirst] as const)))(
     "fixes destination %j with valid link first: %s",
