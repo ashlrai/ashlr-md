@@ -36,6 +36,20 @@ describe("frontmatter", () => {
     expect(joinFrontmatter(frontmatter, body)).toBe(raw);
   });
 
+  it("preserves the absence of a final newline when splitting and joining", () => {
+    for (const raw of [
+      "---\ntitle: X\n---\n# Body\ntext",
+      "---\r\ntitle: X\r\n---\r\n# Body\r\ntext",
+      "---\ntitle: X\n---",
+      "\uFEFF# Body",
+    ]) {
+      const { frontmatter, body } = splitFrontmatter(raw);
+      const joined = joinFrontmatter(frontmatter, body);
+      expect(joined, JSON.stringify(raw)).toBe(raw);
+      expect(joined.endsWith("\n"), JSON.stringify(raw)).toBe(false);
+    }
+  });
+
   it("join with empty frontmatter returns the body unchanged", () => {
     expect(joinFrontmatter("", "x")).toBe("x");
   });
