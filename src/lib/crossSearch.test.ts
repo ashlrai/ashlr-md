@@ -12,6 +12,9 @@
  *   (7) Empty result contract — no phantom matches, no throw
  */
 
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // ── Mock @tauri-apps/api/core ─────────────────────────────────────────────────
@@ -148,6 +151,27 @@ describe("searchFiles — basic invocation", () => {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 describe("searchFiles — path filtering and early-return", () => {
+  it("leaves document text unchanged for an empty query", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "cross-search-"));
+    try {
+      const documents = [
+        { path: join(dir, "first.md"), text: "# First\nSome text.\n" },
+        { path: join(dir, "second.md"), text: "Unicode: café 🌱\n\n" },
+      ];
+      for (const document of documents) writeFileSync(document.path, document.text);
+      const paths = documents.map((document) => document.path);
+
+      expect(await searchFiles(paths, "")).toEqual([]);
+      expect(await searchFilesOrThrow(paths, "")).toEqual([]);
+      expect(invokeMock).not.toHaveBeenCalled();
+      for (const document of documents) {
+        expect(readFileSync(document.path, "utf8")).toBe(document.text);
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("returns [] immediately for an empty query without calling invoke", async () => {
     const out = await searchFiles(["/a.md", "/b.md"], "");
     expect(invokeMock).not.toHaveBeenCalled();
