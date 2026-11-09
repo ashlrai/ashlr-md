@@ -128,6 +128,21 @@ describe("computeDocStats", () => {
     expect(computeDocStats(md)).toEqual({ words: 0, minutes: 0 });
   });
 
+  it.each([
+    ["YAML frontmatter", "---\ntitle: Hidden words\nauthor: Jane Doe\n---"],
+    ["frontmatter with trailing newline", "---\ntitle: Hidden words\n---\n"],
+    ["frontmatter closed by ...", "---\ntitle: Hidden words\n...\n"],
+    ["CRLF frontmatter", "---\r\ntitle: Hidden words\r\n---\r\n"],
+    ["frontmatter then blank lines", "---\ntitle: Hidden words\n---\n\n\n"],
+    ["empty frontmatter", "---\n---\n"],
+    [
+      "frontmatter then a fenced code block",
+      "---\ntitle: Hidden words\n---\n\n```js\nconst hidden = 'code words';\n```\n",
+    ],
+  ])("reports zero words and zero minutes for a frontmatter-only document (%s)", (_d, md) => {
+    expect(computeDocStats(md)).toEqual({ words: 0, minutes: 0 });
+  });
+
   it("returns zero words and zero minutes for empty content", () => {
     expect(computeDocStats("")).toEqual({ words: 0, minutes: 0 });
     expect(computeDocStats("   \n\n")).toEqual({ words: 0, minutes: 0 });
