@@ -35,8 +35,8 @@ import {
   ruleWikilinkTargetsExist,
 } from "./mdlint";
 
-describe("whitespace-only image description", () => {
-  it.each([" ", "\t", " \t "])("replaces %j with the documented placeholder and preserves the source", (alt) => {
+describe("empty or whitespace-only image description", () => {
+  it.each(["", " ", "\t", " \t "])("replaces %j with the documented placeholder and preserves the source", (alt) => {
     const source = 'images/chart%20one.png?size=2#preview "Chart"';
     const doc = `See ![${alt}](${source}) below.\n`;
     const rules = [ruleMissingAltText];
