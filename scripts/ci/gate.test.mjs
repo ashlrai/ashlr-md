@@ -60,6 +60,11 @@ test('full job predicates select main push/daily/manual, never PR or queue', () 
     }
   }
   assert.match(job('fast'), /run: node --test scripts\/ci\/gate\.test\.mjs/);
+  assert.match(job('fast'), /^      - name: Unit tests\n        run: bun run test:unit$/m);
+  assert.doesNotMatch(job('fast'), /^    if:/m);
+  const scripts = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).scripts;
+  assert.match(scripts['test:unit'], /^vitest run --project unit /);
+  assert.match(scripts['test:unit'], /\bsrc\/noDashes\.test\.ts\b/);
 });
 
 for (const event of ['push', 'merge_group', 'schedule', 'workflow_dispatch', 'pull_request']) {
