@@ -36,6 +36,26 @@ describe("frontmatter", () => {
     expect(joinFrontmatter(frontmatter, body)).toBe(raw);
   });
 
+  it("preserves a later horizontal rule in the body when splitting and joining", () => {
+    for (const newline of ["\n", "\r\n"]) {
+      const frontmatter = ["---", "title: Field notes", "---", ""].join(newline);
+      const body = [
+        "# Body",
+        "",
+        "Before the rule.",
+        "",
+        "---",
+        "",
+        "After the rule.",
+        "",
+      ].join(newline);
+      const raw = frontmatter + body;
+      const split = splitFrontmatter(raw);
+      expect(split).toEqual({ frontmatter, body });
+      expect(joinFrontmatter(split.frontmatter, split.body)).toBe(raw);
+    }
+  });
+
   it("join with empty frontmatter returns the body unchanged", () => {
     expect(joinFrontmatter("", "x")).toBe("x");
   });
