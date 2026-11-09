@@ -22,6 +22,16 @@ describe("buildUrl", () => {
 		assert.equal(buildUrl("/My Vault/a&b.md"), "mdopener://open?path=%2FMy%20Vault%2Fa%26b.md");
 		assert.equal(buildUrl("/a.md", "edit"), "mdopener://open?path=%2Fa.md&mode=edit");
 	});
+
+	it("keeps spaces in a link target: encoded as %20, never dropped or turned into +", () => {
+		const target = "/My Vault/Meeting  Notes 2026 final.md";
+		const url = buildUrl(target, "edit");
+		assert.equal(url, "mdopener://open?path=%2FMy%20Vault%2FMeeting%20%20Notes%202026%20final.md&mode=edit");
+		assert.ok(!url.includes(" ") && !url.includes("+"), url);
+		const parsed = new URL(url);
+		assert.equal(parsed.searchParams.get("path"), target);
+		assert.equal(parsed.searchParams.get("mode"), "edit");
+	});
 });
 
 describe("EDIT_MODE_SETTING_DESC", () => {
