@@ -181,6 +181,28 @@ describe("writeBuffers", () => {
 });
 
 describe("startKeepingBuffers", () => {
+  it("leaves existing buffers unchanged when closing an unknown document", () => {
+    useDocumentStore.setState({
+      tabs: [
+        tab("a", { isDirty: true, content: "a edited" }),
+        tab("b", { isDirty: true, content: "b edited" }),
+      ],
+      activeId: null,
+    });
+    const keeper = startKeepingBuffers();
+    flushBuffers();
+    const before = readBuffers();
+    expect(before).toEqual([
+      { path: "/d/a.md", fileName: "a.md", content: "a edited", base: "x" },
+      { path: "/d/b.md", fileName: "b.md", content: "b edited", base: "x" },
+    ]);
+
+    useDocumentStore.getState().closeTab("unknown");
+    flushBuffers();
+    expect(readBuffers()).toEqual(before);
+    keeper.stop();
+  });
+
   it("writes unsaved text after a pause, and flushes on demand", async () => {
     vi.useFakeTimers();
     disk["/d/a.md"] = "hello";
