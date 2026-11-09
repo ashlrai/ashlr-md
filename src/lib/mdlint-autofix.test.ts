@@ -101,6 +101,21 @@ describe("undescribed image surrounded by ordinary prose", () => {
   });
 });
 
+describe("valid image alt text during autofix", () => {
+  it.each(["\n", "\r\n"])("preserves the described image and surrounding text while fixing a neighboring image (%j)", (nl) => {
+    const rules = [ruleMissingAltText];
+    const described = '![Quarterly revenue chart](charts/revenue.png "Revenue")';
+    const doc = `First, ${described}; then compare ![](charts/costs.png) below.${nl}`;
+    const expected = `First, ${described}; then compare ![TODO: describe image](charts/costs.png) below.${nl}`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
+
 describe("invalid link beside ordinary text", () => {
   it("replaces the destination with TODO and preserves the sentence", () => {
     const doc = "Please read [the guide](#) before continuing.\n";
