@@ -35,6 +35,21 @@ import {
   ruleWikilinkTargetsExist,
 } from "./mdlint";
 
+describe("autofix preserves a described image with an absolute URL", () => {
+  it.each(["\n", "\r\n"])("leaves the image and surrounding text unchanged (%j)", (nl) => {
+    const rules = [ruleInvalidLinkTarget, ruleMissingAltText];
+    const image = '![Revenue chart](https://example.com/images/chart.png?year=2026#overview "Results")';
+    const doc = `Before ${image}, see [report]() after.${nl}`;
+    const expected = `Before ${image}, see [report](TODO) after.${nl}`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+    expect(applyAllFixes(expected, lintDocument(expected, { rules }))).toBe(expected);
+  });
+});
+
 describe("autofix preserves [sic] in prose", () => {
   it.each(["\n", "\r\n"])("preserves prose beside an undescribed image (%j)", (nl) => {
     const rules = [ruleInvalidLinkTarget, ruleMissingAltText];
