@@ -442,6 +442,19 @@ describe("autofix preserves a valid link", () => {
     expect(violations).toEqual([]);
     expect(applyAllFixes(doc, violations)).toBe(doc);
   });
+
+  it.each(["\n", "\r\n"])("preserves a reference link and its definition while fixing an image (%j)", (nl) => {
+    const rules = [ruleInvalidLinkTarget, ruleMissingAltText];
+    const doc = `Read [the guide][guide] beside ![](chart.png).${nl}${nl}[guide]: ./guide.md#intro "Guide"${nl}`;
+    const expected = `Read [the guide][guide] beside ![TODO: describe image](chart.png).${nl}${nl}[guide]: ./guide.md#intro "Guide"${nl}`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
 });
 
 describe("autofix repairs an invalid link next to a valid link", () => {
