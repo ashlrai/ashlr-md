@@ -13,6 +13,13 @@ const validImage = '![Café](images/caf%C3%A9.png?size=2#preview "View")';
 
 const cases = [
   ["link beside link", validLink, "[café](#)", "[café](TODO)", "invalid-link-target"],
+  [
+    "link beside empty destination",
+    validLink,
+    "[café]()",
+    "[café](TODO)",
+    "invalid-link-target",
+  ],
   ["image beside link", validImage, "[café](?)", "[café](TODO)", "invalid-link-target"],
   [
     "link beside image",
