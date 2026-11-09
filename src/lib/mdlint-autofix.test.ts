@@ -30394,6 +30394,23 @@ describe("original PR 1222: undescribed image destination punctuation", () => {
 
 
 describe("autofix: valid absolute links", () => {
+  it.each([true, false])("preserves a titled valid neighbor with the same label (valid first: %s)", (validFirst) => {
+    const rules = [ruleInvalidLinkTarget];
+    const valid = '[guide](./guide.md?view=full#intro "Guide")';
+    const invalid = "[guide](#)";
+    const doc = `See ${validFirst ? valid : invalid} ${validFirst ? invalid : valid}.\r\n`;
+    const expected = doc.replace(invalid, "[guide](TODO)");
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(invalid);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+
   it.each([
     ["[same](#)[same](./guide.md)", "[same](TODO)[same](./guide.md)"],
     ["[same](./guide.md)[same](?)", "[same](./guide.md)[same](TODO)"],
