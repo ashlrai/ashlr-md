@@ -521,6 +521,25 @@ describe("activityStore", () => {
     expect(s.lastError).toBeNull();
   });
 
+  it("clears multiple activity entries and accepts a new entry afterward", () => {
+    useActivityStore.getState().setWatchedDir("/watch");
+    useActivityStore.getState().applyEvent(makeEvent("a.md", "modified", 1));
+    useActivityStore.getState().applyEvent(makeEvent("b.md", "modified", 2));
+    expect(useActivityStore.getState().files.map((f) => f.name)).toEqual([
+      "b.md",
+      "a.md",
+    ]);
+
+    useActivityStore.getState().clearWatch();
+    expect(useActivityStore.getState().files).toEqual([]);
+    expect(useActivityStore.getState().unseen).toEqual([]);
+
+    useActivityStore.getState().setWatchedDir("/watch");
+    useActivityStore.getState().applyEvent(makeEvent("c.md", "modified", 3));
+    expect(useActivityStore.getState().files).toEqual([makeFile("c.md", 3)]);
+    expect(useActivityStore.getState().unseen).toEqual(["/watch/c.md"]);
+  });
+
   // ── Folder switches (the vault list agents search) ──────────────────────
 
   it("loadFiles asks the backend for as many files as the store keeps", async () => {
