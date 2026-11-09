@@ -19245,3 +19245,31 @@ fn export_text_keeps_a_bracketed_marker_alone_on_its_line() {
         );
     }
 }
+
+/// Prose brackets and a real link on one line: only the link loses its
+/// brackets and url, the link text stays readable, and the prose brackets stay.
+#[test]
+fn export_text_keeps_prose_brackets_beside_a_markdown_link() {
+    let cases = [
+        (
+            "See [sic] and [the docs](https://example.com) now.\n",
+            "See [sic] and the docs now.",
+        ),
+        (
+            "[the docs](https://example.com) then [sic] and [1].\n",
+            "the docs then [sic] and [1].",
+        ),
+        (
+            "Note [TODO: fix] before [a link](https://example.com/a_b) ships [sic].\n",
+            "Note [TODO: fix] before a link ships [sic].",
+        ),
+        (
+            "Wrote [citation needed] for **[bold link](https://example.com)**.\n",
+            "Wrote [citation needed] for bold link.",
+        ),
+    ];
+    for (markdown, expected) in cases {
+        let result = run_export_text_on(markdown);
+        assert_eq!(result["text"].as_str().unwrap(), expected, "{markdown:?}");
+    }
+}
