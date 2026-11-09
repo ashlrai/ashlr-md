@@ -19263,6 +19263,10 @@ fn export_text_keeps_a_bracketed_marker_alone_on_its_line() {
 fn export_text_keeps_prose_brackets_beside_a_markdown_link() {
     let cases = [
         (
+            "The typo [sic] needs review [TODO] before citation [1]; see [the docs](https://example.com).\n",
+            "The typo [sic] needs review [TODO] before citation [1]; see the docs.",
+        ),
+        (
             "See [sic] and [the docs](https://example.com) now.\n",
             "See [sic] and the docs now.",
         ),
