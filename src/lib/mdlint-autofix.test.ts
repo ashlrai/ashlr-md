@@ -2111,6 +2111,30 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    ["\n", "on separate lines", "\n"],
+    ["\r\n", "on separate lines", "\r\n"],
+    ["\n", "in one paragraph line", " and "],
+    ["\r\n", "in one paragraph line", " and "],
+  ])("inserts a placeholder for each of two undescribed images and keeps both sources (%j, %s)", (newline, _name, joiner) => {
+    const first = "images/one.png";
+    const second = 'https://example.com/two image.svg?v=2#top "Two"';
+    const doc = `Intro.${newline}${newline}![](${first})${joiner}![](<${second}>)${newline}`;
+    const expected = `Intro.${newline}${newline}![TODO: describe image](${first})${joiner}![TODO: describe image](<${second}>)${newline}`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(2);
+    expect(violations.every((violation) => violation.fix !== null)).toBe(true);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.match(/!\[TODO: describe image\]/g)).toHaveLength(2);
+    expect(fixed).toContain(`(${first})`);
+    expect(fixed).toContain(`(<${second}>)`);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+
+  it.each([
     ["a single space", " "],
     ["several spaces", "   "],
     ["a tab", "\t"],
