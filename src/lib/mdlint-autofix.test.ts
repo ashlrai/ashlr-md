@@ -30026,6 +30026,18 @@ describe("original PR 1164: invalid link in heading", () => {
     expect(lintDocument(fixed, { rules: [ruleInvalidLinkTarget] })).toEqual([]);
   });
 
+  it.each(["\n", "\r\n"])("keeps the heading unchanged on a second fix (%j)", (nl) => {
+    const rules = [ruleInvalidLinkTarget];
+    const doc = `## Welcome to [My App]()${nl}${nl}Body text here.${nl}`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    const once = applyAllFixes(doc, violations);
+    expect(once).toBe(`## Welcome to [My App](TODO)${nl}${nl}Body text here.${nl}`);
+    const twice = applyAllFixes(once, lintDocument(once, { rules }));
+    expect(twice).toBe(once);
+  });
+
 });
 
 describe("rule:invalid-link-target — two invalid links with rich link text on one line", () => {
