@@ -72,6 +72,18 @@ Output:
 Keep [first][second] together.
 ```
 
+An annotation and a citation written back to back, with no space between
+the brackets, keep both fragments in order, as the page shows them:
+
+Input:
+```markdown
+He said definately [sic][1] in the margin.
+```
+Output:
+```text
+He said definately [sic][1] in the margin.
+```
+
 ## Paragraphs and containers
 
 Input:
