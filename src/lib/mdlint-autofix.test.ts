@@ -29672,3 +29672,29 @@ describe("original PR 1222: undescribed image destination punctuation", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+describe("autofix: valid absolute links", () => {
+  it.each([
+    ["an https URL", "https://example.com/docs/guide?topic=lint&v=2#links"],
+    ["a root-relative path", "/docs/guide.md"],
+    ["a mailto address", "mailto:team@example.com"],
+  ])("leaves %s and its surrounding text unchanged", (_name, href) => {
+    const rules = [ruleInvalidLinkTarget, ruleMissingAltText];
+    const doc = `Intro, *emphasis* and [TODO] prose.\n\nRead [the guide](${href} "Guide"), then continue.\nTail.\n`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toEqual([]);
+    expect(applyAllFixes(doc, violations)).toBe(doc);
+  });
+
+  it("changes only the empty href when an absolute link sits beside it", () => {
+    const rules = [ruleInvalidLinkTarget];
+    const doc = "See [site](https://example.com/a?b=1#c) and [empty]() today.\n";
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe("See [site](https://example.com/a?b=1#c) and [empty](TODO) today.\n");
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
