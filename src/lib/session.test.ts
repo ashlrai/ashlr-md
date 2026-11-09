@@ -56,6 +56,29 @@ describe("restoreSession", () => {
     useSessionStore.getState().clear();
   });
 
+  it("restores an empty saved session without opening documents", async () => {
+    useSessionStore.getState().save([], null);
+    const serialized = localStorage.getItem("mdopener-session");
+    expect(serialized).not.toBeNull();
+    useSessionStore.setState({
+      savedTabs: [{ path: "/v/stale.md", viewMode: "read" }],
+      activePath: "/v/stale.md",
+    });
+    localStorage.setItem("mdopener-session", serialized!);
+    await useSessionStore.persist.rehydrate();
+
+    await expect(restoreSession()).resolves.toEqual({ opened: 0, gone: [], capped: 0 });
+    expect(useSessionStore.getState().savedTabs).toEqual([]);
+    expect(useSessionStore.getState().activePath).toBeNull();
+    expect(useDocumentStore.getState()).toMatchObject({
+      tabs: [],
+      activeId: null,
+      path: null,
+      error: null,
+    });
+    expect(invokeMock).not.toHaveBeenCalled();
+  });
+
   it("round-trips Unicode document names through persisted sessions", async () => {
     const names = ["日本語.md", "café.md", "cafe\u0301.md", "📝 notes.md"];
     const paths = names.map((name) => `/v/${name}`);
