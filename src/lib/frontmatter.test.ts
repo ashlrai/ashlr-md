@@ -71,6 +71,20 @@ describe("frontmatter", () => {
     expect(body).toBe(raw);
   });
 
+  it("keeps an indented opening delimiter in the body through a round trip", () => {
+    for (const newline of ["\n", "\r\n"]) {
+      for (const indent of [" ", "  ", "\t"]) {
+        const raw = [`${indent}---`, "title: Body text", "---", "# Body", ""].join(
+          newline,
+        );
+        const { frontmatter, body } = splitFrontmatter(raw);
+        expect(frontmatter).toBe("");
+        expect(body).toBe(raw);
+        expect(joinFrontmatter(frontmatter, body)).toBe(raw);
+      }
+    }
+  });
+
   it("round-trips split then join losslessly", () => {
     const raw = "---\na: 1\n---\nhello world";
     const { frontmatter, body } = splitFrontmatter(raw);
