@@ -48,6 +48,17 @@ describe("empty or whitespace-only image description", () => {
     expect(applyAllFixes(doc, violations)).toBe(expected);
     expect(lintDocument(expected, { rules })).toEqual([]);
   });
+
+  it("fixes whitespace-only descriptions under the default rules without changing either destination", () => {
+    const frontmatter = "---\ntitle: Images\n---\n\n";
+    const doc = frontmatter + 'Compare ![ \t ](images/a.png?size=2#preview "First") and ![  ](images/b.png "Second").\n';
+    const expected = frontmatter + 'Compare ![TODO: describe image](images/a.png?size=2#preview "First") and ![TODO: describe image](images/b.png "Second").\n';
+    const violations = lintDocument(doc);
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text", "missing-alt-text"]);
+    expect(fixAllViolations(doc, violations)).toBe(expected);
+    expect(lintDocument(expected)).toEqual([]);
+  });
 });
 
 describe("missing image alt text autofix idempotence", () => {
