@@ -30746,3 +30746,34 @@ describe("autofix: reference-style described image beside an empty-alt image", (
     expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
   });
 });
+
+describe("invalid-link fix applied twice", () => {
+  const fixTwice = (doc: string, rules = [ruleInvalidLinkTarget]) => {
+    const once = applyAllFixes(doc, lintDocument(doc, { rules }));
+    const twice = applyAllFixes(once, lintDocument(once, { rules }));
+    return { once, twice };
+  };
+
+  it.each(["\n", "\r\n"].flatMap((nl) => [
+    ["a single empty href", `See [guide]() now.${nl}`],
+    ["mixed invalid hrefs on one line", `Read [a]() [TODO] then [b](#), [c](?) and [d](  ).${nl}`],
+    ["links across paragraphs", `Read [a]()${nl}${nl}Then [b](#).${nl}`],
+    ["a fenced example beside a fixable link", `\`\`\`markdown${nl}[example]()${nl}\`\`\`${nl}${nl}See [guide]().${nl}`],
+    ["Unicode prose", `👩🏽‍💻 café [日本語](#) مرحبا 🌍${nl}`],
+    ["a valid link only", `See [guide](./guide.md).${nl}`],
+  ].map(([name, doc]) => [name, nl, doc])))("second application is identical for %s (%j)", (_name, _nl, doc) => {
+    const { once, twice } = fixTwice(doc);
+
+    expect(twice).toBe(once);
+    expect(lintDocument(twice, { rules: [ruleInvalidLinkTarget] })).toEqual([]);
+  });
+
+  it("changes the document on the first pass only", () => {
+    const doc = "Read [a]() and [b](#).\n";
+    const { once, twice } = fixTwice(doc);
+
+    expect(once).toBe("Read [a](TODO) and [b](TODO).\n");
+    expect(once).not.toBe(doc);
+    expect(twice).toBe(once);
+  });
+});
