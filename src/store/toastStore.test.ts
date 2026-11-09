@@ -120,6 +120,26 @@ describe("toastStore", () => {
     expect(useToastStore.getState().toasts).toHaveLength(0);
   });
 
+  it("repeatedly clears an empty store without leaving timers", () => {
+    useToastStore.getState().push({ message: "timed", timeout: 500 });
+    useToastStore.getState().push({ message: "sticky", timeout: 0 });
+    useToastStore.getState().push({ message: "later", timeout: 1000 });
+    expect(vi.getTimerCount()).toBe(2);
+
+    for (let i = 0; i < 3; i++) {
+      expect(() => useToastStore.getState().clear()).not.toThrow();
+      expect(useToastStore.getState().toasts).toEqual([]);
+      expect(vi.getTimerCount()).toBe(0);
+    }
+
+    const id = useToastStore.getState().push({ message: "new", timeout: 2000 });
+    vi.advanceTimersByTime(1000);
+    expect(useToastStore.getState().toasts.map((toast) => toast.id)).toEqual([id]);
+    vi.advanceTimersByTime(1000);
+    expect(useToastStore.getState().toasts).toEqual([]);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   // ── Auto-dismiss ────────────────────────────────────────────────────────
 
   it("auto-dismisses after the default 2500 ms timeout", () => {
