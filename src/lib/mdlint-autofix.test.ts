@@ -83,8 +83,15 @@ describe("empty link and image description on separate lines", () => {
         "invalid-link-target",
         "missing-alt-text",
       ]);
+      for (const violation of violations) {
+        const singleExpected = violation.ruleId === "invalid-link-target"
+          ? doc.replace(link, fixedLink)
+          : doc.replace(image, fixedImage);
+        expect(applyFix(doc, violation)).toBe(singleExpected);
+      }
       const fixed = applyAllFixes(doc, violations);
       expect(fixed).toBe(expected);
+      expect(fixAllViolations(doc, violations)).toBe(expected);
       expect(lintDocument(fixed, { rules })).toEqual([]);
       expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
     },
