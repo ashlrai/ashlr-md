@@ -430,8 +430,6 @@ the quoted name to find the fixture.
 - [table] "fixes several undescribed images separated only by punctuation in %j"
 - [table] "inserts the placeholder into an undescribed image followed by %s, leaving the punctuation byte-for-byte"
 - [table] "inserts the documented placeholder for an undescribed image touching punctuation with no space between them (%s)"
-- [table] "replaces a whitespace-only description in a blockquote with the placeholder and keeps the titled source (%s)"
-- [table] "fixes the documented example's empty and whitespace-only descriptions, keeping both sources (%j)"
 ```
 
 ## Mixed-rule fixtures (21)
