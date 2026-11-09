@@ -11,6 +11,7 @@
     "resolve-conflicts": "node scripts/resolve-conflicts.mjs",
     "test:conflicts": "node --test scripts/resolve-conflicts.test.mjs",
     "test:select": "node --test scripts/ci/select.test.mjs",
+    "docs:fixtures": "bun scripts/docs-fixtures.ts",
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",

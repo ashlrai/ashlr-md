@@ -1,70 +1,45 @@
-/**
- * Keeps docs/mdlint-autofix-fixture-index.md in step with
- * mdlint-autofix.test.ts: every indexed name must exist there, and each
- * section's count must match the `it`/`it.each` calls in its describe block.
- */
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { fixtureIndex, formatMarker } from "../../scripts/docs-fixtures";
 
-const read = (rel: string) => readFileSync(new URL(rel, import.meta.url), "utf8");
-const testSource = read("./mdlint-autofix.test.ts");
-const indexDoc = read("../../docs/mdlint-autofix-fixture-index.md");
-
-/** Count `it`/`it.each` calls directly inside a top-level describe block. */
-function countCalls(describeName: string): number {
-  const start = testSource.indexOf(`describe("${describeName}"`);
-  expect(start).toBeGreaterThanOrEqual(0);
-  const next = testSource.indexOf("\ndescribe(", start + 1);
-  const body = testSource.slice(start, next === -1 ? undefined : next);
-  return (body.match(/^ {2}it(?:\.each)?\(/gm) ?? []).length;
-}
-
-function sections(): Map<string, string[]> {
-  const result = new Map<string, string[]>();
-  for (const part of indexDoc.split(/^## /m).slice(1)) {
-    const [heading, ...rest] = part.split("\n");
-    const names = rest
-      // Code spans keep Markdown-looking fixture names literal in the guide.
-      // Normalize only a complete fenced quoted name; the existing exact-name,
-      // count and duplicate assertions below still validate the original names.
-      .map((line) => line.replace(/^(- (?:\[table\] )?)(`+)(".*")\2$/, "$1$3"))
-      .map((line) => line.match(/^- (?:\[table\] )?"(.*)"$/)?.[1])
-      .filter((name): name is string => name !== undefined);
-    result.set(heading.replace(/ \(\d+\)$/, ""), names);
-  }
-  return result;
-}
+const doc = readFileSync("docs/mdlint-autofix-fixture-index.md", "utf8");
+const source = `
+describe("rule:invalid-link-target", () => {
+  it("plain [link](#example)", () => {});
+  it.each([[1]])("table %s", () => {});
+});
+describe("rule:missing-alt-text", () => { it("image", () => {}); });
+describe("chained violations and multi-line fixes", () => { it("mixed", () => {}); });
+`;
 
 describe("mdlint autofix fixture index", () => {
-  const byHeading = sections();
-
-  it.each([
-    ["Link fixtures", "rule:invalid-link-target"],
-    ["Image fixtures", "rule:missing-alt-text"],
-    ["Mixed-rule fixtures", "chained violations and multi-line fixes"],
-  ])("%s lists every it/it.each call of its describe block", (heading, block) => {
-    expect(byHeading.get(heading)).toHaveLength(countCalls(block));
+  it("generates names and declaration counts without treating Markdown as links", () => {
+    const result = fixtureIndex(source);
+    expect(result).toContain("## Link fixtures (2)");
+    expect(result).toContain('- "plain [link](#example)"');
+    expect(result).toContain('- [table] "table %s"');
+    expect(result).toContain("## Image fixtures (1)");
+    expect(result).toContain("## Mixed-rule fixtures (1)");
+    expect(result).toContain("```text\n");
   });
 
-  it("only indexes names that exist in mdlint-autofix.test.ts", () => {
-    const missing = [...byHeading.values()]
-      .flat()
-      .filter(
-        (name) =>
-          !testSource.includes(`"${name}"`) && !testSource.includes(`\`${name}\``),
-      );
-    expect(missing).toEqual([]);
+  it("accepts another table row without requiring a doc update", () => {
+    const changed = source.replace("[[1]]", "[[1], [2]]");
+    expect(fixtureIndex(changed)).toBe(fixtureIndex(source));
+    expect(doc).toContain(formatMarker);
   });
 
-  it("has no duplicate names within the index", () => {
-    const all = [...byHeading.values()].flat();
-    expect(new Set(all).size).toBe(all.length);
+  it("indexes new declarations without requiring a doc update", () => {
+    const changed = source.replace(
+      '  it("plain',
+      '  it("new fixture", () => {});\n  it("plain',
+    );
+    expect(fixtureIndex(changed)).toContain("## Link fixtures (3)");
+    expect(fixtureIndex(changed)).toContain('- "new fixture"');
+    expect(doc).toContain(formatMarker);
   });
 
-  it("states the heading counts that match its lists", () => {
-    for (const [heading, names] of byHeading) {
-      if (names.length === 0) continue;
-      expect(indexDoc).toContain(`## ${heading} (${names.length})`);
-    }
+  it("rejects missing fixture blocks", () => {
+    expect(() => fixtureIndex("")).toThrow("Missing describe block");
   });
 });

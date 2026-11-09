@@ -336,7 +336,7 @@ describe("getAction()", () => {
 });
 
 // ---------------------------------------------------------------------------
-// AbortSignal / cancellation behaviour — 15 test cases
+// AbortSignal / cancellation behaviour
 // These exercise runInlineTransform (inline.ts) and the provider contract
 // (registry.ts) using mock providers that honour / ignore AbortSignal.
 // ---------------------------------------------------------------------------

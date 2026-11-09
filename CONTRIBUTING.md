@@ -26,7 +26,7 @@ bun run tauri dev -- -- /path/to/file.md
 
 ### Check the frontend without the desktop shell
 
-On a machine with no Rust toolchain or display (for example a Linux CI box), these run the web part only. The suite is 234 test files and 6610 tests as of Nov 6, 2026 (a full run takes several minutes on a laptop, and the heavy editor DOM tests can hit the 5 s timeout when the machine is busy; a handful of CLI tests build `mdopen` and `mdopener-mcp` with cargo first). `bun run tauri dev` needs the Tauri system libraries.
+On a machine with no Rust toolchain or display (for example a Linux CI box), these run the web part only. A full run takes several minutes on a laptop, and the heavy editor DOM tests can hit the timeout when the machine is busy; a handful of CLI tests build `mdopen` and `mdopener-mcp` with cargo first. `bun run tauri dev` needs the Tauri system libraries.
 
 ```bash
 bun install --frozen-lockfile
