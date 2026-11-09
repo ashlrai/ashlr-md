@@ -5,9 +5,7 @@
  * operational runbooks with prerequisites, numbered steps, and rollback
  * procedures.
  *
- * These helpers are side-effect-free and React-independent. The React
- * components in src/components/viewer/RunbookRenderer.tsx consume these
- * types and the step-status state persisted to the Zustand store.
+ * These helpers are side-effect-free and React-independent.
  *
  * Canonical runbook sections:
  *   Prerequisites, Steps, Rollback, Procedure, Troubleshooting, Verification
@@ -25,11 +23,8 @@ import { taskMarks } from "../tasklist";
 // Types
 // ---------------------------------------------------------------------------
 
-/** Status of a single runbook step, persisted to the store. */
-export type StepStatus = "pending" | "running" | "done" | "failed" | "skipped";
-
 /** A single executable step in a runbook. */
-export interface RunbookStep {
+interface RunbookStep {
   /** Unique step identifier within the document (1-based index). */
   id: number;
   /** Short label / title of the step. */
@@ -56,7 +51,7 @@ export interface Prerequisite {
 }
 
 /** Full parsed representation of a runbook document. */
-export interface ParsedRunbook {
+interface ParsedRunbook {
   /** Top-level document title (first h1, if present). */
   title: string;
   /** Prerequisites extracted from ## Prerequisites. */

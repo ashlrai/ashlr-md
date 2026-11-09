@@ -5,8 +5,7 @@
  * specifications that follow a canonical section structure.
  *
  * These are intentionally side-effect-free and React-independent so they can be
- * unit-tested without a DOM. The React components in
- * src/components/viewer/SpecRenderer.tsx consume these types and functions.
+ * unit-tested without a DOM.
  *
  * Canonical spec sections (case-insensitive ## headings):
  *   Requirements, Design, Implementation, Architecture, API Design, Interface Spec
@@ -23,7 +22,7 @@ import { taskMarks } from "../tasklist";
 // ---------------------------------------------------------------------------
 
 /** A single acceptance-criterion item extracted from a spec document. */
-export interface CriterionItem {
+interface CriterionItem {
   /** Display text of the criterion. */
   text: string;
   /** True when the item is checked (`- [x]`). */
@@ -36,7 +35,7 @@ export interface CriterionItem {
  * A logical section of a spec document, with its heading text and the raw
  * markdown body that follows it (up to the next same-level heading).
  */
-export interface SpecSection {
+interface SpecSection {
   /** Heading level (2 = ##, 3 = ###, etc.). */
   level: number;
   /** Heading text (without the `##` prefix). */
