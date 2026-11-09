@@ -71,6 +71,14 @@ describe("SANITIZE_SCHEMA", () => {
     expect(out).toContain('href="https://example.com"');
   });
 
+  it("preserves the fragment of a safe HTTPS link", async () => {
+    const out = await render("[section](https://example.com/guide#installation)");
+    const document = new DOMParser().parseFromString(out, "text/html");
+    expect(document.body.querySelector("a")?.getAttribute("href")).toBe(
+      "https://example.com/guide#installation",
+    );
+  });
+
   it("keeps the wikilink class the Renderer looks for", async () => {
     const out = await render("See [[Other Note|other]].");
     expect(out).toContain('class="wikilink"');
