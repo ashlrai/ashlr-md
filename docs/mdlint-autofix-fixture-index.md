@@ -1,25 +1,21 @@
 # mdlint autofix fixture index
 
-Index of the link, image and mixed-rule fixtures in
-[`src/lib/mdlint-autofix.test.ts`](../src/lib/mdlint-autofix.test.ts), listed by
-test name in file order. It is a lookup aid only: it changes no behavior and
-adds no tests to that file. For grouping by behavior see the
-[docs index](README.md); for what the fixes do see
-the [autofix guide](mdlint-autofix-guide.md).
+<!-- fixture-index-format: 1 -->
 
-Names are verbatim. `[table]` marks an `it.each` call: it expands to one case
-per table row, and `%j` / `%s` are its placeholders. Search the test file for
-the quoted name to find the fixture.
+Generated from [mdlint-autofix.test.ts](../src/lib/mdlint-autofix.test.ts).
+Run `bun run docs:fixtures` to refresh this lookup. Counts are test declarations;
+[table] declarations run once per row. Search the test file for a name.
 
 ## Link fixtures (293)
 
-`describe("rule:invalid-link-target")`: `invalid-link-target` detection, the `TODO` destination fix, and preservation of surrounding text.
+`describe("rule:invalid-link-target")`
 
 ```text
+- [table] "fixes a link in a nested blockquote without changing its markers (%j)"
 - "fixes the selected identical link in each list item without changing either marker"
 - [table] "fixes a destination inside a %s list item without changing its surroundings"
 - "passes on valid links"
-- "fills an empty link destination with TODO and preserves the surrounding prose"
+- [table] "fills an empty destination and preserves surrounding prose (%j)"
 - [table] "sets an empty href to TODO and keeps a label with %s verbatim"
 - [table] "turns a link with a multiword label (%s) and empty href into the same label with a TODO href"
 - [table] "keeps the label and title of a titled link with %s while TODO-fixing its untitled neighbour"
@@ -27,6 +23,7 @@ the quoted name to find the fixture.
 - "fixes two identical empty-href links independently, one TODO each"
 - [table] "replaces a destination of %s with TODO and keeps the label"
 - [table] "fixes a final link without adding a newline (%j)"
+- [table] "fixes an invalid link within the last line without adding a newline (%j)"
 - [table] "turns an invalid href at the very end of a document into TODO and keeps the preceding text (%s)"
 - [table] "sets the destination to TODO and leaves leading text unchanged after %s"
 - [table] "fixes an invalid link between two valid paragraphs and preserves both (%s)"
@@ -44,8 +41,8 @@ the quoted name to find the fixture.
 - [table] "control: autofix leaves a link with nonempty destination %j unchanged"
 - [table] "preserves a valid relative link's href and text exactly (%s)"
 - [table] "preserves a relative link with CRLF endings (%s)"
-- `"preserves a valid fragment link [section](#section) alongside its target heading"`
-- `"leaves a [section](#section) link unchanged while autofix repairs an unrelated violation"`
+- "preserves a valid fragment link [section](#section) alongside its target heading"
+- "leaves a [section](#section) link unchanged while autofix repairs an unrelated violation"
 - [table] "leaves a link to a nonempty fragment unchanged (%s)"
 - [table] "preserves the link and fragment %j exactly while fixing a sibling empty link"
 - [table] "leaves a valid fragment link with %s byte-identical under autofix"
@@ -67,7 +64,7 @@ the quoted name to find the fixture.
 - "preserves bracketed prose beside an invalid link while repairing only the link"
 - [table] "repairs the invalid link and keeps a bracketed number [1] verbatim (%s)"
 - "fixes only the invalid link when [1] is prose beside it and also the link's own label"
-- `"keeps [1] prose and a [draft]() literal in the frontmatter while repairing the same link in the body"`
+- "keeps [1] prose and a [draft]() literal in the frontmatter while repairing the same link in the body"
 - "replaces an invalid href while preserving punctuation and surrounding text"
 - [table] "gives every invalid href its own TODO placeholder across several lines and keeps all surrounding text (%s)"
 - "fixes an invalid href in a CRLF document without changing its line endings"
@@ -165,6 +162,7 @@ the quoted name to find the fixture.
 - [table] "fixes only the undescribed image beside a described image (%j line endings)"
 - "fixes two adjacent undescribed images without changing either source"
 - [table] "gives every undescribed image the placeholder and keeps each source (line ending %j)"
+- [table] "inserts a placeholder for each of two undescribed images and keeps both sources (%j, %s)"
 - [table] "replaces a whitespace-only image description (%s) with the placeholder and keeps the source"
 - [table] "inserts the placeholder for tab-only alt text, leaves tab-padded real alt text alone, and preserves surrounding tabs (%s)"
 - [table] "replaces a whitespace-only image description inside a list item and keeps an angle-bracket source (%s)"
@@ -303,17 +301,14 @@ the quoted name to find the fixture.
 - "fixes an invalid link at document end without adding unrelated text"
 - "fixes six invalid links across a full document with heading, list and blockquote, keeping every label and surrounding prose"
 - [table] "replaces the invalid href on the last line of a document with no final newline and adds none (%s)"
-- [table] "fixes an invalid link within the last line without adding a newline (%j)"
 - [table] "replaces the invalid destination %j of a link that fills the final line without adding a newline"
 - [table] "replaces the invalid destination with TODO and keeps the %s byte-identical"
 - [table] "replaces invalid destinations %j and %j with TODO when each link fills its own line"
-- [table] "fixes a link in a nested blockquote without changing its markers (%j)"
-- [table] "inserts a placeholder for each of two undescribed images and keeps both sources (%j, %s)"
 ```
 
 ## Image fixtures (115)
 
-`describe("rule:missing-alt-text")`: `missing-alt-text` detection, the `TODO` alt fix, and preservation of image sources.
+`describe("rule:missing-alt-text")`
 
 ```text
 - [table] "leaves an already-described image untouched, markup and destination (%s)"
@@ -435,7 +430,7 @@ the quoted name to find the fixture.
 
 ## Mixed-rule fixtures (21)
 
-`describe("chained violations and multi-line fixes")`: links, images and fences combined in one document.
+`describe("chained violations and multi-line fixes")`
 
 ```text
 - [table] "fixes identical links outside a %s fence while preserving the example"
@@ -460,24 +455,3 @@ the quoted name to find the fixture.
 - [table] "leaves a complete document with a valid link and a described image unchanged with %j line endings"
 - [table] "keeps a valid link byte-for-byte unchanged while fixes on either side rewrite the document (%j line endings)"
 ```
-
-## Mixed-rule fixtures in other blocks (7)
-
-Mixed-rule cases that live in `LinterToast violation history` and `edge cases`.
-
-```text
-- [table] "leaves a valid link and image unchanged with %j line endings"
-- "preserves a valid link and surrounding text while fixing images on both sides"
-- "Fix all preserves both image sources while fixing an empty alt and a later link"
-- "leaves a valid document holding a link and a described image unchanged"
-- "missing-alt-text does not flag a markdown link (only images)"
-- "invalid-link-target does not flag image tags"
-- "all four default rules can run together on a messy document"
-```
-
-## Keeping the index current
-
-`src/lib/mdlint-autofix-fixture-index.test.ts` fails when a name listed here is
-missing from the test file, or when a section's count no longer matches the
-number of `it`/`it.each` calls in its `describe` block. After adding or
-renaming a fixture, update the matching section.
