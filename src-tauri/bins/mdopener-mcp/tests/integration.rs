@@ -6635,6 +6635,10 @@ fn export_text_preserves_consecutive_bracketed_fragments_and_intervening_prose()
             "Before [first fragment] and the words between [second fragment] after.",
         ),
         (
+            "The [first] word leads to [second], then [third] and finally [fourth] here.\n",
+            "The [first] word leads to [second], then [third] and finally [fourth] here.",
+        ),
+        (
             "[draft], followed by a revision: [final].\n",
             "[draft], followed by a revision: [final].",
         ),
