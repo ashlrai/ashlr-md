@@ -30545,3 +30545,30 @@ describe("autofix: described image beside standalone [1] prose", () => {
     expect(applyAllFixes(doc, violations)).toBe(doc);
   });
 });
+
+describe("autofix: reference-style described image beside an empty-alt image", () => {
+  it.each([
+    [true, "\n"],
+    [true, "\r\n"],
+    [false, "\n"],
+    [false, "\r\n"],
+  ])("fills only the empty alt and keeps the existing alt and definition (described first: %s, %j)", (describedFirst, nl) => {
+    const rules = [ruleMissingAltText];
+    const described = "![Revenue chart][rev]";
+    const empty = "![](costs.png)";
+    const fixedEmpty = "![TODO: describe image](costs.png)";
+    const definition = `[rev]: charts/revenue.png "Revenue"`;
+    const build = (second: string) =>
+      `${describedFirst ? `${described} and ${second}` : `${second} and ${described}`}${nl}${nl}${definition}${nl}`;
+    const doc = build(empty);
+    const expected = build(fixedEmpty);
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain("![Revenue chart][rev]");
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+});
