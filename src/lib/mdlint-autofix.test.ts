@@ -35,6 +35,22 @@ import {
   ruleWikilinkTargetsExist,
 } from "./mdlint";
 
+describe("invalid link at document start", () => {
+  it.each(["", "#", "?"])("inserts the placeholder for destination %j and preserves following text", (href) => {
+    const rules = [ruleInvalidLinkTarget];
+    const doc = `[Guide](${href}), then read the rest.\nNext paragraph.\n`;
+    const expected = "[Guide](TODO), then read the rest.\nNext paragraph.\n";
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    expect(violations[0].range?.from.offset).toBe(0);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
+
 describe("invalid link beside ordinary text", () => {
   it("replaces the destination with TODO and preserves the sentence", () => {
     const doc = "Please read [the guide](#) before continuing.\n";
