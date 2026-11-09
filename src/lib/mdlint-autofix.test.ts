@@ -157,6 +157,31 @@ describe("valid link beside an invalid link", () => {
 });
 
 describe("invalid link beside ordinary text", () => {
+  it.each(["\n", "\r\n"])("fixes a later-line destination without changing surrounding prose (%j)", (nl) => {
+    const rules = [ruleInvalidLinkTarget];
+    const doc = [
+      "This introduction is ordinary prose.",
+      "It continues on another line.",
+      "",
+      "Please read [the guide](#) before continuing.",
+      "The final line stays as it is.",
+      "",
+    ].join(nl);
+    const expected = doc.replace("[the guide](#)", "[the guide](TODO)");
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    expect(violations[0].range?.from.line).toBe(4);
+    expect(doc.slice(violations[0].range!.from.offset, violations[0].range!.to.offset)).toBe(
+      "[the guide](#)",
+    );
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.replace("[the guide](TODO)", "[the guide](#)")).toBe(doc);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
   it("replaces the destination with TODO and preserves the sentence", () => {
     const doc = "Please read [the guide](#) before continuing.\n";
     const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
