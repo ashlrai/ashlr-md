@@ -1965,6 +1965,25 @@ describe("autofix: undescribed image inside a list item", () => {
     }
   });
 
+  it.each([
+    ["-", "\n"],
+    ["10.", "\r\n"],
+    ["- [ ]", "\n"],
+  ])("describes an undescribed image wrapped in a link inside a %j item and keeps the marker and link target (line ending %j)", (marker, nl) => {
+    const doc = `${marker} [![](thumb.png "T")](https://example.com/full.png)${nl}${marker} Next.${nl}`;
+    const expected = `${marker} [![TODO: describe image](thumb.png "T")](https://example.com/full.png)${nl}${marker} Next.${nl}`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe('![](thumb.png "T")');
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.startsWith(`${marker} [`)).toBe(true);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
   it("fixes the real item image while indented code in a loose item keeps its image syntax", () => {
     for (const nl of ["\n", "\r\n"]) {
       const doc = ["- Item", "", "      ![](code.png)", "", "- ![](real.png)", ""].join(
