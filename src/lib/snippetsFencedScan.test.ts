@@ -17,6 +17,14 @@ function readAll(doc: string, pos: number): boolean {
 }
 
 describe("isInsideFencedCode reads up to the cursor's line", () => {
+  it("reports prose after a closed fence as outside code", () => {
+    const doc = "```js\nconst value = 1;\n```\nAfter the fence.\n";
+    const pos = doc.indexOf("After") + 3;
+
+    expect(isInsideFencedCode(doc, pos)).toBe(false);
+    expect(isInsideFencedCode(doc, pos)).toBe(readAll(doc, pos));
+  });
+
   it("reads no line after the cursor's", () => {
     // The completion source asks on every keystroke; the whole document
     // used to be read each time.
