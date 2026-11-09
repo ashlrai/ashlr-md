@@ -1656,6 +1656,20 @@ describe("autofix: undescribed image in a document without a final newline", () 
   });
 });
 
+describe("autofix: image example in a fenced code block", () => {
+  it.each(["\n", "\r\n"])("preserves the fenced example while fixing the same image outside it (%j)", (nl) => {
+    const fence = ["```md", "![](chart.png)", "```"].join(nl);
+    const doc = `${fence}${nl}${nl}![](chart.png)${nl}`;
+    const expected = `${fence}${nl}${nl}![TODO: describe image](chart.png)${nl}`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+});
+
 describe("autofix: masked image contexts in a document without a final newline", () => {
   // Front matter, fenced and indented code, HTML blocks, inline code and
   // inline math are masked before the rule matches
