@@ -29155,6 +29155,7 @@ describe("autofix: an undescribed image at the very end of a document", () => {
 
   it.each([
     ["a space", " "],
+    ["a tab", "\t"],
     ["spaces and a tab", " \t "],
     ["a non-breaking space", "\u00a0"],
   ])("replaces a whitespace-only description at the end of the document (%s)", (_name, blank) => {
