@@ -8,6 +8,34 @@ import {
 } from "./settingsStore";
 import { useToastStore } from "./toastStore";
 
+describe("settingsStore — updating a setting", () => {
+  it("preserves the other settings in memory and storage", async () => {
+    useSettingsStore.setState(useSettingsStore.getInitialState(), true);
+    const settings = useSettingsStore.getState();
+    settings.setTheme("midnight");
+    settings.setContentWidth(800);
+    settings.setLinterConfig({ disabledRules: ["MD001"] });
+    settings.setCustomSnippets([{ label: "note", template: "Note: $0" }]);
+
+    const before = getStoredState<Record<string, unknown>>("mdopener-settings");
+    expect(before).not.toBeNull();
+    settings.setFontSize(20);
+
+    const expected = { ...before!.state, fontSize: 20 };
+    expect(useSettingsStore.getState()).toMatchObject(expected);
+    expect(getStoredState<Record<string, unknown>>("mdopener-settings")?.state).toEqual(
+      expected,
+    );
+    useSettingsStore.setState(useSettingsStore.getInitialState(), true);
+    localStorage.setItem(
+      "mdopener-settings",
+      JSON.stringify({ ...before, state: expected }),
+    );
+    await useSettingsStore.persist.rehydrate();
+    expect(useSettingsStore.getState()).toMatchObject(expected);
+  });
+});
+
 // ─── Export template registry ─────────────────────────────────────────────────
 
 describe("settingsStore — export template registry", () => {
