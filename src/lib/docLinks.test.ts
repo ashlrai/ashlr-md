@@ -120,6 +120,14 @@ describe("document link extraction", () => {
 
 describe("linkTarget", () => {
   const doc = "/v/notes/doc.md";
+  it("resolves a relative Markdown filename with percent-encoded spaces", () => {
+    expect(linkTarget("./drafts/Project%20Meeting%20Notes.md", doc)).toEqual({
+      kind: "document",
+      path: "/v/notes/drafts/Project Meeting Notes.md",
+      fragment: null,
+    });
+  });
+
   it("leaves web and mail links to the opener plugin", () => {
     for (const h of ["https://x.org/a", "HTTP://x.org", "mailto:a@b.c", "tel:+1"]) {
       expect(linkTarget(h, doc)).toEqual({ kind: "external" });
