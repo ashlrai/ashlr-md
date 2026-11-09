@@ -29346,6 +29346,25 @@ describe("undescribed image followed by ordinary text", () => {
 describe("two undescribed images on one line", () => {
   const rules = [ruleMissingAltText];
 
+  it("preserves adjacent punctuation when fixing either image separately or both together", () => {
+    const first = "![](a.png)";
+    const second = "![](b.png)";
+    const describedFirst = "![TODO: describe image](a.png)";
+    const describedSecond = "![TODO: describe image](b.png)";
+    const doc = `See (${first}), then “${second}”!`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "missing-alt-text",
+      "missing-alt-text",
+    ]);
+    expect(applyFix(doc, violations[0])).toBe(`See (${describedFirst}), then “${second}”!`);
+    expect(applyFix(doc, violations[1])).toBe(`See (${first}), then “${describedSecond}”!`);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(`See (${describedFirst}), then “${describedSecond}”!`);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
   it.each([
     ["\n"],
     ["\r\n"],
