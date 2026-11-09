@@ -17,6 +17,25 @@ describe("frontmatter", () => {
     expect(body).toBe("# Body\n\ntext");
   });
 
+  it("keeps delimiter-like lines with trailing text inside frontmatter", () => {
+    for (const newline of ["\n", "\r\n"]) {
+      const frontmatter = [
+        "---",
+        "title: X",
+        "--- trailing text",
+        "... trailing text",
+        "---",
+        "",
+      ].join(newline);
+      const body = "# Body";
+      const raw = frontmatter + body;
+
+      expect(splitFrontmatter(raw)).toEqual({ frontmatter, body });
+      expect(stripFrontmatter(raw)).toEqual({ lines: [body], offset: 5 });
+      expect(joinFrontmatter(frontmatter, body)).toBe(raw);
+    }
+  });
+
   it("preserves delimiter-like lines and later blocks in the body", () => {
     for (const newline of ["\n", "\r\n"]) {
       const frontmatter = ["---", "title: First", "...", ""].join(newline);
