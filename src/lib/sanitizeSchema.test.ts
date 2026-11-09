@@ -23,6 +23,11 @@ async function render(md: string): Promise<string> {
 }
 
 describe("SANITIZE_SCHEMA", () => {
+  it("preserves ordinary Unicode text exactly", async () => {
+    const text = "Café, cafe\u0301, 你好, مرحبا, 👩🏽‍💻";
+    expect(await render(text)).toBe(`<p>${text}</p>`);
+  });
+
   it("strips <script> tags from raw HTML", async () => {
     const out = await render("hello\n\n<script>alert(1)</script>\n");
     expect(out).not.toContain("<script");
