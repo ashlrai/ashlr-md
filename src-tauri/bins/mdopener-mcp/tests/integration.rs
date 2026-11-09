@@ -10969,6 +10969,22 @@ fn export_text_keeps_a_standalone_numeric_citation() {
 }
 
 #[test]
+fn export_text_keeps_repeated_standalone_numeric_citations() {
+    for (markdown, expected) in [
+        ("[1]\n\n[1]\n", "[1]\n\n[1]"),
+        ("[1]\n[1]\n[1]\n", "[1]\n[1]\n[1]"),
+        (
+            "Claim [1].\n\n[1]\n\nAnother claim [1].\n\n[1]\n",
+            "Claim [1].\n\n[1]\n\nAnother claim [1].\n\n[1]",
+        ),
+        ("> [1]\n\n- [1]\n", "[1]\n\n[1]"),
+    ] {
+        let result = run_export_text_on(markdown);
+        assert_eq!(result["text"].as_str().unwrap(), expected, "{markdown:?}");
+    }
+}
+
+#[test]
 fn export_text_keeps_bracketed_prose_at_the_end_of_a_paragraph() {
     for (markdown, expected) in [
         (
