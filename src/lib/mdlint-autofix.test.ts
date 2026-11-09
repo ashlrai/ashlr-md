@@ -35,6 +35,22 @@ import {
   ruleWikilinkTargetsExist,
 } from "./mdlint";
 
+describe("invalid link at end of file without a final newline", () => {
+  it.each(["\n", "\r\n"])("replaces the destination and preserves line endings (%j)", (newline) => {
+    const rules = [ruleInvalidLinkTarget];
+    const doc = `Introduction.${newline}Read [guide](#)`;
+    const expected = `Introduction.${newline}Read [guide](TODO)`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.endsWith("\n")).toBe(false);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
+
 describe("invalid link at document start", () => {
   it.each(["", "#", "?"])("inserts the placeholder for destination %j and preserves following text", (href) => {
     const rules = [ruleInvalidLinkTarget];
