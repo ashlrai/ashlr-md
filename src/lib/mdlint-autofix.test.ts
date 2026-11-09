@@ -386,6 +386,17 @@ describe("autofix preserves a valid link beside ordinary bracketed prose", () =>
       expect(applyAllFixes(doc, violations)).toBe(doc);
     }
   });
+
+  it.each(["\n", "\r\n"])("preserves [TODO] prose and a valid TODO link while fixing another link (%j)", (nl) => {
+    const doc = `Before [TODO], read [TODO](./tasks.md) and [draft](); after [TODO].${nl}`;
+    const expected = `Before [TODO], read [TODO](./tasks.md) and [draft](TODO); after [TODO].${nl}`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
 });
 
 describe("invalid-link autofix preserves Unicode link text", () => {
