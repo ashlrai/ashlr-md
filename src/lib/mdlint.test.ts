@@ -692,6 +692,22 @@ describe("rule:invalid-link-target", () => {
     ).toEqual([]);
   });
 
+  it("identifies an empty destination and its location on a later line", () => {
+    const doc = "First line\nSee [draft]() for details.\n";
+    const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0]).toMatchObject({
+      ruleId: "invalid-link-target",
+      message: "Invalid link target: [draft](empty)",
+      severity: "warning",
+      range: {
+        from: { offset: 15, line: 2, col: 4 },
+        to: { offset: 24, line: 2, col: 13 },
+      },
+    });
+  });
+
   it("reports only the invalid link alongside a valid link with default rules", () => {
     const doc = "See [documentation](https://example.com/guide) and [draft]().\n";
     const violations = lintDocument(doc).filter(
