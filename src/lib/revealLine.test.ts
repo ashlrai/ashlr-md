@@ -192,11 +192,14 @@ describe("revealLine", () => {
       parent: host,
     });
     try {
+      const dispatch = vi.spyOn(view, "dispatch");
       const lastLine = view.state.doc.line(view.state.doc.lines);
-      revealLine(view.state.doc.lines + 100);
+      expect(() => revealLine(view.state.doc.lines + 100)).not.toThrow();
       await vi.waitFor(() => {
+        expect(dispatch).toHaveBeenCalledOnce();
         expect(view.state.selection.main.head).toBe(lastLine.from);
       });
+      expect(view.state.doc.toString()).toBe(DOC);
     } finally {
       view.destroy();
     }
