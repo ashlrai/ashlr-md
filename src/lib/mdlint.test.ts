@@ -661,6 +661,23 @@ describe("rule:missing-alt-text", () => {
 // ─── 4. lintDocument engine ───────────────────────────────────────────────────
 
 describe("rule:invalid-link-target", () => {
+  it("locates a whitespace-only destination in a multiline document", () => {
+    const doc = "# Notes\n\nSee [draft]( \t ) and [guide](./guide.md).\n";
+    const violations = lintDocument(doc).filter(
+      (violation) => violation.ruleId === "invalid-link-target",
+    );
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0]).toMatchObject({
+      severity: "warning",
+      range: {
+        from: { offset: 13, line: 3, col: 4 },
+        to: { offset: 25, line: 3, col: 16 },
+      },
+    });
+    expect(doc.slice(13, 25)).toBe("[draft]( \t )");
+  });
+
   it.each([
     ["empty", ""],
     ["whitespace-only", " \t "],
