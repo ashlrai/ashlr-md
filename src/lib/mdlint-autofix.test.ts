@@ -67,6 +67,22 @@ describe("invalid link at document start", () => {
   });
 });
 
+describe("missing alt text with a hyphenated filename", () => {
+  it.each(["\n", "\r\n"])("preserves the source while inserting a description (%j)", (nl) => {
+    const rules = [ruleMissingAltText];
+    const doc = `See ![](images/annual-revenue-2026.png?size=2#preview) for details.${nl}`;
+    const expected = `See ![TODO: describe image](images/annual-revenue-2026.png?size=2#preview) for details.${nl}`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.replace("TODO: describe image", "")).toBe(doc);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
+
 describe("undescribed image on the last line", () => {
   it.each([
     "\n",
