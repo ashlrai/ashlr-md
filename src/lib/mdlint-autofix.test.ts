@@ -116,6 +116,27 @@ describe("valid image alt text during autofix", () => {
   });
 });
 
+describe("valid link beside an invalid link", () => {
+  it.each(["\n", "\r\n"].flatMap((nl) => [true, false].map((validFirst) => [nl, validFirst] as const)))(
+    "preserves the valid link while repairing its neighbor (newline %j, valid first %s)",
+    (nl, validFirst) => {
+      const rules = [ruleInvalidLinkTarget];
+      const valid = '[Reference](https://example.com/path?q=one#section "A title")';
+      const invalid = "[Guide](#)";
+      const repaired = "[Guide](TODO)";
+      const doc = `${validFirst ? `${valid} and ${invalid}` : `${invalid} and ${valid}`}.${nl}`;
+      const expected = `${validFirst ? `${valid} and ${repaired}` : `${repaired} and ${valid}`}.${nl}`;
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+    },
+  );
+});
+
 describe("invalid link beside ordinary text", () => {
   it("replaces the destination with TODO and preserves the sentence", () => {
     const doc = "Please read [the guide](#) before continuing.\n";
