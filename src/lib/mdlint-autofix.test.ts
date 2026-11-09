@@ -30177,6 +30177,18 @@ describe("rule:invalid-link-target — two invalid links with rich link text on 
 
 
 describe("invalid-link-target autofix with two invalid links on one line", () => {
+  it.each(["\n", "\r\n"])("repairs both links in a wrapped paragraph without changing its prose (%j)", (nl) => {
+    const doc = `Before [first]() and ordinary text,${nl}continue with [second](?) and finish.${nl}`;
+    const expected = `Before [first](TODO) and ordinary text,${nl}continue with [second](TODO) and finish.${nl}`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target", "invalid-link-target"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
   it("fixes repeated labels around a valid link without changing the prose", () => {
     const rules = [ruleInvalidLinkTarget];
     const doc = "Before [guide](#), keep [guide](./guide.md), then [guide]() after.\n";
