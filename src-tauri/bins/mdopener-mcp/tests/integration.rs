@@ -7131,6 +7131,21 @@ fn export_text_keeps_repeated_unmatched_bracket_pairs_in_order() {
     );
 }
 
+#[test]
+fn export_text_preserves_literal_brackets_at_both_paragraph_boundaries() {
+    for (markdown, expected) in [
+        ("[start] text ends [finish]\n", "[start] text ends [finish]"),
+        (
+            "[start] See [the guide](/guide)\nand finish [end]\n",
+            "[start] See the guide\nand finish [end]",
+        ),
+    ] {
+        let result = run_export_text_on(markdown);
+        assert_eq!(result["text"].as_str().unwrap(), expected, "{markdown:?}");
+        assert_eq!(strip_markdown(markdown), expected, "{markdown:?}");
+    }
+}
+
 /// A blank line ends the paragraph and every inline read inside it, so a
 /// bracketed phrase in one paragraph can never be the link text, the label
 /// or the tail of a phrase in the next. Each paragraph keeps its own
