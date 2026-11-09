@@ -268,6 +268,20 @@ describe("frontmatterText", () => {
 describe("a document with no frontmatter", () => {
   const doc = "# Title\n\nSome text.\n\n- a\n- b\n";
 
+  it("preserves metadata-like body text and a thematic break", () => {
+    for (const newline of ["\n", "\r\n"]) {
+      const raw = ["# Notes", "title: Body title", "", "---", "", "More text.", ""].join(
+        newline,
+      );
+      const { frontmatter, body } = splitFrontmatter(raw);
+      expect(frontmatter).toBe("");
+      expect(body).toBe(raw);
+      expect(stripFrontmatter(raw)).toEqual({ lines: raw.split("\n"), offset: 0 });
+      expect(frontmatterText(raw, "title")).toBeNull();
+      expect(joinFrontmatter(frontmatter, body)).toBe(raw);
+    }
+  });
+
   it("keeps the whole document as the body and round-trips it", () => {
     const { frontmatter, body } = splitFrontmatter(doc);
     expect(frontmatter).toBe("");
