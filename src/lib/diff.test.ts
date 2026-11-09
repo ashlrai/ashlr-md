@@ -388,6 +388,22 @@ describe("parseDiffHunks — edge cases", () => {
 // ---------------------------------------------------------------------------
 
 describe("applyHunkToContent", () => {
+  it("applies an addition to empty content", () => {
+    const hunks = parseDiffHunks(DEV_NULL_SRC);
+    expect(hunks).toEqual([
+      {
+        targetFile: "newfile.ts",
+        header: "@@ -0,0 +1,2 @@",
+        find: "",
+        replace: "line one\nline two",
+      },
+    ]);
+    expect(applyHunkToContent("", hunks[0])).toEqual({
+      ok: true,
+      newContent: "line one\nline two",
+    });
+  });
+
   it("applies a hunk successfully when anchor is found exactly once", () => {
     const content = `import { bar } from "./bar";\nconst x = 1;\nexport { x };`;
     const [hunk] = parseDiffHunks(SINGLE_HUNK);
