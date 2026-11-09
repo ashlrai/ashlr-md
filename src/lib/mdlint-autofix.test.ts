@@ -25686,6 +25686,16 @@ describe("empty document", () => {
     expect(violations.filter((v) => v.fix)).toEqual([]);
     expect(applyAllFixes("", violations)).toBe("");
   });
+
+  it("leaves an empty document unchanged without recording fix history", () => {
+    clearLintHistory();
+    const doc = "";
+    const violations = lintDocument(doc);
+
+    expect(violations).toEqual([]);
+    expect(fixAllViolations(doc, violations)).toBe(doc);
+    expect(getLintHistory()).toEqual([]);
+  });
 });
 
 
