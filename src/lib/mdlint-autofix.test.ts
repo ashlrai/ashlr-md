@@ -30014,11 +30014,15 @@ describe("undescribed image followed by ordinary text", () => {
 });
 
 describe("described image beside an undescribed image", () => {
-  it.each([[true, "\n"], [false, "\n"], [true, "\r\n"], [false, "\r\n"]])("fixes only the undescribed image (described first: %s, newline: %j)", (describedFirst, newline) => {
+  it.each([true, false].flatMap((describedFirst) =>
+    ["\n", "\r\n"].flatMap((newline) =>
+      [" ", "\t"].map((separator) => [describedFirst, newline, separator] as const),
+    ),
+  ))("fixes only the undescribed image (described first: %s, newline: %j, separator: %j)", (describedFirst, newline, separator) => {
     const described = '![Café diagram](images/chart.png "Original title")';
     const missing = '![](images/chart.png "Original title")';
     const repaired = '![TODO: describe image](images/chart.png "Original title")';
-    const pair = (image: string) => describedFirst ? `${described} ${image}` : `${image} ${described}`;
+    const pair = (image: string) => describedFirst ? `${described}${separator}${image}` : `${image}${separator}${described}`;
     const doc = `Compare ${pair(missing)}.${newline}`;
     const rules = [ruleMissingAltText];
     const violations = lintDocument(doc, { rules });
