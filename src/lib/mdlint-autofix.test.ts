@@ -30146,13 +30146,16 @@ describe("two undescribed images on one line", () => {
     );
   });
 
-  it("adds a placeholder for each image while preserving both paths", () => {
-    const doc = "Compare ![](images/before.png) with ![](images/after.svg).\n";
+  it.each(["\n", "\r\n"])("adds a placeholder to both images while preserving their paths (%j)", (newline) => {
+    const first = "![](images/before.png)";
+    const second = "![](images/after.svg)";
+    const doc = `Compare ${first} with ${second}.${newline}`;
     const expected =
-      "Compare ![TODO: describe image](images/before.png) with ![TODO: describe image](images/after.svg).\n";
+      `Compare ![TODO: describe image](images/before.png) with ![TODO: describe image](images/after.svg).${newline}`;
     const violations = lintDocument(doc, { rules });
 
-    expect(violations).toHaveLength(2);
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text", "missing-alt-text"]);
+    expect(violations.map(({ range }) => doc.slice(range!.from.offset, range!.to.offset))).toEqual([first, second]);
     const fixed = applyAllFixes(doc, violations);
     expect(fixed).toBe(expected);
     expect(lintDocument(fixed, { rules })).toEqual([]);
