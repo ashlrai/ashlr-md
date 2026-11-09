@@ -36,6 +36,17 @@ describe("frontmatter", () => {
     expect(joinFrontmatter(frontmatter, body)).toBe(raw);
   });
 
+  it("round-trips an empty frontmatter block and its body", () => {
+    for (const newline of ["\n", "\r\n"]) {
+      const frontmatter = `---${newline}---${newline}`;
+      const body = `# Body${newline}${newline}text${newline}`;
+      const raw = frontmatter + body;
+      const split = splitFrontmatter(raw);
+      expect(split).toEqual({ frontmatter, body });
+      expect(joinFrontmatter(split.frontmatter, split.body)).toBe(raw);
+    }
+  });
+
   it("join with empty frontmatter returns the body unchanged", () => {
     expect(joinFrontmatter("", "x")).toBe("x");
   });
