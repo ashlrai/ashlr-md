@@ -65,6 +65,21 @@ check: it runs typecheck, Biome, the crypto policy and a diff secret scan. The
 full Linux and macOS suites run after merge on `main` and daily, so run the
 suites above for anything beyond a docs change.
 
+## DeepWiki documentation
+
+[`.devin/wiki.json`](./.devin/wiki.json) steers DeepWiki generation with
+repository-wide notes and an explicit list of pages. DeepWiki generates only
+the listed pages, so update their titles and purposes when major areas of the
+codebase change; keep parent titles in sync when renaming pages. Both
+`repo_notes` and a nonempty `pages` array are required. See the
+[DeepWiki configuration guide](https://docs.devin.ai/work-with-devin/deepwiki)
+for the format and limits.
+
+The config does not itself trigger indexing or refresh. Follow DeepWiki's
+service instructions to index the repository and regenerate the wiki after
+changes. Generated documentation is a navigation aid; source code and the
+maintained guides remain authoritative.
+
 ## Resolving merge conflicts
 
 Some files churn on every PR and are resolved mechanically, never by hand:

@@ -1,0 +1,38 @@
+{
+  "repo_notes": [
+    {
+      "content": "Ashlr MD is a local-first Markdown desktop app. The React frontend is in src/, the Tauri/Rust backend is in src-tauri/, and editor integrations are in integrations/. Explain how these parts interact and ground claims in the current source."
+    },
+    {
+      "content": "The MCP tool registry and CLI help in src-tauri/bins/mdopener-mcp/src/ are authoritative for agent interfaces; frontend handlers are in src/mcp/handlers/. docs/AGENTS.md and llms-full.txt are maintained guides, not substitutes for checking source."
+    }
+  ],
+  "pages": [
+    {
+      "title": "Architecture Overview",
+      "purpose": "Explain the local-first desktop architecture, repository layout, and communication between the React frontend and Tauri backend."
+    },
+    {
+      "title": "Markdown Editing and Rendering",
+      "purpose": "Describe the editor, Markdown rendering pipeline, links, and application state in src/.",
+      "parent": "Architecture Overview"
+    },
+    {
+      "title": "Native Backend",
+      "purpose": "Explain the Tauri commands, filesystem operations, and platform-specific behavior in src-tauri/.",
+      "parent": "Architecture Overview"
+    },
+    {
+      "title": "Agent and CLI Interfaces",
+      "purpose": "Describe the mdopen and mdopener-mcp binaries, MCP tool registry, frontend bridge and handlers, and how agents interact with open documents."
+    },
+    {
+      "title": "Editor Integrations",
+      "purpose": "Explain the VS Code, Obsidian, and Raycast integrations in integrations/ and how they launch or communicate with Ashlr MD."
+    },
+    {
+      "title": "Development and Testing",
+      "purpose": "Describe setup, frontend and Rust tests, documentation freshness checks, and relevant maintenance scripts using CONTRIBUTING.md and the repository scripts."
+    }
+  ]
+}
