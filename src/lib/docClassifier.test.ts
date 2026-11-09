@@ -41,7 +41,9 @@ function codeBlock(lang: string, lines: number): string {
 // ---------------------------------------------------------------------------
 
 describe("classify — edge cases", () => {
-  it("returns GENERIC for empty string", () => {
+  it("returns GENERIC consistently for an empty document", () => {
+    expect(classify("")).toBe("GENERIC");
+    expect(classify(`${fm("type", "PLAN")}# Plan`)).toBe("PLAN");
     expect(classify("")).toBe("GENERIC");
   });
 
