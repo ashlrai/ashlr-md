@@ -390,6 +390,8 @@ the quoted name to find the fixture.
 - "preserves an absolute image source and title when fixing whitespace-only alt text"
 - "autofixes Unicode whitespace-only alt text without changing a Unicode source or CRLF"
 - [table] "autofixes whitespace-only alt text that spans a line break (%j) and keeps the source on its own line"
+- [table] "replaces a whitespace-only description in a blockquote with the placeholder and keeps the titled source (%s)"
+- [table] "fixes the documented example's empty and whitespace-only descriptions, keeping both sources (%j)"
 - "autofixes an image while preserving its source and surrounding prose"
 - "preserves the text before and after an empty-alt image exactly, metacharacters included"
 - "preserves a Unicode image source and surrounding prose when fixing empty alt text"
