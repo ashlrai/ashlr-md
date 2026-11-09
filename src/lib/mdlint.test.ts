@@ -652,6 +652,9 @@ describe("rule:missing-alt-text", () => {
     expect(
       doc.slice(violations[0].range!.from.offset, violations[0].range!.to.offset),
     ).toBe(missing);
+    expect(applyAllFixes(doc, violations)).toBe(
+      `${described}\n![TODO: describe image](clouds.png)\n`,
+    );
   });
 });
 
