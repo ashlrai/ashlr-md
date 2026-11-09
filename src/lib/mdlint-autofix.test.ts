@@ -120,11 +120,14 @@ describe("invalid link beside ordinary text", () => {
   it("replaces the destination with TODO and preserves the sentence", () => {
     const doc = "Please read [the guide](#) before continuing.\n";
     const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
+    const expected = "Please read [the guide](TODO) before continuing.\n";
 
     expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
-    expect(applyAllFixes(doc, violations)).toBe(
-      "Please read [the guide](TODO) before continuing.\n",
-    );
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe("[the guide](#)");
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules: [ruleInvalidLinkTarget] })).toEqual([]);
   });
 
   it.each(["", "#", "  "])("is unchanged by a second autofix for destination %j", (href) => {
