@@ -342,6 +342,23 @@ describe("exportHtml", () => {
     });
   });
 
+  it("preserves Unicode and punctuation in rendered Markdown in order", async () => {
+    const content = "Café — 你好，世界! 👩🏽‍💻 & <notes>: ‘yes’; 100%.";
+    const paragraph = document.createElement("p");
+    paragraph.textContent = content;
+    document.querySelector(".markdown-body")?.appendChild(paragraph);
+
+    await exportHtml("Unicode");
+
+    const exported = new DOMParser().parseFromString(
+      writtenExport()?.text ?? "",
+      "text/html",
+    );
+    expect(exported.querySelector(".markdown-body > p:last-child")?.textContent).toBe(
+      content,
+    );
+  });
+
   it("titles the page by the front matter's title", async () => {
     mockDocGetState.mockReturnValueOnce({
       path: "/vault/my-doc.md",
