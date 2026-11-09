@@ -2428,6 +2428,17 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 
+  it.each(["\n", "\r\n"])("fixes an invalid link within the last line without adding a newline (%j)", (nl) => {
+    const doc = `First line with [valid](./guide.md).${nl}Last line: [draft]() remains here.  `;
+    const expected = `First line with [valid](./guide.md).${nl}Last line: [draft](TODO) remains here.  `;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+  });
+
   it.each([
     ["empty href, no trailing newline", "()", ""],
     ["empty href, trailing LF", "()", "\n"],
