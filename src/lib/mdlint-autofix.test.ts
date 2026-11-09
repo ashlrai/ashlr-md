@@ -30492,6 +30492,12 @@ describe("rule:invalid-link-target — two invalid links with rich link text on 
     expect(
       violations.map((v) => doc.slice(v.range!.from.offset, v.range!.to.offset)),
     ).toEqual(["[**bold** label]()", "[_it_ and ~~strike~~](#)"]);
+    expect(applyFix(doc, violations[0])).toBe(
+      "Use [**bold** label](TODO) or [_it_ and ~~strike~~](#) before *emphasis* ends — ok.\n",
+    );
+    expect(applyFix(doc, violations[1])).toBe(
+      "Use [**bold** label]() or [_it_ and ~~strike~~](TODO) before *emphasis* ends — ok.\n",
+    );
     expect(applyAllFixes(doc, violations)).toBe(expected);
     expect(lintDocument(expected, { rules })).toEqual([]);
   });
