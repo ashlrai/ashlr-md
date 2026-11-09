@@ -2,6 +2,7 @@
  * diff.test.ts — vitest unit tests for parseDiffHunks / countHunks / applyHunkToContent.
  */
 import { describe, expect, it } from "vitest";
+import { diffLines, splitLines } from "../editor/lineDiff";
 import { applyHunkToContent, countHunks, parseDiffHunks } from "./diff";
 
 // ---------------------------------------------------------------------------
@@ -68,6 +69,15 @@ const NO_NEWLINE = `--- a/file.txt
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+describe("diffLines", () => {
+  it("reports no changes for identical inputs", () => {
+    const content = "First line\r\nSecond line\nLast line";
+    expect(diffLines(splitLines(content), splitLines(content))).toEqual([
+      { kind: "equal", lines: ["First line\r\n", "Second line\n", "Last line"] },
+    ]);
+  });
+});
 
 describe("parseDiffHunks", () => {
   it("parses a single hunk with target file", () => {
