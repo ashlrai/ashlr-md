@@ -7224,6 +7224,18 @@ fn export_text_preserves_literal_brackets_at_both_paragraph_boundaries() {
         let result = run_export_text_on(markdown);
         assert_eq!(result["text"].as_str().unwrap(), expected, "{markdown:?}");
         assert_eq!(strip_markdown(markdown), expected, "{markdown:?}");
+
+        let ipc = MockIpc::new().on_get(
+            "/content",
+            Ok(json!({ "path": "/docs/boundaries.md", "content": markdown })),
+        );
+        let response = tool_export_text(id(2), &json!({}), &ipc);
+        assert!(response.error.is_none(), "{markdown:?}");
+        assert_eq!(
+            content_text(&response)["text"].as_str(),
+            Some(expected),
+            "{markdown:?}"
+        );
     }
 }
 
