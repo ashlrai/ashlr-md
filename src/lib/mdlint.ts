@@ -615,9 +615,9 @@ export const ruleInvalidLinkTarget: LintRule = {
               }
             }
             if (idx === -1) return d;
-            return (
-              d.slice(0, idx) + `[${text}](TODO)` + d.slice(idx + originalMatch.length)
-            );
+            return `${d.slice(0, idx)}[${text}](TODO)${d.slice(
+              idx + originalMatch.length,
+            )}`;
           },
         });
       }
