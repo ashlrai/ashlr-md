@@ -366,9 +366,17 @@ describe("two undescribed images on separate lines", () => {
     const violations = lintDocument(doc, { rules });
 
     expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text", "missing-alt-text"]);
+    expect(violations.map(({ range }) => doc.slice(range!.from.offset, range!.to.offset))).toEqual([
+      "![](first.png)",
+      "![](second.svg)",
+    ]);
+    expect(applyFix(doc, violations[0])).toBe(doc.replace("![](first.png)", "![TODO: describe image](first.png)"));
+    expect(applyFix(doc, violations[1])).toBe(doc.replace("![](second.svg)", "![TODO: describe image](second.svg)"));
     expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(applyAllFixes(doc, [...violations].reverse())).toBe(expected);
     expect(fixAllViolations(doc, violations)).toBe(expected);
     expect(lintDocument(expected, { rules })).toEqual([]);
+    expect(applyAllFixes(expected, lintDocument(expected, { rules }))).toBe(expected);
   });
 });
 
