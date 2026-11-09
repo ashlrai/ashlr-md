@@ -206,9 +206,17 @@ describe("a document with no frontmatter", () => {
   });
 
   it("keeps an unclosed --- opener as body text with no metadata", () => {
-    const raw = "---\ntitle: X\n\nno closing fence";
-    expect(splitFrontmatter(raw)).toEqual({ frontmatter: "", body: raw });
-    expect(frontmatterText(raw, "title")).toBeNull();
+    for (const raw of [
+      "---",
+      "---\ntitle: X\n\nno closing fence",
+      "---\r\ntitle: X\r\nbody\r\n",
+    ]) {
+      const { frontmatter, body } = splitFrontmatter(raw);
+      expect(frontmatter).toBe("");
+      expect(body).toBe(raw);
+      expect(joinFrontmatter(frontmatter, body)).toBe(raw);
+      expect(frontmatterText(raw, "title")).toBeNull();
+    }
   });
 
   it("keeps an empty document empty", () => {
