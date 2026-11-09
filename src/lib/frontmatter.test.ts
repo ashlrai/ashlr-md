@@ -17,6 +17,28 @@ describe("frontmatter", () => {
     expect(body).toBe("# Body\n\ntext");
   });
 
+  it("preserves delimiter-like lines and later blocks in the body", () => {
+    for (const newline of ["\n", "\r\n"]) {
+      const frontmatter = ["---", "title: First", "...", ""].join(newline);
+      const body = [
+        "# Body",
+        "---",
+        "title: Second",
+        "---",
+        "...",
+        "--- trailing text",
+        "  ---",
+        "",
+      ].join(newline);
+      const raw = frontmatter + body;
+
+      expect(splitFrontmatter(raw)).toEqual({ frontmatter, body });
+      expect(stripFrontmatter(raw)).toEqual({ lines: body.split("\n"), offset: 3 });
+      expect(frontmatterText(raw, "title")).toBe("First");
+      expect(joinFrontmatter(frontmatter, body)).toBe(raw);
+    }
+  });
+
   it("returns empty frontmatter when there is none", () => {
     const { frontmatter, body } = splitFrontmatter("# Just a heading");
     expect(frontmatter).toBe("");
