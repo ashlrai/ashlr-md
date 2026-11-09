@@ -638,6 +638,22 @@ describe("listCachedPaths", () => {
 // =============================================================================
 
 describe("recoverSession", () => {
+  it("restores an empty document and its initial session state", async () => {
+    const path = "/empty.md";
+    const snapshot: SessionSnapshot = {
+      path,
+      cursorOffset: 0,
+      scrollTop: 0,
+      viewMode: "read",
+      zoom: 1,
+      savedAt: 1,
+    };
+    await cacheDocument(path, "");
+    saveSnapshot(snapshot);
+
+    await expect(recoverSession(path)).resolves.toEqual({ content: "", snapshot });
+  });
+
   it("returns { content: null, snapshot: null } when nothing is stored", async () => {
     const result = await recoverSession("/fresh.md");
     expect(result.content).toBeNull();
