@@ -260,6 +260,9 @@ export function applyHunkToContent(
     // Nothing to change — treat as a successful no-op.
     return { ok: true, newContent: content };
   }
+  if (content === "" && hunk.find === "") {
+    return { ok: true, newContent: hunk.replace };
+  }
   const { find, replace } = inLineBreaksOf(content, hunk.find, hunk.replace);
   const occurrences = content.split(find).length - 1;
   if (occurrences === 0) {
