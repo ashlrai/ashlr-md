@@ -78,7 +78,7 @@ describe("invalid link target surrounded by prose", () => {
     expect(twice).toBe(once);
   });
 
-  it.each(["", "#", "?"])("replaces only the target %j", (target) => {
+  it.each(["", "#", "?", " ", "\t", " \t "])("replaces only the target %j", (target) => {
     const doc = `Before the link, read [the guide](${target}) for details. Afterwards, continue reading.\n`;
     const expected = "Before the link, read [the guide](TODO) for details. Afterwards, continue reading.\n";
     const rules = [ruleInvalidLinkTarget];
