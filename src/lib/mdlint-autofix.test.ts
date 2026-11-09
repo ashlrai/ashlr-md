@@ -78,9 +78,15 @@ describe("undescribed image on the last line", () => {
     const violations = lintDocument(doc, { rules });
 
     expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe('![](images/chart.png "Chart")');
+    expect(to.offset).toBe(doc.length);
+    expect(applyFix(doc, violations[0])).toBe(expected);
     const fixed = applyAllFixes(doc, violations);
     expect(fixed).toBe(expected);
+    expect(fixed.endsWith("\n")).toBe(false);
     expect(fixed.replace("TODO: describe image", "")).toBe(doc);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
     expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
   });
 });
