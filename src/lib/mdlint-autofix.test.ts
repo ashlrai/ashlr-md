@@ -123,6 +123,27 @@ describe("autofix preserves [TODO] in prose", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
     expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
   });
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("keeps [TODO] prose between and after invalid links on one line (%j)", (nl) => {
+    const rules = [ruleInvalidLinkTarget];
+    const doc = `Read [one]() [TODO] then [two](#) [TODO] done.${nl}`;
+    const expected = `Read [one](TODO) [TODO] then [two](TODO) [TODO] done.${nl}`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+      "invalid-link-target",
+      "invalid-link-target",
+    ]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // Both prose notes survive and both links received their placeholder.
+    expect(fixed.match(/\[TODO\](?!\()/g)).toHaveLength(2);
+    expect(fixed.match(/\]\(TODO\)/g)).toHaveLength(2);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
 });
 
 describe("invalid-link autofix across separate lines", () => {
