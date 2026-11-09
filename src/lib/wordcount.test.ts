@@ -100,6 +100,21 @@ describe("computeDocStats", () => {
     expect(computeDocStats(fence).words).toBe(0);
   });
 
+  it.each([
+    ["backtick fences", "```js\nhidden code words\n```", "```\nmore hidden words\n```"],
+    ["mixed fences", "~~~py\nhidden code words\n~~~", "```sh\nmore hidden words\n```"],
+  ])("counts prose before, between and after multiple %s", (_label, first, second) => {
+    const md = `before words\n\n${first}\n\nbetween three words\n\n${second}\n\nafter words`;
+    expect(computeDocStats(md)).toEqual({ words: 7, minutes: 1 });
+  });
+
+  it("does not let multiple fenced blocks increase reading time", () => {
+    const prose = Array.from({ length: 220 }, () => "word").join(" ");
+    const code = Array.from({ length: 220 }, () => "hidden").join(" ");
+    const md = `${prose}\n\n\`\`\`\n${code}\n\`\`\`\n\n~~~\n${code}\n~~~`;
+    expect(computeDocStats(md)).toEqual({ words: 220, minutes: 1 });
+  });
+
   it("excludes tilde-fenced code blocks and counts surrounding prose", () => {
     const fence = "~~~js\nconst message = 'hello world';\nconsole.log(message);\n~~~";
     expect(computeDocStats(`words before\n\n${fence}\n\nwords after here`).words).toBe(
