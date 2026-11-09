@@ -36,6 +36,19 @@ describe("frontmatter", () => {
     expect(joinFrontmatter(frontmatter, body)).toBe(raw);
   });
 
+  it("round-trips a frontmatter-only document with an empty body", () => {
+    for (const raw of [
+      "---\ntitle: X\n---",
+      "---\ntitle: X\n---\n",
+      "\uFEFF---\r\ntitle: X\r\n...\r\n",
+    ]) {
+      const { frontmatter, body } = splitFrontmatter(raw);
+      expect(frontmatter).toBe(raw);
+      expect(body).toBe("");
+      expect(joinFrontmatter(frontmatter, body)).toBe(raw);
+    }
+  });
+
   it("join with empty frontmatter returns the body unchanged", () => {
     expect(joinFrontmatter("", "x")).toBe("x");
   });
