@@ -56,6 +56,34 @@ describe("restoreSession", () => {
     useSessionStore.getState().clear();
   });
 
+  it("round-trips Unicode document names through persisted sessions", async () => {
+    const names = ["日本語.md", "café.md", "cafe\u0301.md", "📝 notes.md"];
+    const paths = names.map((name) => `/v/${name}`);
+    disk(Object.fromEntries(paths.map((path) => [path, "content"])));
+    const savedTabs = paths.map((path) => ({ path, viewMode: "read" as const }));
+    useSessionStore.getState().save(savedTabs, paths[2]);
+
+    const serialized = localStorage.getItem("mdopener-session");
+    expect(serialized).not.toBeNull();
+    expect(JSON.parse(serialized!).state).toMatchObject({
+      savedTabs,
+      activePath: paths[2],
+    });
+    useSessionStore.getState().clear();
+    localStorage.setItem("mdopener-session", serialized!);
+    await useSessionStore.persist.rehydrate();
+
+    expect(await restoreSession()).toEqual({
+      opened: names.length,
+      gone: [],
+      capped: 0,
+    });
+    const state = useDocumentStore.getState();
+    expect(state.tabs.map((tab) => tab.fileName)).toEqual(names);
+    expect(state.tabs.map((tab) => tab.path)).toEqual(paths);
+    expect(state.path).toBe(paths[2]);
+  });
+
   it("skips a file it cannot open, without changing another tab", async () => {
     // The failed file's view mode was applied to the tab active before it,
     // it counted as reopened, and its error covered the restored document.
