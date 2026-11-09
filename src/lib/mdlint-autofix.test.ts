@@ -30880,3 +30880,30 @@ describe("invalid-link fix applied twice", () => {
     expect(twice).toBe(once);
   });
 });
+
+describe("autofix preserves populated link and image descriptions", () => {
+  it.each(["\n", "\r\n"])("leaves both unchanged when no fixes are needed (%j)", (nl) => {
+    const rules = [ruleInvalidLinkTarget, ruleMissingAltText];
+    const doc = `Read [Annual report](./report.md "Report") and see ![Revenue chart](chart.png "Chart").${nl}`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toEqual([]);
+    expect(applyAllFixes(doc, violations)).toBe(doc);
+  });
+
+  it.each(["\n", "\r\n"])("preserves both while fixing neighboring violations (%j)", (nl) => {
+    const rules = [ruleInvalidLinkTarget, ruleMissingAltText];
+    const doc = `Read [Annual report](./report.md "Report") and ![Revenue chart](chart.png "Chart"); see [draft]() and ![](other.png).${nl}`;
+    const expected = `Read [Annual report](./report.md "Report") and ![Revenue chart](chart.png "Chart"); see [draft](TODO) and ![TODO: describe image](other.png).${nl}`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId).sort()).toEqual([
+      "invalid-link-target",
+      "missing-alt-text",
+    ]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+});
