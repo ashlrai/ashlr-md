@@ -11,7 +11,7 @@ Names are verbatim. `[table]` marks an `it.each` call: it expands to one case
 per table row, and `%j` / `%s` are its placeholders. Search the test file for
 the quoted name to find the fixture.
 
-## Link fixtures (292)
+## Link fixtures (293)
 
 `describe("rule:invalid-link-target")`: `invalid-link-target` detection, the `TODO` destination fix, and preservation of surrounding text.
 
@@ -303,6 +303,7 @@ the quoted name to find the fixture.
 - "fixes an invalid link at document end without adding unrelated text"
 - "fixes six invalid links across a full document with heading, list and blockquote, keeping every label and surrounding prose"
 - [table] "replaces the invalid href on the last line of a document with no final newline and adds none (%s)"
+- [table] "fixes an invalid link within the last line without adding a newline (%j)"
 - [table] "replaces the invalid destination %j of a link that fills the final line without adding a newline"
 - [table] "replaces the invalid destination with TODO and keeps the %s byte-identical"
 - [table] "replaces invalid destinations %j and %j with TODO when each link fills its own line"
@@ -430,8 +431,6 @@ the quoted name to find the fixture.
 - [table] "fixes several undescribed images separated only by punctuation in %j"
 - [table] "inserts the placeholder into an undescribed image followed by %s, leaving the punctuation byte-for-byte"
 - [table] "inserts the documented placeholder for an undescribed image touching punctuation with no space between them (%s)"
-- [table] "replaces a whitespace-only description in a blockquote with the placeholder and keeps the titled source (%s)"
-- [table] "fixes the documented example's empty and whitespace-only descriptions, keeping both sources (%j)"
 ```
 
 ## Mixed-rule fixtures (21)
