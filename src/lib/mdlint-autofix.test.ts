@@ -35,6 +35,21 @@ import {
   ruleWikilinkTargetsExist,
 } from "./mdlint";
 
+describe("whitespace-only image description", () => {
+  it.each([" ", "\t", " \t "])("replaces %j with the documented placeholder and preserves the source", (alt) => {
+    const source = 'images/chart%20one.png?size=2#preview "Chart"';
+    const doc = `See ![${alt}](${source}) below.\n`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const expected = `See ![TODO: describe image](${source}) below.\n`;
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+});
+
 describe("invalid link target surrounded by prose", () => {
   it.each(["", "#", "?"])("replaces only the target %j", (target) => {
     const doc = `Before the link, read [the guide](${target}) for details. Afterwards, continue reading.\n`;
