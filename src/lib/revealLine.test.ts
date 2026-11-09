@@ -84,6 +84,26 @@ describe("revealLine", () => {
       expect(blockForLine(0, body())).toBeNull();
     });
 
+    it("handles an empty rendered document without scrolling", async () => {
+      await act(async () => root.render(createElement(Renderer, { content: "" })));
+      expect(body()).not.toBeNull();
+      expect(body().querySelector("[data-source-line]")).toBeNull();
+      expect(blockForLine(1, body())).toBeNull();
+
+      vi.useFakeTimers();
+      const scroll = vi.spyOn(Element.prototype, "scrollIntoView");
+      try {
+        revealLine(1);
+        await act(async () => {
+          await vi.runAllTimersAsync();
+        });
+        expect(scroll).not.toHaveBeenCalled();
+      } finally {
+        scroll.mockRestore();
+        vi.useRealTimers();
+      }
+    });
+
     it("does not scroll for a negative line after all retries", async () => {
       vi.useFakeTimers();
       const scroll = vi.spyOn(Element.prototype, "scrollIntoView");
