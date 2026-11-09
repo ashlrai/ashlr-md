@@ -29515,6 +29515,7 @@ describe("autofix: invalid link with punctuation around it", () => {
     ["emphasis markers", "**[docs]( )**!", "**[docs](TODO)**!"],
     ["ellipsis and dashes", "wait…[docs]()—ok...", "wait…[docs](TODO)—ok..."],
     ["leading colon", "Note: [docs](#):", "Note: [docs](TODO):"],
+    ["nested punctuation", "Before: (‘[docs](?)’); after!", "Before: (‘[docs](TODO)’); after!"],
   ])("sets the destination to TODO and keeps %s", (_name, body, expected) => {
     for (const nl of ["\n", "\r\n"]) {
       const doc = `${body}${nl}Next.${nl}`;
