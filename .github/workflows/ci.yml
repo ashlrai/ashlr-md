@@ -1,7 +1,7 @@
 name: CI
 
 # One required aggregate check: Check (Linux). Pull requests run fast
-# typecheck, Biome, crypto policy and pinned diff secret scans; merge queue
+# typecheck, Biome, unit tests, crypto policy and pinned diff secret scans; merge queue
 # stays fast too. Full Linux/macOS suites validate every post-merge main push
 # plus daily/manual runs, and their aggregate fails on any required failure.
 # Codecov uploads stay daily/manual only; full suites do not block merging.
@@ -28,7 +28,7 @@ permissions:
 
 jobs:
   fast:
-    name: Typecheck, lint, crypto policy
+    name: Typecheck, lint, unit tests, crypto policy
     runs-on: ubuntu-22.04
     timeout-minutes: 10
     permissions:
@@ -66,8 +66,8 @@ jobs:
           python3 scripts/test-apt-dependency-plan.py
           python3 scripts/test-apt-https-sources.py
 
-      - name: User-facing punctuation regression
-        run: bun run test -- src/noDashes.test.ts
+      - name: Unit tests
+        run: bun run test:unit
 
       - name: Check npm script file paths
         run: node --test scripts/package-scripts.test.mjs

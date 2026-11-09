@@ -16,6 +16,7 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "test": "node --test scripts/llms-txt.test.mjs && vitest run",
+    "test:unit": "vitest run --project unit src/noDashes.test.ts src/cliBuildSetup.test.ts src/lib/mdlint.test.ts",
     "typecheck": "tsc --noEmit",
     "lint": "biome check src",
     "format": "biome format --write src",
