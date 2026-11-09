@@ -104,7 +104,9 @@ describe("missing alt text with a hyphenated filename", () => {
     const fixed = applyAllFixes(doc, violations);
     expect(fixed).toBe(expected);
     expect(fixed.replace("TODO: describe image", "")).toBe(doc);
-    expect(lintDocument(fixed, { rules })).toEqual([]);
+    const remaining = lintDocument(fixed, { rules });
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(fixed, remaining)).toBe(fixed);
   });
 });
 
