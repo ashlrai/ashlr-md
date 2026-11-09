@@ -35,6 +35,22 @@ import {
   ruleWikilinkTargetsExist,
 } from "./mdlint";
 
+describe("invalid link target surrounded by prose", () => {
+  it.each(["", "#", "?"])("replaces only the target %j", (target) => {
+    const doc = `Before the link, read [the guide](${target}) for details. Afterwards, continue reading.\n`;
+    const expected = "Before the link, read [the guide](TODO) for details. Afterwards, continue reading.\n";
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.replace("[the guide](TODO)", `[the guide](${target})`)).toBe(doc);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
+
 describe("empty link and image description on separate lines", () => {
   it.each(["\n", "\r\n"].flatMap((nl) => [true, false].map((linkFirst) => [nl, linkFirst] as const)))(
     "inserts both placeholders in place (newline %j, link first %s)",
