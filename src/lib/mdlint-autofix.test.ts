@@ -440,6 +440,22 @@ describe("invalid-link autofix beside a valid link", () => {
   });
 });
 
+describe("default autofix for directly adjacent links", () => {
+  it.each([true, false])("preserves the valid link when it comes first: %s", (validFirst) => {
+    const valid = '[guide](./guide.md?view=full#intro "Guide")';
+    const invalid = "[draft]()";
+    const repaired = "[draft](TODO)";
+    const prefix = "---\ntitle: Guide\n---\n\n# Guide\n\n";
+    const doc = `${prefix}${validFirst ? valid + invalid : invalid + valid}\n`;
+    const expected = `${prefix}${validFirst ? valid + repaired : repaired + valid}\n`;
+    const violations = lintDocument(doc);
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected)).toEqual([]);
+  });
+});
+
 describe("invalid link immediately followed by a valid link", () => {
   it.each(["\n", "\r\n"])("fixes only the invalid destination (%j)", (nl) => {
     const rules = [ruleInvalidLinkTarget];
