@@ -30270,6 +30270,18 @@ describe("original PR 1222: undescribed image destination punctuation", () => {
 
 describe("autofix: valid absolute links", () => {
   it.each([
+    ["[same](#)[same](./guide.md)", "[same](TODO)[same](./guide.md)"],
+    ["[same](./guide.md)[same](?)", "[same](./guide.md)[same](TODO)"],
+  ])("fixes only the invalid href in adjacent links: %s", (doc, expected) => {
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+
+  it.each([
     ["an https URL", "https://example.com/docs/guide?topic=lint&v=2#links"],
     ["a root-relative path", "/docs/guide.md"],
     ["a mailto address", "mailto:team@example.com"],
