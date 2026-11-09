@@ -35,6 +35,18 @@ import {
   ruleWikilinkTargetsExist,
 } from "./mdlint";
 
+describe("image and link rules on an empty document", () => {
+  it.each([
+    [ruleMissingAltText, "![](image.png)"],
+    [ruleInvalidLinkTarget, "[link]()"],
+  ])("reports no $id findings for an empty document", (rule, invalidMarkdown) => {
+    expect(lintDocument("", { rules: [rule] })).toEqual([]);
+    expect(
+      lintDocument(invalidMarkdown, { rules: [rule] }).map((v) => v.ruleId),
+    ).toEqual([rule.id]);
+  });
+});
+
 // ─── 1. LintViolation interface & LintRange encoding ─────────────────────────
 
 describe("LintViolation interface", () => {
