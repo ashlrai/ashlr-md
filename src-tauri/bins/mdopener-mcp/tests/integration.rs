@@ -6416,6 +6416,30 @@ fn export_text_preserves_brackets_in_fenced_code() {
     }
 }
 
+/// `[NOTE]` is literal prose, not a link or reference: reading keeps its
+/// brackets whether it opens, ends or sits inside a sentence.
+#[test]
+fn export_text_preserves_note_marker_brackets() {
+    for (markdown, expected) in [
+        ("[NOTE]\n", "[NOTE]"),
+        ("[NOTE] Remember to save.\n", "[NOTE] Remember to save."),
+        ("Remember to save. [NOTE]\n", "Remember to save. [NOTE]"),
+        (
+            "Read [NOTE] first, then [NOTE].\n",
+            "Read [NOTE] first, then [NOTE].",
+        ),
+        ("[NOTE]\n[NOTE]\n", "[NOTE]\n[NOTE]"),
+        ("# [NOTE] Title\n", "[NOTE] Title"),
+        (
+            "[NOTE] and [a link](https://example.com)\n",
+            "[NOTE] and a link",
+        ),
+    ] {
+        let result = run_export_text_on(markdown);
+        assert_eq!(result["text"].as_str().unwrap(), expected, "{markdown:?}");
+    }
+}
+
 #[test]
 fn export_text_preserves_bracketed_prose_across_consecutive_lines() {
     let cases = [
