@@ -17,6 +17,18 @@ describe("computeDocStats", () => {
   });
 
   it.each([
+    ["spaces", "   "],
+    ["tabs", "\t"],
+    ["line breaks", "\n"],
+    ["CRLF line breaks", "\r\n"],
+  ])("preserves word count and reading time with %s between words", (_label, separator) => {
+    const words = Array.from({ length: 221 }, (_, index) => `word${index}`);
+    const baseline = computeDocStats(words.join(" "));
+    expect(baseline).toEqual({ words: 221, minutes: 2 });
+    expect(computeDocStats(words.join(separator))).toEqual(baseline);
+  });
+
+  it.each([
     ["leading spaces", "  ", ""],
     ["trailing spaces", "", "  "],
     ["leading and trailing blank lines", "\n\n", "\n\n"],
