@@ -53,6 +53,21 @@ describe("isInsideFencedCode reads up to the cursor's line", () => {
     expect(isInsideFencedCode(doc, pos)).toBe(readAll(doc, pos));
   });
 
+  it("preserves a literal TODO marker as fenced code content", () => {
+    const doc = "Before\n```js\n// TODO: keep this marker\n```\nAfter\n";
+    const marker = "// TODO: keep this marker";
+    const pos = doc.indexOf("TODO") + 2;
+
+    expect(
+      outline
+        .markdownLines(doc)
+        .filter((line) => line.kind === "code")
+        .map((line) => line.text),
+    ).toEqual([marker]);
+    expect(isInsideFencedCode(doc, pos)).toBe(true);
+    expect(isInsideFencedCode(doc, pos)).toBe(readAll(doc, pos));
+  });
+
   it("answers as a full read does", () => {
     const pieces = [
       "---",
