@@ -35,6 +35,18 @@ import {
   ruleWikilinkTargetsExist,
 } from "./mdlint";
 
+describe("invalid link beside ordinary text", () => {
+  it("replaces the destination with TODO and preserves the sentence", () => {
+    const doc = "Please read [the guide](#) before continuing.\n";
+    const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    expect(applyAllFixes(doc, violations)).toBe(
+      "Please read [the guide](TODO) before continuing.\n",
+    );
+  });
+});
+
 describe("autofix preserves [sic] in prose", () => {
   it.each(["\n", "\r\n"])("preserves prose beside an undescribed image (%j)", (nl) => {
     const rules = [ruleInvalidLinkTarget, ruleMissingAltText];
