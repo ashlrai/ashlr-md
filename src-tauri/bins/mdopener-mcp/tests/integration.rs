@@ -18720,6 +18720,17 @@ fn export_text_keeps_both_brackets_around_numeric_references_in_every_context() 
     }
 }
 
+#[test]
+fn export_text_preserves_bracketed_numbers_in_formatted_prose() {
+    let result = run_export_text_on(
+        "The **first study** [1] supports the [second finding](/finding) [2].\n",
+    );
+    assert_eq!(
+        result["text"].as_str(),
+        Some("The first study [1] supports the second finding [2].")
+    );
+}
+
 /// The bracketed-Unicode promise, widened to the pairs CommonMark does not
 /// own: its brackets are the ASCII ones, so the mathematical `⟦⟧`/`⟨⟩`/`⟪⟫`,
 /// flattened `⟮⟯` and shell `⟬⟭`, the ornaments `❬❭` `❮❯` `❰❱` `❲❳` `❴❵`,
