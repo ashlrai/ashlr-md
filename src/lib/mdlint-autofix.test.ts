@@ -103,6 +103,19 @@ describe("invalid link target surrounded by prose", () => {
     expect(twice).toBe(once);
   });
 
+  it.each(["\n", "\r\n"])("preserves Unicode prose around an empty target (%j)", (newline) => {
+    const rules = [ruleInvalidLinkTarget];
+    const doc = `前文 🧭 café e\u0301 — [ガイド]()، ثم تابع 🚀${newline}`;
+    const expected = `前文 🧭 café e\u0301 — [ガイド](TODO)، ثم تابع 🚀${newline}`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(fixAllViolations(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+
   it.each(["", "#", "?", " ", "\t", " \t "])("replaces only the target %j", (target) => {
     const doc = `Before the link, read [the guide](${target}) for details. Afterwards, continue reading.\n`;
     const expected = "Before the link, read [the guide](TODO) for details. Afterwards, continue reading.\n";
