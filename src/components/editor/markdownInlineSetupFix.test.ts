@@ -28,6 +28,7 @@ vi.mock("../../ai/inline", async (importOriginal) => {
 });
 
 import { runInlineTransform } from "../../ai/inline";
+import { pollUntil } from "../../lib/test-utils";
 import { useUiStore } from "../../store/uiStore";
 import { MarkdownEditor } from "./MarkdownEditor";
 
@@ -73,12 +74,14 @@ describe("WYSIWYG editor: inline AI failures a retry cannot fix", () => {
       root.render(createElement(MarkdownEditor, { initialContent: "hello world" })),
     );
     // Crepe creates its editor asynchronously.
-    for (let i = 0; i < 40 && !view; i++) {
-      await act(async () => {
-        await new Promise((r) => setTimeout(r, 25));
-        document.dispatchEvent(new Event("selectionchange"));
-      });
-    }
+    await pollUntil(
+      () => Boolean(view),
+      () =>
+        act(async () => {
+          await new Promise((r) => setTimeout(r, 25));
+          document.dispatchEvent(new Event("selectionchange"));
+        }),
+    );
     expect(view).not.toBeNull();
     const v = view as ProseView;
     // Select "hello" and show the inline AI menu.

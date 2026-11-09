@@ -228,3 +228,40 @@ export function createMockIDB(opts: MockIDBOptions = {}): Pick<IDBFactory, "open
     },
   };
 }
+
+// ---------------------------------------------------------------------------
+// pollUntil
+// ---------------------------------------------------------------------------
+
+/**
+ * Runs `step` until `done()` is true or `timeoutMs` of wall time has passed.
+ * Use it instead of a fixed iteration count: "40 tries of 25 ms" is a one
+ * second deadline in practice, and it expires when a loaded CI host starves
+ * the editor mount. The deadline is generous because a passing run never
+ * waits for it; callers assert on the outcome afterwards.
+ */
+export async function pollUntil(
+  done: () => boolean,
+  step: () => Promise<void>,
+  timeoutMs = 30_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!done() && Date.now() < deadline) await step();
+}
+
+// ---------------------------------------------------------------------------
+// cpuMs
+// ---------------------------------------------------------------------------
+
+/**
+ * Runs `fn` and returns the process CPU time it used in milliseconds.
+ * Complexity guards ("this must not go quadratic") use this instead of
+ * `performance.now()`: wall time includes time spent descheduled on a busy
+ * host, CPU time does not, so the budget measures the algorithm only.
+ */
+export function cpuMs(fn: () => void): number {
+  const before = process.cpuUsage();
+  fn();
+  const used = process.cpuUsage(before);
+  return (used.user + used.system) / 1000;
+}

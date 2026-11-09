@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { cpuMs } from "../lib/test-utils";
 import { type DiffOp, diffLines, splitLines } from "./lineDiff";
 
 /** Deterministic PRNG (mulberry32), so a failing fuzz case reproduces. */
@@ -152,9 +153,11 @@ describe("diffLines", () => {
     const a = Array.from({ length: 50_000 }, (_, i) => `line ${i}\n`);
     const b = [...a];
     b.splice(25_000, 1, "changed\n", "added\n");
-    const started = performance.now();
-    const ops = diffLines(a, b);
-    expect(performance.now() - started).toBeLessThan(1000);
+    let ops: DiffOp[] = [];
+    const used = cpuMs(() => {
+      ops = diffLines(a, b);
+    });
+    expect(used).toBeLessThan(1000);
     expect(editCount(ops)).toBe(3);
     expect(rebuild(a, ops).b).toEqual(b);
   });
@@ -162,9 +165,11 @@ describe("diffLines", () => {
   it("bounds a total rewrite of a large document", () => {
     const a = Array.from({ length: 20_000 }, (_, i) => `old ${i}\n`);
     const b = Array.from({ length: 20_000 }, (_, i) => `new ${i}\n`);
-    const started = performance.now();
-    const ops = diffLines(a, b);
-    expect(performance.now() - started).toBeLessThan(3000);
+    let ops: DiffOp[] = [];
+    const used = cpuMs(() => {
+      ops = diffLines(a, b);
+    });
+    expect(used).toBeLessThan(3000);
     expect(rebuild(a, ops).b).toEqual(b);
   });
 

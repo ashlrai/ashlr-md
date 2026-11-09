@@ -24,10 +24,17 @@ interface MockSettingsState {
   activeTemplateId: string;
   userTemplates: Array<{ id: string; name: string; css: string; builtin: boolean }>;
 }
-const mockGetState = vi.fn<() => MockSettingsState>(() => ({
+const defaultSettingsState = (): MockSettingsState => ({
   activeTemplateId: "none",
   userTemplates: [],
-}));
+});
+const mockGetState = vi.fn<() => MockSettingsState>(defaultSettingsState);
+// Some tests call vi.restoreAllMocks(), which strips the implementation above
+// and made every later test in a shuffled order read `undefined` settings.
+beforeEach(() => {
+  mockGetState.mockReset();
+  mockGetState.mockImplementation(defaultSettingsState);
+});
 vi.mock("../store/settingsStore", () => ({
   useSettingsStore: { getState: () => mockGetState() },
   NO_TEMPLATE_ID: "none",

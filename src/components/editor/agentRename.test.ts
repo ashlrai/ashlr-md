@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const invoke = vi.hoisted(() => vi.fn());
 vi.mock("@tauri-apps/api/core", () => ({ invoke }));
 
+import { pollUntil } from "../../lib/test-utils";
 import { useDocumentStore } from "../../store/documentStore";
 import { MarkdownEditor } from "./MarkdownEditor";
 
@@ -84,10 +85,13 @@ describe("WYSIWYG agent document identity", () => {
       error: null,
     });
     await act(async () => root.render(createElement(MountedEditor)));
-    for (let i = 0; i < 40 && !view; i++) {
-      await wait(25);
-      document.dispatchEvent(new Event("selectionchange"));
-    }
+    await pollUntil(
+      () => Boolean(view),
+      async () => {
+        await wait(25);
+        document.dispatchEvent(new Event("selectionchange"));
+      },
+    );
     const v = view as ProseView;
     expect(v).not.toBeNull();
     await wait(300);
