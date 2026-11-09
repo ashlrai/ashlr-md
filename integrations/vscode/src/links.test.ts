@@ -42,6 +42,16 @@ describe("isOpenableInAshlr", () => {
 });
 
 describe("buildDeepLink", () => {
+  it("resolves a target with spaces in edit mode", () => {
+    const target = "/My Notes/meeting notes.md";
+    const link = new URL(buildDeepLink(target, "edit"));
+
+    assert.equal(link.protocol, "mdopener:");
+    assert.equal(link.host, "open");
+    assert.equal(link.searchParams.get("path"), target);
+    assert.equal(link.searchParams.get("mode"), "edit");
+  });
+
   it("encodes the path", () => {
     assert.equal(
       buildDeepLink("/My Notes/a&b?.md"),
