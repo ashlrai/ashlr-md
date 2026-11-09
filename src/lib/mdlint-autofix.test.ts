@@ -35,6 +35,31 @@ import {
   ruleWikilinkTargetsExist,
 } from "./mdlint";
 
+describe("empty link and image description on separate lines", () => {
+  it.each(["\n", "\r\n"].flatMap((nl) => [true, false].map((linkFirst) => [nl, linkFirst] as const)))(
+    "inserts both placeholders in place (newline %j, link first %s)",
+    (nl, linkFirst) => {
+      const rules = [ruleInvalidLinkTarget, ruleMissingAltText];
+      const link = "Read [guide]() for details.";
+      const image = "See ![](chart.png) below.";
+      const fixedLink = "Read [guide](TODO) for details.";
+      const fixedImage = "See ![TODO: describe image](chart.png) below.";
+      const doc = ["Introduction.", ...(linkFirst ? [link, image] : [image, link]), "Conclusion.", ""].join(nl);
+      const expected = ["Introduction.", ...(linkFirst ? [fixedLink, fixedImage] : [fixedImage, fixedLink]), "Conclusion.", ""].join(nl);
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map(({ ruleId }) => ruleId).sort()).toEqual([
+        "invalid-link-target",
+        "missing-alt-text",
+      ]);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+      expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+    },
+  );
+});
+
 describe("invalid link at end of file without a final newline", () => {
   it.each(["\n", "\r\n"])("replaces the destination and preserves line endings (%j)", (newline) => {
     const rules = [ruleInvalidLinkTarget];
