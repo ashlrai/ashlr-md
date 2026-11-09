@@ -800,6 +800,19 @@ describe("rule:invalid-link-target", () => {
     );
   });
 
+  it("accepts a relative link while reporting an invalid neighboring destination", () => {
+    const doc = "See [guide](./docs/guide.md) and [draft]().";
+    const violations = lintDocument(doc).filter(
+      (v) => v.ruleId === "invalid-link-target",
+    );
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].message).toBe("Invalid link target: [draft](empty)");
+    expect(
+      doc.slice(violations[0].range.from.offset, violations[0].range.to.offset),
+    ).toBe("[draft]()");
+  });
+
   it("identifies an empty destination and its location on a later line", () => {
     const doc = "First line\nSee [draft]() for details.\n";
     const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
