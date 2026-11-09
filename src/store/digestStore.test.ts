@@ -233,6 +233,16 @@ describe("digestStore", () => {
     expect(useDigestStore.getState().genId).toBe(4);
   });
 
+  it("dismiss() succeeds when the store is already empty", () => {
+    expect(() => useDigestStore.getState().dismiss()).not.toThrow();
+
+    const { status, changedFiles, summary, genId } = useDigestStore.getState();
+    expect(status).toBe("hidden");
+    expect(changedFiles).toEqual([]);
+    expect(summary).toBe("");
+    expect(genId).toBe(1);
+  });
+
   it("dismiss() is idempotent when already hidden", () => {
     useDigestStore.getState().dismiss();
     useDigestStore.getState().dismiss();
