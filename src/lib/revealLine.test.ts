@@ -232,6 +232,61 @@ describe("revealLine", () => {
     }
   });
 
+  it("handles a line far beyond the source document without throwing or rejecting", async () => {
+    const view = new EditorView({
+      state: EditorState.create({ doc: DOC }),
+      parent: host,
+    });
+    const rejections: unknown[] = [];
+    const onRejection = (reason: unknown) => rejections.push(reason);
+    process.on("unhandledRejection", onRejection);
+    try {
+      const lastLine = view.state.doc.line(view.state.doc.lines);
+      for (const line of [view.state.doc.lines + 1, 1_000_000, Number.MAX_SAFE_INTEGER]) {
+        view.dispatch({ selection: { anchor: 0 } });
+        let stop: (() => void) | undefined;
+        expect(() => {
+          stop = revealLine(line);
+        }).not.toThrow();
+        await vi.waitFor(() => {
+          expect(view.state.selection.main.head).toBe(lastLine.from);
+        });
+        stop?.();
+      }
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(rejections).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", onRejection);
+      view.destroy();
+    }
+  });
+
+  it("does not throw for a line beyond the read view's last block", async () => {
+    const article = document.createElement("article");
+    article.className = "reading-surface";
+    host.appendChild(article);
+    const root = createRoot(article);
+    vi.useFakeTimers();
+    try {
+      await act(async () => root.render(createElement(Renderer, { content: DOC })));
+      const scroll = vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(() => {});
+      let stop: (() => void) | undefined;
+      expect(() => {
+        stop = revealLine(Number.MAX_SAFE_INTEGER);
+      }).not.toThrow();
+      await act(async () => {
+        await vi.runAllTimersAsync();
+      });
+      expect(scroll).toHaveBeenCalledOnce();
+      expect((scroll.mock.contexts[0] as Element).textContent).toBe("End.");
+      stop?.();
+      scroll.mockRestore();
+    } finally {
+      vi.useRealTimers();
+      await act(async () => root.unmount());
+    }
+  });
+
   it("reveals a line in an empty source document at offset zero", async () => {
     const view = new EditorView({
       state: EditorState.create({ doc: "" }),
