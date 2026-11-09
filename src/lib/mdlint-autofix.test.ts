@@ -591,6 +591,18 @@ describe("autofix: whitespace-only image description", () => {
     expect(fixed).toBe(`Before ${repaired} and ${repaired} after.${nl}`);
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
+
+  it("inserts the placeholder only outside code, keeping the image source", () => {
+    const rules = [ruleMissingAltText];
+    const doc = "```md\n![ ](a.png)\n```\n\n`![\t](b.png)` ![ \t ](c.png \"C\")\n";
+    const expected =
+      "```md\n![ ](a.png)\n```\n\n`![\t](b.png)` ![TODO: describe image](c.png \"C\")\n";
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
 });
 
 describe("autofix: undescribed image next to a described image", () => {
