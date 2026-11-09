@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { diffLines, splitLines } from "../editor/lineDiff";
 import { parseTable, serializeTable } from "./tableEditor";
+import { cpuMs } from "./test-utils";
 
 describe("Sonar Q8-16 regressions", () => {
   it("select exits successfully with affected output or fail-open full output", () => {
@@ -73,10 +74,11 @@ describe("Sonar Q8-16 regressions", () => {
 
   it("serializes a long unmatched backslash run without repeated regex scans", () => {
     const cell = `${"\\".repeat(100_000)}x`;
-    const started = performance.now();
-    expect(serializeTable({ headers: [cell], alignments: ["none"], rows: [] })).toBe(
-      `| ${cell} |\n| --- |`,
-    );
-    expect(performance.now() - started).toBeLessThan(1000);
+    let out = "";
+    const used = cpuMs(() => {
+      out = serializeTable({ headers: [cell], alignments: ["none"], rows: [] });
+    });
+    expect(out).toBe(`| ${cell} |\n| --- |`);
+    expect(used).toBeLessThan(1000);
   });
 });

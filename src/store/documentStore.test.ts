@@ -16,6 +16,14 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({
   message: (...args: unknown[]) => messageMock(...args),
 }));
 
+// Queued answers (`mockResolvedValueOnce`) and recorded calls must not carry
+// into the next test, or the outcome depends on which test ran before it.
+beforeEach(() => {
+  askMock.mockReset();
+  pickMock.mockReset();
+  messageMock.mockReset();
+});
+
 // Isolate the document store from the persisted recents store.
 const recentAdd = vi.fn();
 const recentRemove = vi.fn();

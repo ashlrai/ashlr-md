@@ -20,6 +20,7 @@ import {
   submitAgentChange,
   undoAgentEdit,
 } from "../../editor/documentAgentEdit";
+import { pollUntil } from "../../lib/test-utils";
 import { useDocumentStore } from "../../store/documentStore";
 import { MarkdownEditor } from "./MarkdownEditor";
 
@@ -93,10 +94,13 @@ describe("WYSIWYG editor: edits not reported yet", () => {
       error: null,
     });
     await act(async () => root.render(createElement(MountedEditor)));
-    for (let i = 0; i < 40 && !view; i++) {
-      await wait(25);
-      document.dispatchEvent(new Event("selectionchange"));
-    }
+    await pollUntil(
+      () => Boolean(view),
+      async () => {
+        await wait(25);
+        document.dispatchEvent(new Event("selectionchange"));
+      },
+    );
     const v = view as ProseView;
     expect(v).not.toBeNull();
     await wait(300);
@@ -130,10 +134,13 @@ describe("WYSIWYG editor: edits not reported yet", () => {
     expect(useDocumentStore.getState().isDirty).toBe(false);
   });
   async function replacedView(previous: ProseView): Promise<ProseView> {
-    for (let i = 0; i < 40 && view === previous; i++) {
-      await wait(25);
-      document.dispatchEvent(new Event("selectionchange"));
-    }
+    await pollUntil(
+      () => view !== previous,
+      async () => {
+        await wait(25);
+        document.dispatchEvent(new Event("selectionchange"));
+      },
+    );
     expect(view).not.toBe(previous);
     expect(view).not.toBeNull();
     await wait(250);

@@ -14,6 +14,7 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn().mockRejectedValue("not found (os error 2)"),
 }));
 
+import { pollUntil } from "../../lib/test-utils";
 import { useDocumentStore } from "../../store/documentStore";
 import { MarkdownEditor } from "./MarkdownEditor";
 
@@ -71,10 +72,13 @@ describe("WYSIWYG editor: reordering images by dragging", () => {
     await act(async () =>
       root.render(createElement(MarkdownEditor, { initialContent: raw })),
     );
-    for (let i = 0; i < 40 && !view; i++) {
-      await wait(25);
-      document.dispatchEvent(new Event("selectionchange"));
-    }
+    await pollUntil(
+      () => Boolean(view),
+      async () => {
+        await wait(25);
+        document.dispatchEvent(new Event("selectionchange"));
+      },
+    );
     expect(view).not.toBeNull();
     const v = view as ProseView;
     await wait(50);

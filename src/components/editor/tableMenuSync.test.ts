@@ -14,6 +14,7 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn().mockResolvedValue(undefined),
 }));
 
+import { pollUntil } from "../../lib/test-utils";
 import { useDocumentStore } from "../../store/documentStore";
 import { MarkdownEditor } from "./MarkdownEditor";
 
@@ -61,10 +62,13 @@ describe("WYSIWYG editor: the table menu", () => {
     await act(async () =>
       root.render(createElement(MarkdownEditor, { initialContent: raw })),
     );
-    for (let i = 0; i < 40 && !view; i++) {
-      await wait(25);
-      document.dispatchEvent(new Event("selectionchange"));
-    }
+    await pollUntil(
+      () => Boolean(view),
+      async () => {
+        await wait(25);
+        document.dispatchEvent(new Event("selectionchange"));
+      },
+    );
     expect(view).not.toBeNull();
     return view as ProseView;
   }
