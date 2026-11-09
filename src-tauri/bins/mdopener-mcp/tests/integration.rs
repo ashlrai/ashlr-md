@@ -19245,3 +19245,52 @@ fn export_text_keeps_a_bracketed_marker_alone_on_its_line() {
         );
     }
 }
+
+/// A line that opens with a bracketed phrase and one that ends with one keep
+/// both brackets, alone or on the same line, whatever the line around them
+/// (a lone `\r` and a hard break included). Bracketed prose is not a link.
+#[test]
+fn export_text_keeps_brackets_at_the_start_and_end_of_a_line() {
+    for (markdown, expected) in [
+        ("[Start] of a line\n", "[Start] of a line"),
+        ("the end of a line [End]\n", "the end of a line [End]"),
+        ("[Start] middle [End]\n", "[Start] middle [End]"),
+        (
+            "[Start] first line\nsecond line [End]\n",
+            "[Start] first line\nsecond line [End]",
+        ),
+        (
+            "line one [End]\n[Start] line two\n",
+            "line one [End]\n[Start] line two",
+        ),
+        (
+            "[A] one [B]\n[C] two [D]\n[E] three [F]\n",
+            "[A] one [B]\n[C] two [D]\n[E] three [F]",
+        ),
+        (
+            "[Start] hard break [End]\\\nnext\n",
+            "[Start] hard break [End]\nnext",
+        ),
+        (
+            "[Start] a [End]\r\n[Start] b [End]\r\n",
+            "[Start] a [End]\n[Start] b [End]",
+        ),
+        (
+            "[Start] a [End]\r[Start] b [End]\r",
+            "[Start] a [End]\n[Start] b [End]",
+        ),
+        ("- [Start] item [End]\n", "[Start] item [End]"),
+        ("> [Start] quote [End]\n", "[Start] quote [End]"),
+        ("# [Start] heading [End]\n", "[Start] heading [End]"),
+    ] {
+        let result = run_export_text_on(markdown);
+        let text = result["text"].as_str().unwrap();
+        assert_eq!(text, expected, "{markdown:?}");
+        assert_eq!(strip_markdown(markdown).trim(), expected, "{markdown:?}");
+        assert_eq!(
+            text.matches('[').count(),
+            text.matches(']').count(),
+            "unbalanced brackets in {text:?} for {markdown:?}"
+        );
+    }
+}
