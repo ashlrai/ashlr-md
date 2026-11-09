@@ -19245,3 +19245,45 @@ fn export_text_keeps_a_bracketed_marker_alone_on_its_line() {
         );
     }
 }
+
+/// A repeated bracketed word keeps every pair, in source order, when the
+/// word is also defined as a reference label elsewhere in the document:
+/// only the real `[word][label]` / `[word](url)` links lose their brackets.
+#[test]
+fn export_text_keeps_every_repeated_bracketed_word_in_original_order() {
+    for (markdown, expected, pairs) in [
+        (
+            "[one] and [two] and [one] and [two] and [one]\n",
+            "[one] and [two] and [one] and [two] and [one]",
+            vec!["[one]", "[two]", "[one]", "[two]", "[one]"],
+        ),
+        (
+            "[word] [word] [word]\n",
+            "[word] [word] [word]",
+            vec!["[word]", "[word]", "[word]"],
+        ),
+        (
+            "- [word] first\n- [other] second\n- [word] third\n",
+            "[word] first\n[other] second\n[word] third",
+            vec!["[word]", "[other]", "[word]"],
+        ),
+        (
+            "[word] then [word](/x) then [word] again\n",
+            "[word] then word then [word] again",
+            vec!["[word]", "[word]"],
+        ),
+    ] {
+        let result = run_export_text_on(markdown);
+        let text = result["text"].as_str().unwrap();
+        assert_eq!(text, expected, "{markdown:?}");
+        // Each pair is found in order: search forward from the previous hit.
+        let mut from = 0;
+        for pair in &pairs {
+            let at = text[from..]
+                .find(pair)
+                .unwrap_or_else(|| panic!("{pair} missing or out of order in {text:?}"));
+            from += at + pair.len();
+        }
+        assert_eq!(strip_markdown(markdown), expected, "{markdown:?}");
+    }
+}
