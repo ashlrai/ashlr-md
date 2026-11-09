@@ -684,12 +684,17 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(fixed, { rules: [ruleInvalidLinkTarget] })).toEqual([]);
   });
 
-  it("accepts a nonempty destination", () => {
-    expect(
-      lintDocument("Before [label](./guide.md) after", {
-        rules: [ruleInvalidLinkTarget],
-      }),
-    ).toEqual([]);
+  it.each([
+    ["relative path", "./guide.md"],
+    ["absolute URL", "https://example.com/guide"],
+    ["fragment", "#section"],
+    ["query", "?page=2"],
+  ])("accepts a nonempty %s destination", (_description, destination) => {
+    const doc = `Before [label](${destination}) after`;
+    expect(lintDocument(doc, { rules: [ruleInvalidLinkTarget] })).toEqual([]);
+    expect(lintDocument(doc).filter((v) => v.ruleId === "invalid-link-target")).toEqual(
+      [],
+    );
   });
 
   it("reports only the invalid link alongside a valid link with default rules", () => {
