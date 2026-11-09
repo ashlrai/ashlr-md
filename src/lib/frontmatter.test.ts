@@ -36,6 +36,14 @@ describe("frontmatter", () => {
     expect(joinFrontmatter(frontmatter, body)).toBe(raw);
   });
 
+  it("round-trips CRLF frontmatter and body without changing bytes", () => {
+    const raw = "---\r\ntitle: Café\r\n---\r\n# Body\r\n\r\ntext\r\n";
+    const { frontmatter, body } = splitFrontmatter(raw);
+    expect(frontmatter).toBe("---\r\ntitle: Café\r\n---\r\n");
+    expect(body).toBe("# Body\r\n\r\ntext\r\n");
+    expect(joinFrontmatter(frontmatter, body)).toBe(raw);
+  });
+
   it("join with empty frontmatter returns the body unchanged", () => {
     expect(joinFrontmatter("", "x")).toBe("x");
   });
