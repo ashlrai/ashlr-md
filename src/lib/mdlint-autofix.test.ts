@@ -356,6 +356,22 @@ describe("autofix: undescribed image at document start", () => {
   });
 });
 
+describe("autofix: undescribed image on the second line", () => {
+  it.each(["\n", "\r\n"])("preserves the first line and %j line break", (nl) => {
+    const rules = [ruleMissingAltText];
+    const firstLine = "First line: café 🗺️.";
+    const doc = `${firstLine}${nl}See ![](images/map.png) here.`;
+    const expected = `${firstLine}${nl}See ![TODO: describe image](images/map.png) here.`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    expect(violations[0].range!.from.line).toBe(2);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+});
+
 describe("autofix: undescribed image at the start of a line", () => {
   it.each([
     "\n",
