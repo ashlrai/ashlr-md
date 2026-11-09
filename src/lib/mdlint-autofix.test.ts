@@ -256,6 +256,27 @@ describe("invalid link at end of file without a final newline", () => {
   });
 });
 
+describe("invalid link before the end of a document without a final newline", () => {
+  it.each(["", "#", "?"].flatMap((target) => ["\n", "\r\n"].map((nl) => [target, nl] as const)))(
+    "repairs target %j while preserving surrounding text and line endings %j",
+    (target, nl) => {
+      const rules = [ruleInvalidLinkTarget];
+      const doc = `Introduction.${nl}${nl}Read [the guide](${target}) carefully.${nl}Unrelated closing text.`;
+      const expected = `Introduction.${nl}${nl}Read [the guide](TODO) carefully.${nl}Unrelated closing text.`;
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      expect(fixAllViolations(doc, violations)).toBe(expected);
+      expect(fixed.replace("[the guide](TODO)", `[the guide](${target})`)).toBe(doc);
+      expect(fixed.endsWith("\n")).toBe(false);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+    },
+  );
+});
+
 describe("invalid link at document start", () => {
   it.each(["", "#", "?"])("inserts the placeholder for destination %j and preserves following text", (href) => {
     const rules = [ruleInvalidLinkTarget];
