@@ -30542,9 +30542,11 @@ describe("autofix: valid absolute links", () => {
 
 
 describe("autofix: Unicode image paths", () => {
-  it.each(["\n", "\r\n"])("preserves the exact path and surrounding text (%j)", (nl) => {
+  it.each(["\n", "\r\n"].flatMap((nl) => [
+    [nl, "images/東京/cafe\u0301-🚀.png"],
+    [nl, "<images/図 表.png?名前=値#詳細>"],
+  ]))("preserves the exact path and surrounding text (%j, %s)", (nl, path) => {
     const rules = [ruleMissingAltText];
-    const path = "images/東京/cafe\u0301-🚀.png";
     const image = `![](${path} "図")`;
     const doc = `Café ${image} — caption.${nl}`;
     const expected = `Café ![TODO: describe image](${path} "図") — caption.${nl}`;
