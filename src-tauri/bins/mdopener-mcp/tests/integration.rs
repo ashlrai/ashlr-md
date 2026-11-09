@@ -6653,6 +6653,11 @@ fn export_text_preserves_consecutive_bracketed_fragments_and_intervening_prose()
 fn export_text_keeps_prose_brackets_beside_formatted_links() {
     for (markdown, expected) in [
         (
+            "Review [TODO] beside [the guide](https://example.com).\n",
+            "Review [TODO] beside the guide.",
+        ),
+        ("[TODO][guide](/guide)[TODO]\n", "[TODO]guide[TODO]"),
+        (
             "[café][**the guide**](/guide)[要確認]\n",
             "[café]the guide[要確認]",
         ),
