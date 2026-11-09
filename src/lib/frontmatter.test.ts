@@ -211,6 +211,20 @@ describe("a document with no frontmatter", () => {
     expect(frontmatterText(raw, "title")).toBeNull();
   });
 
+  it("preserves an unterminated opener and delimiter-like body lines", () => {
+    for (const newline of ["\n", "\r\n"]) {
+      const raw = ["---", "title: X", "--- not a closer", " ...", "body", ""].join(
+        newline,
+      );
+      const { frontmatter, body } = splitFrontmatter(raw);
+      expect(frontmatter).toBe("");
+      expect(body).toBe(raw);
+      expect(joinFrontmatter(frontmatter, body)).toBe(raw);
+      expect(stripFrontmatter(raw)).toEqual({ lines: raw.split("\n"), offset: 0 });
+      expect(frontmatterText(raw, "title")).toBeNull();
+    }
+  });
+
   it("keeps an empty document empty", () => {
     expect(splitFrontmatter("")).toEqual({ frontmatter: "", body: "" });
     expect(frontmatterText("", "title")).toBeNull();
