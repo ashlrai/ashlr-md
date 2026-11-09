@@ -36,6 +36,16 @@ describe("frontmatter", () => {
     expect(joinFrontmatter(frontmatter, body)).toBe(raw);
   });
 
+  it("preserves the final newline when frontmatter has an empty body", () => {
+    for (const newline of ["\n", "\r\n"]) {
+      const raw = ["---", "title: X", "---", ""].join(newline);
+      const { frontmatter, body } = splitFrontmatter(raw);
+      expect(frontmatter).toBe(raw);
+      expect(body).toBe("");
+      expect(joinFrontmatter(frontmatter, body)).toBe(raw);
+    }
+  });
+
   it("join with empty frontmatter returns the body unchanged", () => {
     expect(joinFrontmatter("", "x")).toBe("x");
   });
