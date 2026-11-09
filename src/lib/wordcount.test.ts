@@ -7,6 +7,17 @@ describe("computeDocStats", () => {
   });
 
   it.each([
+    ["spaces", " "],
+    ["tabs", "\t"],
+    ["newlines", "\n"],
+    ["CRLF newlines", "\r\n"],
+    ["mixed whitespace", " \t\n"],
+  ])("counts the same words separated by %s", (_label, separator) => {
+    const prose = ["one", "two", "three", "four", "five"].join(separator);
+    expect(computeDocStats(prose).words).toBe(5);
+  });
+
+  it.each([
     ["leading spaces", "  ", ""],
     ["trailing spaces", "", "  "],
     ["leading and trailing blank lines", "\n\n", "\n\n"],
