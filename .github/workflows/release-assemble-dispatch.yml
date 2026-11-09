@@ -1,0 +1,63 @@
+name: Release assembly dispatch
+
+# Removes the human dispatch of release-assemble.yml. When the push-triggered
+# Release build for an exact vX.Y.Z tag completes successfully on attempt 1,
+# and the tagged commit has a successful full CI run (canonical push to main or
+# manual dispatch), this job dispatches release-assemble.yml on main with the
+# same inputs docs/RELEASING.md lists. It uses the workflow GITHUB_TOKEN, so the
+# dispatched run belongs to github-actions[bot], not a maintainer account.
+# release-assemble.yml keeps its read-only contract and every input check.
+# This job never checks out code, never reads secrets and cannot publish.
+on:
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
+
+permissions: {}
+
+concurrency:
+  group: md-release-assemble-dispatch-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    if: >-
+      github.repository == 'ashlrai/ashlr-md' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.run_attempt == 1 &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    permissions:
+      actions: write
+      contents: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      RELEASE_TAG: ${{ github.event.workflow_run.head_branch }}
+      SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+      RELEASE_RUN_ID: ${{ github.event.workflow_run.id }}
+    steps:
+      - name: Validate the release build and CI, then dispatch assembly
+        run: |
+          set -euo pipefail
+          if ! [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::notice::$RELEASE_TAG is not an exact stable tag; no assembly dispatch"
+            exit 0
+          fi
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::invalid source sha"; exit 1; }
+          [[ "$RELEASE_RUN_ID" =~ ^[0-9]+$ ]] || { echo "::error::invalid run id"; exit 1; }
+          tag_sha=$(gh api "repos/$REPO/commits/$RELEASE_TAG" --jq .sha)
+          test "$tag_sha" = "$SOURCE_SHA" || { echo "::error::tag does not point at the built commit"; exit 1; }
+          run=$(gh api "repos/$REPO/actions/runs/$RELEASE_RUN_ID" \
+            --jq '[.path, .event, .conclusion, (.run_attempt|tostring), .head_sha] | join(" ")')
+          test "$run" = ".github/workflows/release.yml push success 1 $SOURCE_SHA" || { echo "::error::release run mismatch"; exit 1; }
+          ok=$(gh api "repos/$REPO/actions/workflows/ci.yml/runs?head_sha=$SOURCE_SHA&status=success&per_page=20" \
+            --jq '[.workflow_runs[] | select(.head_sha == env.SOURCE_SHA and ((.event == "push" and .head_branch == "main") or .event == "workflow_dispatch"))] | length')
+          test "$ok" -ge 1 || { echo "::error::no successful full CI run for $SOURCE_SHA"; exit 1; }
+          publication_date=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          gh workflow run release-assemble.yml --repo "$REPO" --ref main \
+            -f release_tag="$RELEASE_TAG" -f source_sha="$SOURCE_SHA" \
+            -f release_run_id="$RELEASE_RUN_ID" -f release_run_attempt=1 \
+            -f publication_date="$publication_date"
