@@ -30342,3 +30342,14 @@ describe("autofix idempotence for an undescribed reference-style image", () => {
     expect(twice).toBe(once);
   });
 });
+
+describe("autofix: described image beside standalone [1] prose", () => {
+  it.each(["\n", "\r\n"])("leaves the image and the [1] line unchanged (%j)", (nl) => {
+    const image = '![Revenue chart](images/chart.png "Results")';
+    const doc = ["---", "title: Notes", "---", "", image, "", "[1]", "", "As noted in [1], growth held.", ""].join(nl);
+    const violations = lintDocument(doc, { rules: BUILTIN_RULES });
+
+    expect(violations).toEqual([]);
+    expect(applyAllFixes(doc, violations)).toBe(doc);
+  });
+});
