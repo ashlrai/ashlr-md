@@ -10416,7 +10416,7 @@ fn export_text_matches_documented_bracket_preservation_examples() {
         assert_eq!(result["text"].as_str().unwrap(), expected, "{input:?}");
         examples += 1;
     }
-    assert_eq!(examples, 12, "all documented examples must be checked");
+    assert_eq!(examples, 13, "all documented examples must be checked");
 }
 
 #[test]
@@ -11952,6 +11952,143 @@ fn export_text_keeps_adjacent_sic_and_todo_from_both_sources() {
             "{markdown:?}"
         );
     }
+}
+
+/// Adjacent `[sic][1]` prose — an annotation marker written immediately
+/// against a numeric citation, with no space between the brackets — keeps
+/// both bracketed fragments, in order, from every source `export_text`
+/// reads: the file on disk, the open document over IPC and the pure
+/// [`strip_markdown`] reader. Unless the document defines a reference for
+/// the citation (a real link, whose text the page shows), the two are
+/// ordinary prose and the page shows both bracket pairs.
+#[test]
+fn export_text_keeps_adjacent_sic_and_citation_brackets_in_order() {
+    for (markdown, expected) in [
+        // Mid-sentence, at a paragraph's start and end, reversed, with a
+        // space between them, repeated, in non-ASCII prose, and wrapped
+        // over the paragraph's line break.
+        (
+            "He said definately [sic][1] in the margin.\n",
+            "He said definately [sic][1] in the margin.",
+        ),
+        (
+            "[sic][1] opens the note.\n",
+            "[sic][1] opens the note.",
+        ),
+        (
+            "The margin note ends [sic][1].\n",
+            "The margin note ends [sic][1].",
+        ),
+        ("Cite [1][sic] on purpose.\n", "Cite [1][sic] on purpose."),
+        ("A [sic] [1] with a space.\n", "A [sic] [1] with a space."),
+        (
+            "[sic][1] again [sic][2] again.\n",
+            "[sic][1] again [sic][2] again.",
+        ),
+        ("précis [sic][1] naïve\n", "précis [sic][1] naïve"),
+        ("word [sic]\n[1] word\n", "word [sic]\n[1] word"),
+        // A footnote reference reads [1], so [sic][^1] meets the same
+        // adjacency; a definition line reads [1] before its text, which
+        // may hold the pair again.
+        (
+            "See [sic][^1] here.\n\n[^1]: the note.\n",
+            "See [sic][1] here.\n\n[1] the note.",
+        ),
+        (
+            "[^1]: [sic][1] in the note.\n",
+            "[1] [sic][1] in the note.",
+        ),
+        // In the block shapes the page shows it in.
+        ("# Head [sic][1] tail\n", "Head [sic][1] tail"),
+        ("Text [sic][1]\n===\n", "Text [sic][1]"),
+        ("> quote [sic][1] end\n", "quote [sic][1] end"),
+        ("- item [sic][1]\n", "item [sic][1]"),
+        ("1. item [sic][1]\n", "item [sic][1]"),
+        (
+            "| h |\n|---|\n| cell [sic][1] |\n",
+            "h\ncell [sic][1]",
+        ),
+        ("```\n[sic][1]\n```\n", "[sic][1]"),
+        ("x `[sic][1]` y\n", "x [sic][1] y"),
+        ("*[sic][1]* end\n", "[sic][1] end"),
+        ("**[sic][1]** end\n", "[sic][1] end"),
+        (
+            "[a [sic][1] b](/u)\n",
+            "a [sic][1] b",
+        ),
+        ("- [x] done [sic][1]\n", "done [sic][1]"),
+        ("<div>[sic][1]</div>\n", "[sic][1]"),
+        ("[sic][1]\\\nmore\n", "[sic][1]\nmore"),
+    ] {
+        // From the file on disk…
+        let result = run_export_text_on(markdown);
+        let text = result["text"].as_str().unwrap();
+        assert_eq!(text, expected, "{markdown:?}");
+        assert_eq!(
+            result["char_count"].as_u64().unwrap() as usize,
+            expected.chars().count(),
+            "{markdown:?}"
+        );
+        assert_eq!(
+            result["word_count"].as_u64().unwrap() as usize,
+            count_words(expected),
+            "{markdown:?}"
+        );
+        // …and from the open document over IPC, the same prose.
+        let ipc = MockIpc::new().on_get(
+            "/content",
+            Ok(json!({ "path": "/docs/test.md", "content": markdown })),
+        );
+        let response = tool_export_text(id(2), &json!({}), &ipc);
+        assert!(
+            response.error.is_none(),
+            "{markdown:?}: {:?}",
+            response.error
+        );
+        assert_eq!(
+            content_text(&response)["text"].as_str().unwrap(),
+            expected,
+            "{markdown:?}"
+        );
+        // The pure reader agrees with both sources.
+        assert_eq!(strip_markdown(markdown), expected, "{markdown:?}");
+        // Both fragments survive, bracketed. In prose the order the
+        // document has them is the order the export shows: [sic] against
+        // [1], or [1] against [sic]. The footnote shapes are excepted from
+        // that comparison only: a [^1] label reads [1] at the start of its
+        // definition line, so the first [1] of the line is the label, while
+        // the line's own [sic][1] prose keeps its order inside it.
+        let sic = text.find("[sic]").expect("first fragment kept");
+        let cite = text.find("[1]").expect("second fragment kept");
+        if markdown.find("[^1]").is_none() {
+            let sic_in = markdown.find("[sic]").unwrap();
+            let cite_in = markdown.find("[1]").expect("citation in the source");
+            if sic_in < cite_in {
+                assert!(sic < cite, "order of {markdown:?} changed: {text:?}");
+            } else {
+                assert!(cite < sic, "order of {markdown:?} changed: {text:?}");
+            }
+        }
+        assert_eq!(
+            text.matches('[').count(),
+            text.matches(']').count(),
+            "{text:?}"
+        );
+        assert_eq!(
+            text.matches("[sic]").count(),
+            markdown.matches("[sic]").count(),
+            "{markdown:?}"
+        );
+    }
+
+    // Only a real reference link owns the brackets: with [1] defined, the
+    // page shows a link whose text is `sic`, and the export reads it as
+    // `sic`, the citation's brackets going with the link, as on the page.
+    let markdown = "He said [sic][1] in the margin.\n\n[1]: /margin\n";
+    let expected = "He said sic in the margin.";
+    let result = run_export_text_on(markdown);
+    assert_eq!(result["text"].as_str().unwrap(), expected);
+    assert_eq!(strip_markdown(markdown), expected);
 }
 
 /// A `[...]` that is prose keeps both of its brackets on lines of its own:
