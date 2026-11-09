@@ -29299,6 +29299,19 @@ describe("undescribed image followed by ordinary text", () => {
 describe("two undescribed images on one line", () => {
   const rules = [ruleMissingAltText];
 
+  it("adds a placeholder for each image while preserving both paths", () => {
+    const doc = "Compare ![](images/before.png) with ![](images/after.svg).\n";
+    const expected =
+      "Compare ![TODO: describe image](images/before.png) with ![TODO: describe image](images/after.svg).\n";
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(2);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+
   it.each([
     ["\n"],
     ["\r\n"],
