@@ -191,7 +191,10 @@ describe("computeDocStats", () => {
   });
 
   it("returns zero words and zero minutes for empty content", () => {
-    expect(computeDocStats("")).toEqual({ words: 0, minutes: 0 });
+    const emptyStats = computeDocStats("");
+    expect(emptyStats).toEqual({ words: 0, minutes: 0 });
+    expect(Number.isFinite(emptyStats.words)).toBe(true);
+    expect(Number.isFinite(emptyStats.minutes)).toBe(true);
     expect(computeDocStats("   \n\n")).toEqual({ words: 0, minutes: 0 });
   });
 
