@@ -159,6 +159,32 @@ describe("invalid-link autofix: an empty href inside prose", () => {
   });
 });
 
+describe("invalid-link autofix preserves Unicode link text", () => {
+  const rules = [ruleInvalidLinkTarget];
+
+  it.each([
+    ["\n", "[日本語ガイド]"],
+    ["\r\n", "[Привет, мир]"],
+    ["\n", "[café ☕ — naïve]"],
+    ["\r\n", "[👩‍💻 docs 🎉]"],
+  ])("replaces the invalid href with TODO and keeps the label (%j, %s)", (nl, label) => {
+    const doc = `Intro ${label}() outro.${nl}`;
+    const expected = `Intro ${label}(TODO) outro.${nl}`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+    // Offsets are UTF-16 code units, so astral/ZWJ text must not shift the range.
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(`${label}()`);
+
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+});
+
 describe("invalid-link autofix beside a valid link", () => {
   it.each([
     true,
