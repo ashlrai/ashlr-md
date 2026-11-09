@@ -24594,6 +24594,21 @@ describe("autofix: undescribed image followed by punctuation", () => {
 });
 
 describe("autofix: two undescribed images on separate lines", () => {
+  it.each(["\n", "\r\n"])("fixes both occurrences of the same source on separate lines (%j)", (nl) => {
+    const rules = [ruleMissingAltText];
+    const image = '![](images/shared.png?size=2#preview "Shared")';
+    const repaired = '![TODO: describe image](images/shared.png?size=2#preview "Shared")';
+    const doc = `First: ${image}${nl}Second: ${image}${nl}`;
+    const expected = `First: ${repaired}${nl}Second: ${repaired}${nl}`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text", "missing-alt-text"]);
+    expect(violations.map(({ range }) => range!.from.line)).toEqual([1, 2]);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(applyAllFixes(doc, [...violations].reverse())).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+
   it.each([
     "\n",
     "\r\n",
