@@ -672,6 +672,10 @@ describe("rule:invalid-link-target", () => {
         to: { offset: 7 + link.length, line: 1, col: 7 + link.length },
       },
     });
+    expect(violations[0].fix).toBeTypeOf("function");
+    const fixed = applyFix(doc, violations[0]);
+    expect(fixed).toBe("Before [label](TODO) after");
+    expect(lintDocument(fixed, { rules: [ruleInvalidLinkTarget] })).toEqual([]);
   });
 
   it("accepts a nonempty destination", () => {
