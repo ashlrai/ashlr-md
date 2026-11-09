@@ -17,6 +17,14 @@ function readAll(doc: string, pos: number): boolean {
 }
 
 describe("isInsideFencedCode reads up to the cursor's line", () => {
+  it("reports a cursor before the opening fence as outside code", () => {
+    const doc = "Before the fence.\n```js\nconst value = 1;\n```\n";
+    const pos = doc.indexOf("fence") + 2;
+
+    expect(isInsideFencedCode(doc, pos)).toBe(false);
+    expect(isInsideFencedCode(doc, pos)).toBe(readAll(doc, pos));
+  });
+
   it("reports prose after a closed fence as outside code", () => {
     const doc = "```js\nconst value = 1;\n```\nAfter the fence.\n";
     const pos = doc.indexOf("After") + 3;
