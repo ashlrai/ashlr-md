@@ -532,6 +532,23 @@ describe("autofix: described image preservation", () => {
   });
 });
 
+describe("autofix: described images beside an undescribed one", () => {
+  it.each(["\n", "\r\n"])("keeps each description and destination, fixing only the empty alt (%j)", (nl) => {
+    const rules = [ruleMissingAltText];
+    const angle = '![Team photo](<images/team photo.png> "Us")';
+    const ref = "![Quarterly chart][chart]";
+    const doc = `${angle} ${ref} ![](bare.png)${nl}${nl}[chart]: images/chart.png "Chart"${nl}`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(doc.slice(violations[0].range!.from.offset, violations[0].range!.to.offset)).toBe("![](bare.png)");
+    expect(applyAllFixes(doc, violations)).toBe(
+      `${angle} ${ref} ![TODO: describe image](bare.png)${nl}${nl}[chart]: images/chart.png "Chart"${nl}`,
+    );
+    expect(lintDocument(`${angle} ${ref}${nl}`, { rules })).toEqual([]);
+  });
+});
+
 describe("autofix: undescribed image at document start", () => {
   it("adds a description while preserving subsequent text and mixed line endings", () => {
     const rules = [ruleMissingAltText];
