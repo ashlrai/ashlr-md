@@ -42,6 +42,13 @@ describe("isOpenableInAshlr", () => {
 });
 
 describe("buildDeepLink", () => {
+  it("preserves spaces in the resolved document path", () => {
+    const documentPath = "/My Notes/meeting notes.md";
+    const link = new URL(buildDeepLink(documentPath));
+
+    assert.equal(link.searchParams.get("path"), documentPath);
+  });
+
   it("encodes the path", () => {
     assert.equal(
       buildDeepLink("/My Notes/a&b?.md"),
