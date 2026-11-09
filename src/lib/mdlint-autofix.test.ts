@@ -717,6 +717,15 @@ describe("autofix: undescribed image at the start of a line", () => {
 });
 
 describe("autofix: undescribed image idempotence", () => {
+  it("is stable under all built-in rules for an inline image", () => {
+    const doc = '---\ntitle: Chart\ntags: []\n---\n\n# Chart\n\nSee ![](chart.png) here.\n';
+    const once = applyAllFixes(doc, lintDocument(doc, { rules: BUILTIN_RULES }));
+    expect(once).toContain("![TODO: describe image](chart.png)");
+
+    const twice = applyAllFixes(once, lintDocument(once, { rules: BUILTIN_RULES }));
+    expect(twice).toBe(once);
+  });
+
   it.each([
     "\n",
     "\r\n",
