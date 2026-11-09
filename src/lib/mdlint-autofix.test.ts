@@ -15673,6 +15673,21 @@ describe("autofix: undescribed image at the end of a document", () => {
 // ─── Invalid link as the last thing in a document with no final newline ──────
 
 describe("autofix: invalid link in a document without a final newline", () => {
+  it("fixes a final link alongside another default-rule violation without adding a newline", () => {
+    const doc = "---\ntitle: Guide\n---\n\nRead this.   \nSee [draft]()";
+    const expected = "---\ntitle: Guide\n---\n\nRead this.\nSee [draft](TODO)";
+    const violations = lintDocument(doc);
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+      "no-trailing-spaces",
+      "invalid-link-target",
+    ]);
+    const fixed = fixAllViolations(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.endsWith("\n")).toBe(false);
+    expect(lintDocument(fixed)).toEqual([]);
+  });
+
   it.each([
     ["empty href", "Intro line.\n\nSee [draft]()", "Intro line.\n\nSee [draft](TODO)"],
     [
