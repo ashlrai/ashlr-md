@@ -2416,13 +2416,16 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(doc, { rules: [ruleInvalidLinkTarget] })).toHaveLength(0);
   });
 
-  it("fills an empty link destination with TODO and preserves the surrounding prose", () => {
-    const doc = "Before the link, read [the guide]() carefully, then continue.\n";
-    const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
-    expect(violations).toHaveLength(1);
-    expect(applyAllFixes(doc, violations)).toBe(
-      "Before the link, read [the guide](TODO) carefully, then continue.\n",
-    );
+  it.each(["\n", "\r\n"])("fills an empty destination and preserves surrounding prose (%j)", (nl) => {
+    const rules = [ruleInvalidLinkTarget];
+    const doc = `Before the link, read [the guide]() carefully, then continue.${nl}`;
+    const expected = `Before the link, read [the guide](TODO) carefully, then continue.${nl}`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
   });
 
   it.each([
