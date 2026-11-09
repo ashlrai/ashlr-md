@@ -188,6 +188,15 @@ describe("linkTarget", () => {
     expect(linkTarget("notes.txt", doc).kind).toBe("blocked");
   });
 
+  it("refuses relative Markdown links into hidden folders", () => {
+    for (const href of ["./.private/notes.md", "./%2Eprivate/notes.md#section"]) {
+      expect(linkTarget(href, doc)).toEqual({
+        kind: "blocked",
+        reason: "Links into hidden folders or files are not opened.",
+      });
+    }
+  });
+
   it("refuses other schemes, other files and hidden folders", () => {
     for (const h of [
       "obsidian://open?vault=x",
