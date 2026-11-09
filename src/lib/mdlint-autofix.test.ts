@@ -13147,3 +13147,39 @@ describe("autofix: valid link and described image no-op", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+describe("missing-alt-text autofix: undescribed image at the start of a paragraph", () => {
+  it.each([
+    [
+      "LF",
+      "![](fig.png) Please read the docs.\n",
+      "![TODO: describe image](fig.png) Please read the docs.\n",
+    ],
+    [
+      "CRLF",
+      "![](fig.png) Please read the docs.\r\n",
+      "![TODO: describe image](fig.png) Please read the docs.\r\n",
+    ],
+    [
+      "preceded by a paragraph",
+      "Previous paragraph.\n\n![](fig.png) Start of *this* paragraph.\n",
+      "Previous paragraph.\n\n![TODO: describe image](fig.png) Start of *this* paragraph.\n",
+    ],
+    [
+      "source with a title",
+      'Intro.\n\n![](images/a b.png "T") Café prose, [link](./ok.md).\n',
+      'Intro.\n\n![TODO: describe image](images/a b.png "T") Café prose, [link](./ok.md).\n',
+    ],
+  ])("inserts the placeholder and preserves following prose (%s)", (_name, doc, expected) => {
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("missing-alt-text");
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
