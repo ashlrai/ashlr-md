@@ -212,7 +212,9 @@ describe("a document with no frontmatter", () => {
   });
 
   it("keeps an empty document empty", () => {
-    expect(splitFrontmatter("")).toEqual({ frontmatter: "", body: "" });
+    const { frontmatter, body } = splitFrontmatter("");
+    expect({ frontmatter, body }).toEqual({ frontmatter: "", body: "" });
+    expect(joinFrontmatter(frontmatter, body)).toBe("");
     expect(frontmatterText("", "title")).toBeNull();
   });
 });
