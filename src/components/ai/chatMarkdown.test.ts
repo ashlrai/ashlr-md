@@ -155,6 +155,13 @@ describe("renderChatMarkdown: normal markdown still renders", () => {
     expect(el.querySelector("b")).toBeNull();
   });
 
+  it("keeps brackets in fenced code intact", () => {
+    const code =
+      "const first = items[0];\nconst link = '[label](https://example.com)';";
+    const el = render(`\`\`\`ts\n${code}\n\`\`\``);
+    expect(el.querySelector("pre code")?.textContent).toBe(code);
+  });
+
   it("renders separate bullet lists and paragraphs", () => {
     const el = render("Intro\n\n- one\n- **two**\n\nMiddle\n\n* three");
     const lists = el.querySelectorAll("ul");
