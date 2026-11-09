@@ -7428,6 +7428,15 @@ fn export_text_preserves_brackets_in_prose() {
 }
 
 #[test]
+fn export_text_preserves_sic_and_citation_in_plain_prose() {
+    let result = run_export_text_on("The report says teh [sic] result was confirmed [1].\n");
+    assert_eq!(
+        result["text"].as_str().unwrap(),
+        "The report says teh [sic] result was confirmed [1]."
+    );
+}
+
+#[test]
 fn export_text_strips_frontmatter() {
     let md = "---\ntitle: My Doc\nauthor: Test\n---\n\nActual content here.\n";
     let result = run_export_text_on(md);
