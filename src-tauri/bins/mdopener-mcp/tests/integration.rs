@@ -6650,6 +6650,10 @@ fn export_text_preserves_consecutive_bracketed_fragments_and_intervening_prose()
             "The [first] word leads to [second], then [third] and finally [fourth] here.",
         ),
         (
+            "We reviewed [the first draft], discussed [the open questions], and approved [the final version].\n",
+            "We reviewed [the first draft], discussed [the open questions], and approved [the final version].",
+        ),
+        (
             "[draft], followed by a revision: [final].\n",
             "[draft], followed by a revision: [final].",
         ),
