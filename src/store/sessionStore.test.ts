@@ -95,6 +95,26 @@ describe("sessionStore", () => {
     expect(s.activePath).toBeNull();
   });
 
+  it("clear() succeeds repeatedly on an already empty session", () => {
+    expect(useSessionStore.getState().savedTabs).toEqual([]);
+    expect(useSessionStore.getState().activePath).toBeNull();
+
+    expect(() => {
+      useSessionStore.getState().clear();
+      useSessionStore.getState().clear();
+    }).not.toThrow();
+
+    expect(useSessionStore.getState().savedTabs).toEqual([]);
+    expect(useSessionStore.getState().activePath).toBeNull();
+    expect(
+      getStoredState<{ savedTabs: SavedTab[]; activePath: string | null }>(STORE_KEY)
+        ?.state,
+    ).toEqual({
+      savedTabs: [],
+      activePath: null,
+    });
+  });
+
   // ── localStorage persistence ──────────────────────────────────────────────
 
   it("save() writes state to localStorage", () => {
