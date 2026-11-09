@@ -120,6 +120,23 @@ describe("toastStore", () => {
     expect(useToastStore.getState().toasts).toHaveLength(0);
   });
 
+  it("preserves a new toast after cleared toasts would have expired", () => {
+    useToastStore.getState().push({ message: "old first", timeout: 500 });
+    useToastStore.getState().push({ message: "old second", timeout: 1000 });
+    useToastStore.getState().clear();
+    expect(vi.getTimerCount()).toBe(0);
+
+    const newId = useToastStore.getState().push({ message: "new", timeout: 2000 });
+    vi.advanceTimersByTime(1000);
+    expect(useToastStore.getState().toasts).toEqual([
+      expect.objectContaining({ id: newId, message: "new" }),
+    ]);
+    expect(vi.getTimerCount()).toBe(1);
+
+    vi.advanceTimersByTime(1000);
+    expect(useToastStore.getState().toasts).toEqual([]);
+  });
+
   // ── Auto-dismiss ────────────────────────────────────────────────────────
 
   it("auto-dismisses after the default 2500 ms timeout", () => {
