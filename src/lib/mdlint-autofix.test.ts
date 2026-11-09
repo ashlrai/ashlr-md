@@ -66,6 +66,28 @@ describe("invalid link target surrounded by prose", () => {
   });
 });
 
+describe("invalid link beside a valid link", () => {
+  it.each(["", "#", "?"].flatMap((href) => [true, false].map((validFirst) => [href, validFirst] as const)))(
+    "fixes destination %j with valid link first: %s",
+    (href, validFirst) => {
+      const valid = '[guide](./guide.md?view=full#start "Guide")';
+      const invalid = `[draft](${href})`;
+      const links = (broken: string) => validFirst ? `${valid} ${broken}` : `${broken} ${valid}`;
+      const doc = `Read ${links(invalid)}.\n`;
+      const expected = `Read ${links("[draft](TODO)")}.\n`;
+      const rules = [ruleInvalidLinkTarget];
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      expect(fixed.replace("[draft](TODO)", invalid)).toBe(doc);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+    },
+  );
+});
+
 describe("empty link and image description on separate lines", () => {
   it.each(["\n", "\r\n"].flatMap((nl) => [true, false].map((linkFirst) => [nl, linkFirst] as const)))(
     "inserts both placeholders in place (newline %j, link first %s)",
