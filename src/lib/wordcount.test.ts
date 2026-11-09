@@ -72,6 +72,12 @@ describe("computeDocStats", () => {
     expect(computeDocStats(md).words).toBe(3);
   });
 
+  it("counts only prose after frontmatter and a fenced code block", () => {
+    const md =
+      "---\ntitle: Hidden words\n---\n\n```js\nconst hidden = 'code words';\n```\n\nvisible prose here";
+    expect(computeDocStats(md)).toEqual({ words: 3, minutes: 1 });
+  });
+
   it.each([
     "---",
     "...",
@@ -107,6 +113,10 @@ describe("computeDocStats", () => {
   it("excludes inline code", () => {
     // "run" + "now"; the inline-code span is removed entirely.
     expect(computeDocStats("run `npm install foo bar` now").words).toBe(2);
+  });
+
+  it("reports zero words and minutes for inline code only", () => {
+    expect(computeDocStats("`npm install foo bar`")).toEqual({ words: 0, minutes: 0 });
   });
 
   it.each([
