@@ -6759,6 +6759,66 @@ describe("rule:missing-alt-text", () => {
     expect(lintDocument(expected, { rules })).toEqual([]);
   });
 
+  it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+  ])("replaces a whitespace-only description in a blockquote with the placeholder and keeps the titled source (%s)", (_name, newline) => {
+    // The undescribed image sits in a blockquote; the source carries a query,
+    // a fragment and a quoted title that the fix must preserve byte-for-byte.
+    const source = 'map.png?view=full#data "Map"';
+    const rules = [ruleMissingAltText];
+    for (const alt of ["  ", " \t "]) {
+      const doc = [
+        "Quote café.",
+        `> See ![${alt}](${source}) and ![kept](b.png).`,
+        "",
+      ].join(newline);
+      const expected = [
+        "Quote café.",
+        `> See ![TODO: describe image](${source}) and ![kept](b.png).`,
+        "",
+      ].join(newline);
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+      const { from, to } = violations[0].range!;
+      expect(doc.slice(from.offset, to.offset)).toBe(`![${alt}](${source})`);
+      expect(violations[0].fix).not.toBeNull();
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      expect(fixed).toContain(`](${source})`);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+    }
+  });
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("fixes the documented example's empty and whitespace-only descriptions, keeping both sources (%j)", (newline) => {
+    // docs/mdlint-image-rule-boundaries.md documents exactly this line: the
+    // empty description and the whitespace-only description both take the
+    // placeholder, and each source survives untouched.
+    const doc = `See ![](chart.png?view=full#data) and ![  ](map.png "Map").${newline}`;
+    const expected =
+      `See ![TODO: describe image](chart.png?view=full#data) and ` +
+      `![TODO: describe image](map.png "Map").${newline}`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+      "missing-alt-text",
+      "missing-alt-text",
+    ]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).toContain("(chart.png?view=full#data)");
+    expect(fixed).toContain('(map.png "Map")');
+    const remaining = lintDocument(fixed, { rules });
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(fixed, remaining)).toBe(expected);
+  });
+
   it("autofixes an image while preserving its source and surrounding prose", () => {
     const source = "../images/chart%20one.png?size=2&view=full#preview";
     const doc =
