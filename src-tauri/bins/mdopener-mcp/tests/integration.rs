@@ -6569,6 +6569,26 @@ fn export_text_keeps_both_brackets_of_a_plain_note_on_its_own_line() {
 }
 
 #[test]
+fn export_text_keeps_brackets_on_standalone_unicode_prose() {
+    for phrase in [
+        "[café déjà vu]",
+        "[要確認]",
+        "[مرحبا بالعالم]",
+        "[cafe\u{301} ☕]",
+    ] {
+        for markdown in [phrase.to_owned(), format!("{phrase}\n")] {
+            let result = run_export_text_on(&markdown);
+            assert_eq!(result["text"].as_str().unwrap(), phrase, "{markdown:?}");
+            assert_eq!(
+                result["char_count"].as_u64().unwrap() as usize,
+                phrase.chars().count(),
+                "{markdown:?}"
+            );
+        }
+    }
+}
+
+#[test]
 fn export_text_keeps_bracketed_numbers_at_the_start_of_a_paragraph() {
     for (markdown, expected) in [
         ("[1] First citation.\n", "[1] First citation."),
