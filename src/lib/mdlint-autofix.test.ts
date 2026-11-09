@@ -51,6 +51,21 @@ describe("invalid link at document start", () => {
   });
 });
 
+describe("undescribed image surrounded by Unicode prose", () => {
+  it.each(["\n", "\r\n"])("preserves the prose exactly with %j line endings", (nl) => {
+    const rules = [ruleMissingAltText];
+    const doc = `前文 👩🏽‍💻 cafe\u0301 ![](chart.png) مرحبا 🌍 後文${nl}`;
+    const expected = `前文 👩🏽‍💻 cafe\u0301 ![TODO: describe image](chart.png) مرحبا 🌍 後文${nl}`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
+
 describe("invalid link beside ordinary text", () => {
   it("replaces the destination with TODO and preserves the sentence", () => {
     const doc = "Please read [the guide](#) before continuing.\n";
