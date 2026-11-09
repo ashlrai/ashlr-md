@@ -47,6 +47,14 @@ describe("remarkWikilinks", () => {
     expect(collect("just some prose", "wikilink")).toHaveLength(0);
   });
 
+  it("preserves ordinary bracketed prose alongside a wikilink", () => {
+    const md = "A typo [sic] and a reminder [TODO] beside [[Note]].";
+    const text = collect(md, "text").map((node) => node.value);
+    expect(text).toEqual(["A typo [sic] and a reminder [TODO] beside ", "Note", "."]);
+    expect(collect(md, "wikilink")).toHaveLength(1);
+    expect(collect(md, "wikiembed")).toHaveLength(0);
+  });
+
   it("does NOT rewrite [[...]] inside a markdown link label", () => {
     // The text node lives under a `link` node — rewriting it would corrupt the
     // link AST, so it must be left alone.
