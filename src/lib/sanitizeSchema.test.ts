@@ -28,6 +28,16 @@ describe("SANITIZE_SCHEMA", () => {
     expect(await render(text)).toBe(`<p>${text}</p>`);
   });
 
+  it("preserves an ampersand as text without creating markup", async () => {
+    const out = await render("Rock & Roll &lt;script&gt;alert(1)&lt;/script&gt;");
+    const document = new DOMParser().parseFromString(out, "text/html");
+    expect(document.body.textContent).toBe("Rock & Roll <script>alert(1)</script>");
+    expect(document.body.innerHTML).toBe(
+      "<p>Rock &amp; Roll &lt;script&gt;alert(1)&lt;/script&gt;</p>",
+    );
+    expect(document.body.querySelector("script")).toBeNull();
+  });
+
   it("strips <script> tags from raw HTML", async () => {
     const out = await render("hello\n\n<script>alert(1)</script>\n");
     expect(out).not.toContain("<script");
