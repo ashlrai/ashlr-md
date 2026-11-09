@@ -175,6 +175,42 @@ describe("digestStore", () => {
     expect(useDigestStore.getState().summary).toBe("Sprint 42 wrapped up.");
   });
 
+  it("regenerates the summary with the latest document content and the unchanged document", async () => {
+    const sinceMs = Date.now() - 5000;
+    listMarkdownFilesMock.mockResolvedValue([
+      makeFile("updated.md", sinceMs + 100),
+      makeFile("other.md", sinceMs + 100),
+    ]);
+    let updatedContent = "first version";
+    invokeMock.mockImplementation(async (_command: string, args: { path: string }) => ({
+      content: args.path === "/watch/updated.md" ? updatedContent : "unchanged version",
+    }));
+    detectProviderMock.mockResolvedValue({
+      id: "ollama",
+      generate: async function* (messages: { content: string }[]) {
+        yield messages[0].content;
+      },
+    });
+
+    await useDigestStore.getState().generate(sinceMs);
+    expect(useDigestStore.getState().summary).toContain("## updated.md\nfirst version");
+    expect(useDigestStore.getState().summary).toContain(
+      "## other.md\nunchanged version",
+    );
+
+    updatedContent = "second version";
+    await useDigestStore.getState().generate(sinceMs);
+    updatedContent = "latest version";
+    await useDigestStore.getState().generate(sinceMs);
+
+    const { status, summary } = useDigestStore.getState();
+    expect(status).toBe("ready");
+    expect(summary).toContain("## updated.md\nlatest version");
+    expect(summary).not.toContain("first version");
+    expect(summary).not.toContain("second version");
+    expect(summary).toContain("## other.md\nunchanged version");
+  });
+
   // ── dismiss() ────────────────────────────────────────────────────────────
 
   it("dismiss() resets status to hidden and clears files/summary", () => {
