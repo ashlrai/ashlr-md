@@ -153,8 +153,8 @@ describe("computeDocStats", () => {
   });
 
   it.each([
-    // A whole minute of words is a one-minute read; one word past it rounds
-    // up to two.
+    // Below and at a whole minute round to one; one word past it rounds to two.
+    [219, 1],
     [220, 1],
     [221, 2],
   ])("reports %i plain words as a %i-minute read", (count, minutes) => {
