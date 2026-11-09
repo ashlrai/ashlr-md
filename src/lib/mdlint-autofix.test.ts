@@ -212,6 +212,26 @@ describe("invalid link at document start", () => {
   });
 });
 
+describe("undescribed image beside a valid image", () => {
+  it.each([true, false])("fixes only the undescribed image (valid first: %s)", (validFirst) => {
+    const valid = '![Revenue chart](images/revenue.png?year=2026#chart "Revenue")';
+    const missing = '![](images/costs.png "Costs")';
+    const corrected = '![TODO: describe image](images/costs.png "Costs")';
+    const images = (image: string) => validFirst ? `${valid} ${image}` : `${image} ${valid}`;
+    const doc = `Compare ${images(missing)} here.\n`;
+    const expected = `Compare ${images(corrected)} here.\n`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.replace(corrected, missing)).toBe(doc);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
+
 describe("missing alt text with a hyphenated filename", () => {
   it.each(["\n", "\r\n"])("preserves the source while inserting a description (%j)", (nl) => {
     const rules = [ruleMissingAltText];
