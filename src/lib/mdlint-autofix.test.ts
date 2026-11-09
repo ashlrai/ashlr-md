@@ -1965,6 +1965,18 @@ describe("autofix: undescribed image inside a list item", () => {
 // ─── 2. Rule: invalid-link-target ────────────────────────────────────────────
 
 describe("rule:invalid-link-target", () => {
+  it.each(["\n", "\r\n"])("fixes a link in a nested blockquote without changing its markers (%j)", (nl) => {
+    const doc = `> Outer quote.${nl}> > Read [guide]() now.${nl}> Back outside.${nl}`;
+    const expected = `> Outer quote.${nl}> > Read [guide](TODO) now.${nl}> Back outside.${nl}`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+
   it("fixes the selected identical link in each list item without changing either marker", () => {
     const doc = "- [guide]()\n  2. [guide]()\n- [valid](./guide.md)\n";
     const rules = [ruleInvalidLinkTarget];
