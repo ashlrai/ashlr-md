@@ -211,3 +211,24 @@ describe("invalid link autofix with a whitespace-only href", () => {
     expect(lintDocument(twice, { rules: both })).toEqual([]);
   });
 });
+
+it("reports and fixes a whitespace-only destination with the default rules", () => {
+  const doc = "See [draft]( \t ) for details.\n";
+  const violations = lintDocument(doc).filter(
+    (v) => v.ruleId === "invalid-link-target",
+  );
+
+  expect(violations).toHaveLength(1);
+  expect(violations[0]).toMatchObject({
+    ruleId: "invalid-link-target",
+    message: "Invalid link target: [draft]( \t )",
+    severity: "warning",
+  });
+  const { from, to } = violations[0].range!;
+  expect(doc.slice(from.offset, to.offset)).toBe("[draft]( \t )");
+  const fixed = applyAllFixes(doc, violations);
+  expect(fixed).toBe("See [draft](TODO) for details.\n");
+  expect(lintDocument(fixed).filter((v) => v.ruleId === "invalid-link-target")).toEqual(
+    [],
+  );
+});
