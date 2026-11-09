@@ -7383,6 +7383,15 @@ fn export_text_word_and_char_counts_are_correct() {
 }
 
 #[test]
+fn export_text_preserves_brackets_in_prose() {
+    let result = run_export_text_on("Evidence [1] supports this claim.\n");
+    assert_eq!(
+        result["text"].as_str().unwrap().trim(),
+        "Evidence [1] supports this claim."
+    );
+}
+
+#[test]
 fn export_text_strips_frontmatter() {
     let md = "---\ntitle: My Doc\nauthor: Test\n---\n\nActual content here.\n";
     let result = run_export_text_on(md);
