@@ -635,8 +635,11 @@ describe("rule:no-consecutive-blank-lines", () => {
 });
 
 describe("rule:missing-alt-text", () => {
-  it("accepts a described image when running the built-in rules", () => {
-    const doc = "![A red kite above a field](kite.png)\n";
+  it.each([
+    "![A red kite above a field](kite.png)",
+    '![A red kite above a field](kite.png "Kite flying")',
+  ])("accepts a described image with the built-in rules: %s", (image) => {
+    const doc = `${image}\n`;
     const violations = lintDocument(doc);
 
     expect(violations.filter(({ ruleId }) => ruleId === "missing-alt-text")).toEqual(
