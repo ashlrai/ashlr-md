@@ -159,6 +159,16 @@ describe("invalid-link autofix: an empty href inside prose", () => {
   });
 });
 
+describe("autofix preserves a valid link", () => {
+  it.each(["\n", "\r\n"])("leaves the link and surrounding prose unchanged (%j)", (nl) => {
+    const doc = `Before the [guide](./guide.md#intro), continue reading.${nl}`;
+    const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
+
+    expect(violations).toEqual([]);
+    expect(applyAllFixes(doc, violations)).toBe(doc);
+  });
+});
+
 describe("invalid-link autofix beside a valid link", () => {
   it.each([
     true,
