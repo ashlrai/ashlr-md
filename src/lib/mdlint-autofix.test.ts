@@ -36,6 +36,22 @@ import {
 } from "./mdlint";
 
 describe("autofix preserves [sic] in prose", () => {
+  it.each(["\n", "\r\n"])("preserves prose beside an undescribed image (%j)", (nl) => {
+    const rules = [ruleInvalidLinkTarget, ruleMissingAltText];
+    const prose = 'The report says "consistant [sic] throughout"';
+    const image = '![](chart.png "Results")';
+    const doc = `${prose}; see ${image}.${nl}`;
+    const expected = `${prose}; see ![TODO: describe image](chart.png "Results").${nl}`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    expect(doc.slice(violations[0].range!.from.offset, violations[0].range!.to.offset)).toBe(image);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
   it.each(["\n", "\r\n"])("preserves the brackets and surrounding prose (%j)", (nl) => {
     const rules = [ruleInvalidLinkTarget];
     const prose = 'The report says "the result was consistant [sic] throughout".';
