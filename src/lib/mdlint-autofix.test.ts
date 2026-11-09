@@ -29984,6 +29984,19 @@ describe("described image beside an undescribed image", () => {
 describe("two undescribed images on one line", () => {
   const rules = [ruleMissingAltText];
 
+  it("fixes both identical images without changing the surrounding text", () => {
+    const doc = "Before ![](same.png), between ![](same.png) after.\n";
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((v) => v.ruleId)).toEqual([
+      "missing-alt-text",
+      "missing-alt-text",
+    ]);
+    expect(applyAllFixes(doc, violations)).toBe(
+      "Before ![TODO: describe image](same.png), between ![TODO: describe image](same.png) after.\n",
+    );
+  });
+
   it("adds a placeholder for each image while preserving both paths", () => {
     const doc = "Compare ![](images/before.png) with ![](images/after.svg).\n";
     const expected =
