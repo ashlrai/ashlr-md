@@ -43,6 +43,27 @@ describe("reviewStore", () => {
     reset();
   });
 
+  it("reset is idempotent and restores a clean state", () => {
+    useReviewStore.setState({
+      pending: makePending(),
+      draftComment: "unfinished",
+      submitting: true,
+      submitError: "failed",
+    });
+
+    reset();
+    const once = useReviewStore.getState();
+    expect(once).toMatchObject({
+      pending: null,
+      draftComment: "",
+      submitting: false,
+      submitError: null,
+    });
+
+    reset();
+    expect(useReviewStore.getState()).toEqual(once);
+  });
+
   // ── Register ────────────────────────────────────────────────────────────
 
   it("registerReview stores the review and clears any draft comment", () => {
