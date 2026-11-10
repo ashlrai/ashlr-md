@@ -31327,3 +31327,51 @@ describe("autofix preserves populated link and image descriptions", () => {
     expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
   });
 });
+
+describe("rule:missing-alt-text empty alt text inside a blockquote", () => {
+  it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+  ])("inserts the description placeholder and preserves the blockquote marker (%s)", (_name, nl) => {
+    const doc = [
+      "Intro.",
+      "> See ![ ](assets/diagram.png) for the layout.",
+      "> ![](assets/icon.svg) marks the start.",
+      "",
+    ].join(nl);
+    const expected = [
+      "Intro.",
+      "> See ![TODO: describe image](assets/diagram.png) for the layout.",
+      "> ![TODO: describe image](assets/icon.svg) marks the start.",
+      "",
+    ].join(nl);
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+      "missing-alt-text",
+      "missing-alt-text",
+    ]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    // the "> " blockquote prefix on every quoted line is preserved
+    expect(fixed).toContain("> See ![TODO: describe image](assets/diagram.png)");
+    expect(fixed).toContain("> ![TODO: describe image](assets/icon.svg)");
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+
+  it("keeps the blockquote list markers while fixing an empty-alt image in a quoted list item", () => {
+    const doc = "> - ![ ](icon.png) first step\n> - ![Done](done.png) second step\n";
+    const expected =
+      "> - ![TODO: describe image](icon.png) first step\n> - ![Done](done.png) second step\n";
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("missing-alt-text");
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
