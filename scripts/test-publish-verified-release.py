@@ -180,9 +180,11 @@ class PublishTests(unittest.TestCase):
                 self.assertEqual(body['target_commitish'], SHA)
                 self.assertTrue(body['draft'])
                 self.assertFalse(body['generate_release_notes'])
+                self.assertEqual(body['make_latest'], 'false')
+                self.assertIn('"make_latest": "false"', json.dumps(body))
                 return {'id': 9, 'tag_name': TAG, 'draft': True}
             if method == 'PATCH':
-                self.assertEqual(body, {'draft': False})
+                self.assertEqual(body, {'draft': False, 'make_latest': 'true'})
                 return {'id': 9, 'tag_name': TAG, 'draft': False}
             raise AssertionError(method)
 
@@ -300,6 +302,38 @@ class PublishTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'asset upload failed'):
             publish.publish_release(absent, write, TAG, SHA, notes, ['unused'], explode)
         self.assertEqual(writes, ['POST', 'DELETE'])
+
+    def test_write_failure_reports_http_status_and_hides_the_token(self):
+        secret = 'ghp_SUPERSECRETTOKENVALUE'
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = Path(tmp) / 'gh'
+            fake.write_text(
+                '#!/bin/sh\n'
+                'echo \'{"message":"Validation Failed","errors":[{"message":"Draft releases cannot be set as latest"}],"status":"422"}\'\n'
+                'echo "gh: Validation Failed (HTTP 422)" >&2\n'
+                'echo "token ghp_SUPERSECRETTOKENVALUE" >&2\n'
+                'exit 1\n',
+                encoding='utf-8',
+            )
+            fake.chmod(0o755)
+            previous_path = os.environ.get('PATH', '')
+            previous_token = os.environ.get('GH_TOKEN')
+            os.environ['PATH'] = tmp + os.pathsep + previous_path
+            os.environ['GH_TOKEN'] = secret
+            try:
+                with self.assertRaises(ValueError) as caught:
+                    publish.gh_write('POST', '/repos/ashlrai/ashlr-md/releases', {'draft': True})
+            finally:
+                os.environ['PATH'] = previous_path
+                if previous_token is None:
+                    os.environ.pop('GH_TOKEN', None)
+                else:
+                    os.environ['GH_TOKEN'] = previous_token
+        message = str(caught.exception)
+        self.assertIn('HTTP 422', message)
+        self.assertIn('Draft releases cannot be set as latest', message)
+        self.assertNotIn(secret, message)
+        self.assertNotIn('ghp_', message)
 
 
 if __name__ == '__main__':
