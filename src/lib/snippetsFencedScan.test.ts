@@ -138,6 +138,24 @@ describe("isInsideFencedCode reads up to the cursor's line", () => {
     for (let p = 0; p <= doc.length; p++) expect(inside(p)).toBe(readAll(doc, p));
   });
 
+  it("scans an empty fenced block without inventing code lines", () => {
+    // An opening fence closed on the very next line has no content: the
+    // scan must mark both lines as fences and none as code, wherever the
+    // cursor sits.
+    for (const doc of [
+      "```\n```\n",
+      "```js\n```\n",
+      "~~~\n~~~\n",
+      "before\n```\n```\nafter\n",
+      "```\n```\n```\n```\n",
+    ]) {
+      expect(outline.markdownLines(doc).filter((l) => l.kind === "code")).toEqual([]);
+      for (let p = 0; p <= doc.length; p++) {
+        expect([doc, p, isInsideFencedCode(doc, p)]).toEqual([doc, p, readAll(doc, p)]);
+      }
+    }
+  });
+
   it("keeps adjacent blocks distinct with mixed fence styles", () => {
     // A longer or different fence inside never closes the neighbour.
     const doc = "````\n```\ninner\n```\n````\n~~~\ntilde\n~~~\nprose\n";
