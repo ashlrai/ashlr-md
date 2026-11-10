@@ -104,6 +104,7 @@ owner:
 # Launch plan
 
 Ship the **beta** to [early users](https://example.com) by Friday.
+Status [on track]; see the [launch guide](https://example.com/guide).
 See [[Roadmap]] and [[Risks|the risks]].
 
 ![diagram](assets/flow.png)
@@ -248,6 +249,10 @@ fn an_agent_works_a_vault_from_disk_without_the_app() {
     assert!(
         body.contains("Ship the beta to early users by Friday."),
         "{body}"
+    );
+    assert!(
+        body.contains("Status [on track]; see the launch guide."),
+        "bracketed prose and link text must remain readable: {body}"
     );
     assert!(
         body.contains("cargo build --release"),
