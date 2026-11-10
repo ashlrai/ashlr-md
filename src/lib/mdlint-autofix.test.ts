@@ -84,6 +84,27 @@ describe("image with descriptive alt text", () => {
   });
 });
 
+describe("image-like text in fenced code", () => {
+  it.each(["\n", "\r\n"].flatMap((nl) => ["```", "~~~"].map((fence) => [nl, fence])))(
+    "preserves the fenced example while fixing a real image (%j, %s)",
+    (nl, fence) => {
+      const rules = [ruleMissingAltText];
+      const example = [fence + "markdown", "![](chart.png)", fence].join(nl);
+      const doc = `${example}${nl}${nl}See ![](chart.png) below.${nl}`;
+      const expected = `${example}${nl}${nl}See ![TODO: describe image](chart.png) below.${nl}`;
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+      expect(violations[0].range?.from.offset).toBe(doc.lastIndexOf("![](chart.png)"));
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      expect(fixed.startsWith(example)).toBe(true);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+    },
+  );
+});
+
 describe("missing image alt text autofix idempotence", () => {
   it.each(["", " \t "])("changes missing alt %j on the first pass only", (alt) => {
     const rules = [ruleMissingAltText];
