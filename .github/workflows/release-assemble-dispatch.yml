@@ -63,17 +63,12 @@ jobs:
           elif [ "$EVENT" = workflow_dispatch ]; then
             test "$HEAD_BRANCH" = main || { echo "::error::workflow_dispatch release must run from main"; exit 1; }
             [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::invalid workflow revision sha"; exit 1; }
-            # gh --job takes the numeric job id. The job name returns HTTP 404.
-            job_id=$(gh api "repos/$REPO/actions/runs/$RELEASE_RUN_ID/attempts/1/jobs" --paginate \
-              --jq '.jobs[] | select(.name == "Resolve release tag" and .conclusion == "success") | .id')
-            job_count=$(printf '%s\n' "$job_id" | grep -cE '^[0-9]+$' || true)
-            test "$job_count" = 1 || { echo "::error::could not resolve the prepare job"; exit 1; }
-            log=$(gh run view "$RELEASE_RUN_ID" --repo "$REPO" --job "$job_id" --log)
-            version=$(printf '%s\n' "$log" | sed $'s/\x1b\\[[0-9;]*m//g' | grep -oE 'version carriers match [0-9]+\.[0-9]+\.[0-9]+' | awk '{print $NF}' | sort -u)
-            version_count=$(printf '%s\n' "$version" | grep -c . || true)
-            test "$version_count" = 1 || { echo "::error::could not resolve a unique version from the prepare job"; exit 1; }
-            RELEASE_TAG="v${version}"
-            SOURCE_SHA=$(gh api "repos/$REPO/commits/$RELEASE_TAG" --jq .sha)
+            mkdir -p "$RUNNER_TEMP/release-binding"
+            gh run download "$RELEASE_RUN_ID" --repo "$REPO" --name release-binding --dir "$RUNNER_TEMP/release-binding"
+            read -r RELEASE_TAG PREPARE_SHA < <(python3 -c 'import json,re,sys; p=json.load(open(sys.argv[1])); tag,sha,version=p.get("tag"),p.get("sha"),p.get("version"); ok=p.get("event")=="workflow_dispatch" and p.get("inputs_version")==version and isinstance(tag,str) and re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+", tag) and version==tag[1:] and isinstance(sha,str) and re.fullmatch(r"[0-9a-f]{40}", sha); sys.exit("prepare binding does not match this dispatch") if not ok else print(tag, sha)' "$RUNNER_TEMP/release-binding/release-binding.json")
+            [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::prepare tag is not an exact stable tag"; exit 1; }
+            ref_json=$(gh api "repos/$REPO/git/ref/tags/$RELEASE_TAG")
+            SOURCE_SHA=$(printf '%s' "$ref_json" | REPO="$REPO" RELEASE_TAG="$RELEASE_TAG" PREPARE_SHA="$PREPARE_SHA" python3 -c 'import json,os,re,subprocess,sys; repo=os.environ["REPO"]; tag=os.environ["RELEASE_TAG"]; prepare=os.environ["PREPARE_SHA"]; gh=lambda path: json.loads(subprocess.check_output(["gh","api","repos/%s/%s"%(repo,path)])); ref=json.load(sys.stdin); sys.exit("tag ref mismatch") if ref.get("ref")!="refs/tags/%s"%tag else exec("obj=ref.get(\"object\") or {}\nseen=set()\nfor _ in range(6):\n kind,sha=obj.get(\"type\"),obj.get(\"sha\")\n if kind==\"commit\":\n  sys.exit(\"peeled tag does not match the prepare sha\") if not (re.fullmatch(r\"[0-9a-f]{40}\", sha or \"\") and sha==prepare) else print(sha)\n  break\n if kind!=\"tag\" or sha in seen or not re.fullmatch(r\"[0-9a-f]{40}\", sha or \"\"): sys.exit(\"invalid annotated tag\")\n seen.add(sha); obj=(gh(\"git/tags/\"+sha).get(\"object\") or {})\nelse: sys.exit(\"tag chain too deep\")")')
             [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::invalid source sha"; exit 1; }
             run=$(gh api "repos/$REPO/actions/runs/$RELEASE_RUN_ID" \
               --jq '[.path, .event, .conclusion, (.run_attempt|tostring), .head_branch, .head_sha] | join(" ")')
@@ -82,6 +77,15 @@ jobs:
             echo "::error::unsupported release event"; exit 1
           fi
           export SOURCE_SHA RELEASE_TAG
+          # Refuse a published tag, and a version that is not strictly newer
+          # than the latest published stable release. A missing release is 404.
+          if release_json=$(gh api "repos/$REPO/releases/tags/$RELEASE_TAG" 2>/dev/null); then
+            draft=$(printf '%s' "$release_json" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("draft"))')
+            test "$draft" = True || { echo "::error::$RELEASE_TAG is already published"; exit 1; }
+          fi
+          if latest_json=$(gh api "repos/$REPO/releases/latest" 2>/dev/null); then
+            printf '%s' "$latest_json" | RELEASE_TAG="$RELEASE_TAG" python3 -c 'import json,os,re,sys; tag=os.environ["RELEASE_TAG"]; latest=json.load(sys.stdin).get("tag_name"); parse=lambda value: tuple(int(part) for part in value[1:].split(".")) if isinstance(value,str) and re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+", value) else sys.exit("latest release is not a stable tag"); sys.exit("version is not strictly greater than the latest release") if parse(tag)<=parse(latest) else None' || { echo "::error::version is not strictly greater than the latest release"; exit 1; }
+          fi
           ok=$(gh api "repos/$REPO/actions/workflows/ci.yml/runs?head_sha=$SOURCE_SHA&status=success&per_page=20" \
             --jq '[.workflow_runs[] | select(.head_sha == env.SOURCE_SHA and ((.event == "push" and .head_branch == "main") or .event == "workflow_dispatch"))] | length')
           test "$ok" -ge 1 || { echo "::error::no successful full CI run for $SOURCE_SHA"; exit 1; }

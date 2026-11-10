@@ -144,7 +144,10 @@ completes successfully on attempt 1 and the tagged commit has successful full
 CI. That build may be a tag push, or a `workflow_dispatch` of `release.yml` on
 `main` for an already existing tag (`-f version=X.Y.Z`). A dispatch run's head
 SHA is the workflow revision on main, not the tag; `source_sha` is still the
-peeled tag commit. Dispatch by hand only to retry.
+peeled tag commit. A dispatch is bound to the prepare job's `release-binding`
+artifact (`inputs.version`, tag and sha), not to the job log. Assembly refuses
+a tag that already has a published GitHub Release, and a version that is not
+strictly greater than the latest published release. Dispatch by hand only to retry.
 
 After the exact tagged source has successful full CI from a manual dispatch or
 a canonical push to `main`, and its original

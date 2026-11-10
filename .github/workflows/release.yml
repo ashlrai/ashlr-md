@@ -87,6 +87,49 @@ jobs:
           print("version carriers match", want)
           PY
 
+      # Persist inputs.version and the prepare outputs for assembly. The Actions
+      # API does not return workflow_dispatch inputs or job outputs, and the
+      # job log is not a binding. This artifact is the record assembly checks.
+      - name: Record the resolved release binding
+        env:
+          TAG: ${{ steps.resolve.outputs.tag }}
+          SHA: ${{ steps.resolve.outputs.sha }}
+          EVENT: ${{ github.event_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, re
+          tag = os.environ["TAG"]
+          sha = os.environ["SHA"]
+          event = os.environ["EVENT"]
+          inputs_version = os.environ.get("INPUT_VERSION", "")
+          if not re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+", tag):
+              raise SystemExit("resolved tag is not vX.Y.Z")
+          if not re.fullmatch(r"[0-9a-f]{40}", sha):
+              raise SystemExit("resolved sha is not a commit")
+          version = tag[1:]
+          if event == "workflow_dispatch" and inputs_version != version:
+              raise SystemExit("inputs.version does not match the resolved tag")
+          path = os.path.join(os.environ["RUNNER_TEMP"], "release-binding.json")
+          with open(path, "w", encoding="utf-8") as handle:
+              json.dump({
+                  "event": event,
+                  "inputs_version": inputs_version,
+                  "version": version,
+                  "tag": tag,
+                  "sha": sha,
+              }, handle)
+              handle.write("\n")
+          PY
+
+      - name: Upload release binding
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-binding
+          if-no-files-found: error
+          path: ${{ runner.temp }}/release-binding.json
+
   full-suite-evidence:
     # Release gate: the Linux and macOS full suites must have
     # passed in a CI run on this exact sha: either a manual workflow_dispatch

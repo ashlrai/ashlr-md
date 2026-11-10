@@ -48,7 +48,8 @@ class HostedAssemblyTests(unittest.TestCase):
         evidence = self.run_prepare()
         self.assertEqual(evidence['sha'], fixture.SHA)
         self.assertEqual(evidence['release_run'], fixture.RUN)
-        self.assertEqual(len(self.downloads), 4)
+        self.assertEqual(len(self.downloads), 5)
+        self.assertIn(900, self.downloads)
 
     def test_original_bytes_and_all_live_proofs_are_retained(self):
         evidence = self.run_prepare()

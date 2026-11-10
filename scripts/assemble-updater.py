@@ -271,8 +271,11 @@ def main():
         provenance = load_local('release-provenance')
         archives = load_local('release-archive')
         zips = {name: args.zip_directory / (name + '.zip') for name in provenance.LEGS}
+        binding_zip = args.zip_directory / 'release-binding.zip'
         # The API adapter is fixed in code; callers cannot supply a receipt.
-        evidence = provenance.verify_provenance(provenance.fetch, args.tag, args.source_sha, args.run_id, zips)
+        evidence = provenance.verify_provenance(
+            provenance.fetch, args.tag, args.source_sha, args.run_id, zips,
+            binding_zip=binding_zip if binding_zip.is_file() else None)
         with tempfile.TemporaryDirectory(prefix='md-verified-inventory-', dir=STAGING_ROOT) as tmp:
             root = Path(tmp)
             for name in provenance.LEGS:

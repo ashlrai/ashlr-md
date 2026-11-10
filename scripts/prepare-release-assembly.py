@@ -69,7 +69,10 @@ def prepare(tag, sha, run_id, attempt, *, env, api=provenance.fetch, download=do
     except ValueError:
         fail('original release run is not eligible')
     artifacts = provenance.pages(api, f'{provenance.REPO}/actions/runs/{run_id}/artifacts', 'artifacts')
-    if len(artifacts) != len(provenance.LEGS) or {a.get('name') for a in artifacts} != set(provenance.LEGS):
+    names = {a.get('name') for a in artifacts}
+    extra = names - set(provenance.LEGS)
+    if (not set(provenance.LEGS) <= names or (run.get('event') == 'workflow_dispatch' and extra != {'release-binding'})
+            or (run.get('event') != 'workflow_dispatch' and extra not in (set(), {'release-binding'}))):
         fail('original artifact inventory differs')
     ids = set()
     for artifact in artifacts:
@@ -95,13 +98,18 @@ def prepare(tag, sha, run_id, attempt, *, env, api=provenance.fetch, download=do
             download(artifact, destination)
             if not stat.S_ISREG(destination.lstat().st_mode):
                 fail('download must be a regular file')
-        if sorted(p.name for p in directory.iterdir()) != sorted(name + '.zip' for name in provenance.LEGS):
+        expected_names = [name + '.zip' for name in provenance.LEGS]
+        if run.get('event') == 'workflow_dispatch':
+            expected_names.append('release-binding.zip')
+        if sorted(p.name for p in directory.iterdir()) != sorted(expected_names):
             fail('downloaded ZIP inventory differs')
         zips = {name: directory / (name + '.zip') for name in provenance.LEGS}
+        binding_zip = directory / 'release-binding.zip'
         # Reuse every original live check: tag, workflow IDs, exact attempt,
         # all native jobs/steps, manual full CI, source blobs and ZIP digests.
-        evidence = provenance.verify_provenance(api, tag, sha, run_id, zips)
-        expected = {a['name']: {'id': a['id'], 'digest': a['digest']} for a in artifacts}
+        evidence = provenance.verify_provenance(
+            api, tag, sha, run_id, zips, binding_zip=binding_zip if binding_zip.is_file() else None)
+        expected = {a['name']: {'id': a['id'], 'digest': a['digest']} for a in artifacts if a.get('name') in provenance.LEGS}
         if evidence['artifacts'] != expected:
             fail('original artifact inventory changed during download')
         return evidence

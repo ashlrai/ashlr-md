@@ -76,9 +76,13 @@ class ProvenanceTests(unittest.TestCase):
         self.data[f'{REPO}/actions/runs/{RUN}/artifacts?per_page=100&page=1'] = {'total_count':4,'artifacts':artifacts}
     def tearDown(self): self.tmp.cleanup()
     def api(self, path):
-        if path not in self.data: raise AssertionError(f'unexpected API path {path}')
+        if path not in self.data:
+            if '/releases/' in path: raise FileNotFoundError(path)
+            raise AssertionError(f'unexpected API path {path}')
         return copy.deepcopy(self.data[path])
-    def verify(self): return p.verify_provenance(self.api, 'v0.4.0', SHA, RUN, self.zips)
+    def verify(self):
+        zips = {name: self.zips[name] for name in p.LEGS}
+        return p.verify_provenance(self.api, 'v0.4.0', SHA, RUN, zips, binding_zip=getattr(self, 'binding_zip', None))
     SAFE_WORKFLOW = (
         'name: Release\n'
         'tag="v${INPUT_VERSION}"\n'
@@ -86,6 +90,7 @@ class ProvenanceTests(unittest.TestCase):
         'ref: ${{ needs.prepare.outputs.sha }}\n'
         'sha="$(gh api "repos/${REPO}/commits/refs/tags/${tag}" --jq \'.sha\')"\n'
         'Require version carriers to equal the tag\n'
+        'name: release-binding\n'
     )
     def _store_workflow(self, sha, body):
         data = body.encode()
@@ -115,7 +120,27 @@ class ProvenanceTests(unittest.TestCase):
         self.data[f'{REPO}/actions/runs/{RUN}/attempts/1/jobs?per_page=100&page=1']['total_count'] = len(jobs)
         for artifact in self.data[f'{REPO}/actions/runs/{RUN}/artifacts?per_page=100&page=1']['artifacts']:
             artifact['workflow_run']['head_sha'] = OTHER
+        self.binding_zip = self._write_binding()
         self._store_workflow(OTHER, body)
+    def _write_binding(self, tag='v0.4.0', sha=SHA, inputs_version='0.4.0'):
+        payload = json.dumps({
+            'event': 'workflow_dispatch', 'inputs_version': inputs_version,
+            'version': tag[1:], 'tag': tag, 'sha': sha,
+        }).encode()
+        path = Path(self.tmp.name) / 'release-binding.zip'
+        with zipfile.ZipFile(path, 'w') as archive:
+            archive.writestr('release-binding.json', payload)
+        digest = 'sha256:' + hashlib.sha256(path.read_bytes()).hexdigest()
+        artifacts = self.data[f'{REPO}/actions/runs/{RUN}/artifacts?per_page=100&page=1']
+        artifacts['artifacts'] = [item for item in artifacts['artifacts'] if item.get('name') != 'release-binding']
+        artifacts['artifacts'].append({
+            'id': 900, 'name': 'release-binding', 'size_in_bytes': path.stat().st_size,
+            'expired': False, 'digest': digest,
+            'workflow_run': {'id': RUN, 'repository_id': RID, 'head_repository_id': RID, 'head_sha': OTHER},
+        })
+        artifacts['total_count'] = len(artifacts['artifacts'])
+        self.zips['release-binding'] = path
+        return path
     def test_happy_path(self): self.assertIsNotNone(self.verify())
     def test_wrong_tag_commit(self):
         self.data[f'{REPO}/git/ref/tags/v0.4.0']['object']['sha'] = OTHER
@@ -347,6 +372,30 @@ class ProvenanceTests(unittest.TestCase):
             'ref: ${{ needs.prepare.outputs.sha }}', 'ref: ${{ github.sha }}'))
         with self.assertRaisesRegex(ValueError, 'resolved tag|dispatch ref'):
             self.verify()
+
+    def test_dispatch_binding_rejects_another_tags_artifacts(self):
+        self.use_dispatch_release()
+        cases = (
+            {'inputs_version': '0.9.9'},
+            {'tag': 'v0.9.9', 'inputs_version': '0.9.9'},
+            {'sha': OTHER},
+        )
+        for fields in cases:
+            with self.subTest(fields=fields):
+                self.binding_zip = self._write_binding(**fields)
+                with self.assertRaisesRegex(ValueError, 'prepare binding does not match the assembled tag'):
+                    self.verify()
+
+    def test_replay_and_downgrade_are_refused(self):
+        self.data[f'{REPO}/releases/tags/v0.4.0'] = {'tag_name': 'v0.4.0', 'draft': False}
+        with self.assertRaisesRegex(ValueError, 'already published'):
+            self.verify()
+        del self.data[f'{REPO}/releases/tags/v0.4.0']
+        self.data[f'{REPO}/releases/latest'] = {'tag_name': 'v0.5.0', 'draft': False}
+        with self.assertRaisesRegex(ValueError, 'not strictly greater'):
+            self.verify()
+        self.data[f'{REPO}/releases/latest'] = {'tag_name': 'v0.3.0', 'draft': False}
+        self.assertIsNotNone(self.verify())
 
     def test_workflow_dispatch_rejects_non_main_head_branch(self):
         self.use_dispatch_release()
