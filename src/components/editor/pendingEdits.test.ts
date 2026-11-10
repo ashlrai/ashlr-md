@@ -147,6 +147,17 @@ describe("WYSIWYG editor: edits not reported yet", () => {
     return view as ProseView;
   }
 
+  it("processing an empty edit collection leaves the document unchanged", async () => {
+    const current = await typeJustNow("Hello.\n", "Mine ");
+    const store = createAgentEditStore();
+    store.getState().setMode("auto");
+    await act(async () => {
+      submitAgentChange({ agentId: "probe", label: "empty", edits: [] }, store);
+    });
+    expect(useDocumentStore.getState().content).toBe("Mine Hello.\n");
+    expect(current.state.doc.textContent).toBe("Mine Hello.");
+  });
+
   it("auto agent writes keep pending typing and survive the next editor edit", async () => {
     const previous = await typeJustNow("Hello.\n", "Mine ");
     const store = createAgentEditStore();
