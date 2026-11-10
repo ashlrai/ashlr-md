@@ -294,6 +294,14 @@ yet qualified on four actual artifacts from one eligible run. It does not publis
    signatures, writes `latest.json`, uploads the validated assets, and publishes
    the release for that existing tag. It does not create or move the tag. The
    publish job runs in the existing main-only Production environment.
+   A finished assemble run is not replayed when this workflow first reaches
+   main. From main, publish that exact run with the same checks:
+
+   ```sh
+   gh workflow run release-publish.yml --repo ashlrai/ashlr-md --ref main \
+     -f assemble_run_id=RUN_ID
+   ```
+
    Homebrew, winget and the AUR stay manual.
 
 Updater signatures are not Apple Developer ID signing/notarization or Windows

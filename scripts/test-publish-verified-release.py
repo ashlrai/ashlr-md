@@ -57,6 +57,12 @@ class PublishTests(unittest.TestCase):
         self.assertIn("head_branch == 'main'", text)
         self.assertIn('head_repository.full_name == github.repository', text)
         self.assertIn("run_attempt == 1", text)
+        self.assertEqual(text.count("github.ref == 'refs/heads/main'"), 2)
+        self.assertIn("github.event_name == 'workflow_dispatch'", publish_job)
+        self.assertIn('assemble_run_id:', text)
+        self.assertIn('inputs.assemble_run_id', publish_job)
+        self.assertNotIn('ref: ${{ inputs', text)
+        self.assertNotIn('ref: ${{ github.event.inputs', text)
         self.assertNotIn('environment:', resolve)
         self.assertNotIn('contents: write', resolve)
         self.assertIn('permissions: {}', text)
@@ -67,6 +73,44 @@ class PublishTests(unittest.TestCase):
         self.assertIn('verify_provenance(', source)
         self.assertIn('peel_annotated_tag(', source)
         self.assertIn("refusing to mutate a git object", source)
+
+    def test_main_dispatch_uses_the_same_assemble_run_checks(self):
+        previous = (os.environ.get('ASSEMBLE_RUN_ID'), os.environ.get('ASSEMBLE_ATTEMPT'))
+        os.environ['ASSEMBLE_RUN_ID'] = '42747484631;touch /tmp/pwned'
+        os.environ['ASSEMBLE_ATTEMPT'] = '1'
+        try:
+            with self.assertRaisesRegex(ValueError, 'only assembly attempt 1'):
+                publish.environ_run()
+        finally:
+            for key, value in zip(('ASSEMBLE_RUN_ID', 'ASSEMBLE_ATTEMPT'), previous):
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+
+        def assemble_run(branch):
+            def api(path):
+                if path.endswith('/actions/runs/42747484631'):
+                    return {
+                        'path': '.github/workflows/release-assemble.yml',
+                        'event': 'workflow_dispatch',
+                        'head_branch': branch,
+                        'run_attempt': 1,
+                        'status': 'completed',
+                        'conclusion': 'success',
+                        'repository': {'full_name': 'ashlrai/ashlr-md'},
+                        'head_repository': {'full_name': 'ashlrai/ashlr-md'},
+                    }
+                if path.endswith('/attempts/1/jobs?per_page=100&page=1'):
+                    return {'total_count': 1, 'jobs': [{
+                        'name': 'assemble', 'status': 'completed', 'conclusion': 'success',
+                    }]}
+                raise AssertionError(path)
+            return api
+
+        with self.assertRaisesRegex(ValueError, 'successful main dispatch'):
+            publish.require_assemble_success(assemble_run('feature'), 42747484631)
+        publish.require_assemble_success(assemble_run('main'), 42747484631)
 
     def test_publish_job_uses_the_production_environment(self):
         text = WORKFLOW.read_text()
