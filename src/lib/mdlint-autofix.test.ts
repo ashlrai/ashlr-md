@@ -84,6 +84,34 @@ describe("image with descriptive alt text", () => {
   });
 });
 
+describe("document with no invalid links or images", () => {
+  const body = [
+    "# Guide",
+    "",
+    "Read [the docs](https://example.com/docs?a=1#top), [setup](./setup.md), and [intro](#intro).",
+    "",
+    '![Architecture diagram](images/arch%20diagram.png?v=2 "Architecture")',
+    "",
+    "## Intro",
+    "",
+    "Mixed: [reference][ref] and ![Logo](logo.svg).",
+    "",
+    "[ref]: https://example.com/ref",
+    "",
+  ];
+
+  it.each(["\n", "\r\n"])("leaves the document byte-for-byte unchanged (newline %j)", (nl) => {
+    const doc = body.join(nl);
+    const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget, ruleMissingAltText] });
+
+    expect(violations).toEqual([]);
+    expect(applyAllFixes(doc, violations)).toBe(doc);
+    expect(fixAllViolations(doc, violations)).toBe(doc);
+    expect(lintDocument(doc, { rules: [ruleInvalidLinkTarget, ruleMissingAltText] })).toEqual([]);
+  });
+});
+
+
 describe("image-like text in fenced code", () => {
   it.each(["\n", "\r\n"].flatMap((nl) => ["```", "~~~"].map((fence) => [nl, fence])))(
     "preserves the fenced example while fixing a real image (%j, %s)",
