@@ -43,6 +43,12 @@ class InventoryTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, 'architecture mismatch'): a.verify_linux_payload(self.root / 'x')
             with mock.patch.object(a, 'bounded_7zz', return_value=b'Path = ../escape\nSize = 1\nMode = -rwx\n\n'):
                 with self.assertRaisesRegex(ValueError, 'unsafe'): a.verify_linux_payload(self.root / 'x')
+    def test_child_tools_never_inherit_the_api_token(self):
+        with mock.patch.dict(os.environ, {'GH_TOKEN': 'test-only', 'GITHUB_TOKEN': 'test-only', 'PATH': '/usr/bin'}, clear=True):
+            self.assertEqual(a.child_env(), {'PATH': '/usr/bin'})
+            with mock.patch.object(a.subprocess, 'run') as run:
+                a.bounded_7zz('/bin/true', ['l'], 1024)
+            self.assertNotIn('GH_TOKEN', run.call_args.kwargs['env'])
     def test_relative_7zz_is_rejected_before_hash_or_execution(self):
         with mock.patch.dict(os.environ, {'ASHLR_MD_7ZZ': '7zz'}), \
              mock.patch.object(a, 'digest') as digest, \

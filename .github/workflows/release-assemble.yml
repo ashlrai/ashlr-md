@@ -91,6 +91,9 @@ jobs:
       - name: Assemble and verify all four updater payloads
         env:
           ASHLR_MD_7ZZ: ${{ runner.temp }}/md-assembly-tools/7zz
+          # Authenticated read-only provenance rechecks; anonymous API reads
+          # share 60/hour per runner IP and failed with HTTP 403 rate limit.
+          GH_TOKEN: ${{ github.token }}
         run: |
           "$RUNNER_TEMP/md-assembly-venv/bin/python" scripts/assemble-updater.py \
             "$RUNNER_TEMP/md-original-zips" hosted-release \
