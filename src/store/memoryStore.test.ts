@@ -7,6 +7,13 @@ beforeEach(() => {
 });
 
 describe("memoryStore", () => {
+  it("starts empty before any mutation", () => {
+    expect(useMemoryStore.getState().items).toEqual([]);
+    expect(memoryBlock()).toBe("");
+    expect(useConversationStore.getState().currentSessionId).toBeNull();
+    expect(useConversationStore.getState().messages).toEqual([]);
+  });
+
   it("adds a trimmed item", () => {
     useMemoryStore.getState().add("  I like concise answers  ");
     const items = useMemoryStore.getState().items;
