@@ -17011,6 +17011,25 @@ describe("autofix: empty href on a link with an empty label", () => {
     expect(applyAllFixes(doc, violations)).toBe(expected);
     expect(lintDocument(expected, { rules })).toEqual([]);
   });
+
+  it.each(["\n", "\r\n"])(
+    "repairs an empty link between Unicode prose without altering any surrounding character (%j)",
+    (nl) => {
+      const before = "👩🏽‍💻 caf\u00e9 — 日本語：";
+      const after = "؛ مرحبا 🌍 e\u0301 fin";
+      const doc = `${before}[]()${after}${nl}`;
+      const expected = `${before}[](TODO)${after}${nl}`;
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+      const { from, to } = violations[0].range!;
+      expect(doc.slice(from.offset, to.offset)).toBe("[]()");
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+    },
+  );
 });
 
 describe("autofix: invalid links in CRLF list and blockquote lines", () => {
