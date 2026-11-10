@@ -181,6 +181,19 @@ fn default_tempdir_is_not_a_searchable_vault_root() {
 }
 
 #[test]
+fn reading_adjacent_bracketed_prose_preserves_both_markers() {
+    let home = tempfile::tempdir().unwrap();
+    let vault = vault();
+    std::fs::write(vault.path().join("markers.md"), "Quoted text [sic][1].\n").unwrap();
+    let mut client = Client::start(home.path(), vault.path());
+
+    let result = client.ok("export_text", json!({ "path": "markers.md" }));
+    assert_eq!(result["text"], "Quoted text [sic][1].");
+
+    client.finish();
+}
+
+#[test]
 fn an_agent_works_a_vault_from_disk_without_the_app() {
     let home = tempfile::tempdir().unwrap();
     let vault = vault();
