@@ -395,6 +395,30 @@ describe("missing alt text with a hyphenated filename", () => {
   });
 });
 
+describe("empty-alt image followed by punctuation", () => {
+  it.each(["", " ", "\t", " \t "])(
+    "inserts the placeholder for alt %j and preserves the punctuation that follows the image",
+    (alt) => {
+      const rules = [ruleMissingAltText];
+      const source = 'images/chart.png?size=2#preview "Chart"';
+      const image = `![${alt}](${source})`;
+      for (const punctuation of [".", ",", ";", "!", "?", ")", "...", "。"]) {
+        const doc = `See ${image}${punctuation} Next sentence.\n`;
+        const expected = `See ![TODO: describe image](${source})${punctuation} Next sentence.\n`;
+        const violations = lintDocument(doc, { rules });
+
+        expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+        const { from, to } = violations[0].range!;
+        expect(doc.slice(from.offset, to.offset)).toBe(image);
+        expect(applyFix(doc, violations[0])).toBe(expected);
+        expect(applyAllFixes(doc, violations)).toBe(expected);
+        expect(fixAllViolations(doc, violations)).toBe(expected);
+        expect(lintDocument(expected, { rules })).toEqual([]);
+      }
+    },
+  );
+});
+
 describe("undescribed image on the last line", () => {
   it.each([
     "\n",
