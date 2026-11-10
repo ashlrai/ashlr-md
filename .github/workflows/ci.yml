@@ -65,6 +65,7 @@ jobs:
         run: |
           python3 scripts/test-apt-dependency-plan.py
           python3 scripts/test-apt-https-sources.py
+          python3 scripts/test-prefetch-tauri-bundler-tools.py
 
       - name: Unit tests
         run: bun run test:unit

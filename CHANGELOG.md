@@ -12,6 +12,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
 Released 2026-06-06. [Release notes and downloads](https://github.com/ashlrai/ashlr-md/releases/tag/v0.4.0).
 <!-- fresh:end -->
 
+## [Unreleased]
+
+### Fixed
+- Release builds prefetch WiX, NSIS and AppImage tools with retries, and skip Finder AppleScript when creating macOS DMGs on CI, so a GitHub 504 or a hung Finder session no longer fails the Tauri bundle step.
+
 ## [0.7.5] - 2026-11-09
 
 ### Fixed

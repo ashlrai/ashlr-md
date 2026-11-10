@@ -358,11 +358,46 @@ jobs:
       # No tagName or releaseId is supplied; tauri-action does not create
       # a Release or updater manifest in this build-only invocation.
 
-      # Build only — we do NOT publish from CI. The release is assembled and published
-      # with a maintainer's credentials from the per-platform artifacts uploaded
-      # below. Omitting tagName makes tauri-action build without touching the
-      # release API. Updater signing runs for eligible updater artifacts;
-      # assembly must still verify the actual inventory and signatures.
+      # WiX, NSIS and the AppImage helpers are downloaded by tauri-bundler with
+      # one request and no retry. Run 42565988813 died there on HTTP 504
+      # (wix314-binaries.zip, AppRun-x86_64) after the compile had succeeded.
+      # Seed the cache this CLI version reads, with retries and the bundler's
+      # checksums. A dispatch checks out the tag, which may predate this script,
+      # so load it from the workflow revision when the checkout does not have it.
+      - name: Prefetch Tauri bundler tools
+        shell: bash
+        env:
+          PREFETCH_OS: ${{ matrix.os }}
+          PREFETCH_TARGET: ${{ matrix.rust-target }}
+          WORKFLOW_SHA: ${{ github.sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          script="scripts/ci/prefetch-tauri-bundler-tools.py"
+          if [ ! -f "$script" ]; then
+            printf '%s' "$WORKFLOW_SHA" | grep -Eq '^[0-9a-f]{40}$' || { echo "::error::workflow sha is not a full commit"; exit 1; }
+            mkdir -p "$RUNNER_TEMP/workflow-tools"
+            script="$RUNNER_TEMP/workflow-tools/prefetch-tauri-bundler-tools.py"
+            gh api -H "Accept: application/vnd.github.raw" \
+              "repos/${GITHUB_REPOSITORY}/contents/scripts/ci/prefetch-tauri-bundler-tools.py?ref=${WORKFLOW_SHA}" \
+              > "$script"
+          fi
+          [ -s "$script" ] || { echo "::error::prefetch script was empty"; exit 1; }
+          if command -v python3 >/dev/null 2>&1; then
+            py=python3
+          elif command -v python >/dev/null 2>&1; then
+            py=python
+          else
+            echo "::error::python is required to prefetch bundler tools"
+            exit 1
+          fi
+          "$py" "$script"
+
+      # Build only. The release is assembled and published with a maintainer's
+      # credentials from the per-platform artifacts uploaded below. Omitting
+      # tagName makes tauri-action build without touching the release API.
+      # Updater signing runs for eligible updater artifacts; assembly must still
+      # verify the actual inventory and signatures.
       - name: Build Tauri app
         id: tauri
         uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0
@@ -379,8 +414,15 @@ jobs:
           # Tauri updater signing key (cross-platform — required on all legs)
           TAURI_SIGNING_PRIVATE_KEY:          ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # tauri-action defaults this to true, which skips the bundler's CI
+          # --skip-jenkins path and runs Finder AppleScript. bundle_dmg.sh
+          # failed on macos-15-intel in run 42565988813 while arm64 succeeded.
+          # false restores CI detection. The app is still signed; Finder layout
+          # is the only thing skipped.
+          TAURI_BUNDLER_DMG_IGNORE_CI: "false"
         with:
           args:          ${{ matrix.tauri-args }}
+          retryAttempts: "2"
 
       # Upload the built bundles (installers + updater .sig) as workflow
       # artifacts. This uses the Actions runtime token (not GITHUB_TOKEN), so it
