@@ -20,6 +20,18 @@ function example(name: string): string {
 }
 
 describe("surrounding text guide examples", () => {
+  it("fixes an empty link between words without changing the surrounding text", () => {
+    const before = "Before [draft]() after.\n";
+    const violations = lintDocument(before, { rules });
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "invalid-link-target",
+    ]);
+    const fixed = applyAllFixes(before, violations);
+    expect(fixed).toBe("Before [draft](TODO) after.\n");
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
   it.each([
     ["link", "invalid-link-target"],
     ["image", "missing-alt-text"],
