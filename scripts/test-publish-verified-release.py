@@ -177,7 +177,7 @@ class PublishTests(unittest.TestCase):
                 raise AssertionError('git mutation')
             if method == 'POST':
                 self.assertEqual(body['tag_name'], TAG)
-                self.assertEqual(body['target_commitish'], SHA)
+                self.assertNotIn('target_commitish', body)
                 self.assertTrue(body['draft'])
                 self.assertFalse(body['generate_release_notes'])
                 self.assertEqual(body['make_latest'], 'false')
@@ -304,14 +304,23 @@ class PublishTests(unittest.TestCase):
         self.assertEqual(writes, ['POST', 'DELETE'])
 
     def test_write_failure_reports_http_status_and_hides_the_token(self):
-        secret = 'ghp_SUPERSECRETTOKENVALUE'
+        secrets = (
+            'ghp_FAKEFAKEFAKEFAKE',
+            'ghs_FAKEFAKEFAKEFAKE',
+            'github_pat_FAKEFAKEFAKEFAKE',
+            'gho_FAKEFAKEFAKEFAKE',
+            'ghu_FAKEFAKEFAKEFAKE',
+            'ghr_FAKEFAKEFAKEFAKE',
+            'Bearer fake-bearer-token',
+        )
         with tempfile.TemporaryDirectory() as tmp:
             fake = Path(tmp) / 'gh'
             fake.write_text(
                 '#!/bin/sh\n'
                 'echo \'{"message":"Validation Failed","errors":[{"message":"Draft releases cannot be set as latest"}],"status":"422"}\'\n'
                 'echo "gh: Validation Failed (HTTP 422)" >&2\n'
-                'echo "token ghp_SUPERSECRETTOKENVALUE" >&2\n'
+                'echo "token ghp_FAKEFAKEFAKEFAKE ghs_FAKEFAKEFAKEFAKE github_pat_FAKEFAKEFAKEFAKE '
+                'gho_FAKEFAKEFAKEFAKE ghu_FAKEFAKEFAKEFAKE ghr_FAKEFAKEFAKEFAKE Bearer fake-bearer-token" >&2\n'
                 'exit 1\n',
                 encoding='utf-8',
             )
@@ -319,7 +328,7 @@ class PublishTests(unittest.TestCase):
             previous_path = os.environ.get('PATH', '')
             previous_token = os.environ.get('GH_TOKEN')
             os.environ['PATH'] = tmp + os.pathsep + previous_path
-            os.environ['GH_TOKEN'] = secret
+            os.environ['GH_TOKEN'] = secrets[0]
             try:
                 with self.assertRaises(ValueError) as caught:
                     publish.gh_write('POST', '/repos/ashlrai/ashlr-md/releases', {'draft': True})
@@ -332,8 +341,9 @@ class PublishTests(unittest.TestCase):
         message = str(caught.exception)
         self.assertIn('HTTP 422', message)
         self.assertIn('Draft releases cannot be set as latest', message)
-        self.assertNotIn(secret, message)
-        self.assertNotIn('ghp_', message)
+        for secret in secrets:
+            self.assertNotIn(secret, message)
+        self.assertNotIn('fake-bearer-token', message)
 
 
 if __name__ == '__main__':

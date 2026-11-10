@@ -268,9 +268,11 @@ def publish_release(api, write, tag, sha, notes, files, upload):
         fail('tag moved during publish')
     created = None
     try:
+        # The tag already exists and was peeled to sha above. target_commitish
+        # asks the Releases API to create or update that git ref. The Actions
+        # token is then refused with HTTP 403 even though it has contents: write.
         release = write('POST', '/repos/ashlrai/ashlr-md/releases', {
             'tag_name': tag,
-            'target_commitish': sha,
             'name': f'Ashlr MD {tag[1:]}',
             'body': notes,
             'draft': True,
@@ -330,7 +332,7 @@ def gh_get(path):
 
 
 TOKEN_SHAPE = re.compile(
-    r'(?:ghp_|github_pat_|gho_|ghu_|ghs_)[A-Za-z0-9_]+|Bearer\s+\S+',
+    r'(?:ghp_|ghr_|github_pat_|gho_|ghu_|ghs_)[A-Za-z0-9_]+|Bearer\s+\S+',
 )
 
 
