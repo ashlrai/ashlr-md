@@ -20,8 +20,9 @@ gh workflow run auto-tag.yml -R ashlrai/ashlr-md              # tag current main
 gh workflow run release.yml -R ashlrai/ashlr-md -f version=X.Y.Z   # build existing tag vX.Y.Z
 ```
 
-`release.yml` stays build-only: assembling and publishing the GitHub Release
-(section 4) is still a separate maintainer step. The full-suite gate accepts a
+`release.yml` stays build-only. Assembly stays read-only. The GitHub Release
+is published by the separate `Publish verified release` workflow after that
+assembly succeeds (section 4). The full-suite gate accepts a
 successful `ci.yml` run on the exact tag commit from either `workflow_dispatch`
 or the post-merge push to `main`.
 It waits up to 15 minutes for that exact-SHA CI to finish, since the tag can
@@ -273,10 +274,15 @@ qualified on four actual artifacts from one eligible run. It does not publish.
    `signature` is the **contents** of its matching `.sig` file, not a URL;
    `url` points to the exact staged updater asset. Independently validate its
    version, platform set, signatures and URLs against the staged inventory.
-6. Only with separate release authorization, create the GitHub Release for the
-   tag, explicitly set pre-release status as appropriate, add the matching
-   changelog notes, attach the validated staged assets and manifest, and publish.
-   Verify the downloaded assets and manifest after publication.
+6. The `Publish verified release` workflow does this after the assemble job
+   itself succeeds on attempt 1. It peels the existing tag and requires the
+   prepare job's `release-binding` record to name that same version, tag and
+   commit, so artifacts built for one tag cannot be published as another. It
+   refuses a tag that already has a published release and a version that is not
+   strictly greater than the latest release. It then re-checks hashes and
+   signatures, writes `latest.json`, uploads the validated assets, and publishes
+   the release for that existing tag. It does not create or move the tag.
+   Homebrew, winget and the AUR stay manual.
 
 Updater signatures are not Apple Developer ID signing/notarization or Windows
 Authenticode. Verify those independently, along with native install, update and
@@ -389,7 +395,7 @@ git push
 
 | Secret | Used by | Required? |
 |---|---|---|
-| `GITHUB_TOKEN` | Read-only (build/artifacts); release is published manually, see §4 | Auto-provided |
+| `GITHUB_TOKEN` | Read-only for build and assembly. Only the publish job has `contents: write`, see §4 | Auto-provided |
 | `TAURI_SIGNING_PRIVATE_KEY` | Updater `.sig` files | Yes (all legs) |
 | `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | Updater `.sig` files | Yes (all legs) |
 | `APPLE_CERTIFICATE` | macOS code signing | Optional (unsigned DMG works) |
