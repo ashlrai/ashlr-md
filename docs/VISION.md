@@ -60,7 +60,7 @@ Each increment runs the same loop. We do not move on until the loop closes.
 |---|---|---|
 | M0 | Scaffold | App builds and runs; CI-ready. ✅ |
 | M1 | Instant viewer + default handler | Double-click → beautiful render; 3 themes; GFM/code/math/mermaid/footnotes. ✅ |
-| M2 | Editor + save | WYSIWYG (Milkdown) + lossless source mode + Read view; safe atomic save; external-change aware; recents; outline (⌘⇧O) with scrollspy. ✅ |
+| M2 | Editor + save | WYSIWYG (Milkdown) + lossless source mode + Read view; safe atomic save; external-change aware; recents; outline (⇧⌘O) with scrollspy. ✅ |
 | M3 | Export | One-click PDF / DOCX / HTML that looks great, fully offline, no Pandoc. ✅ |
 | M4 | Local-first AI | Tiered provider (Apple on-device, macOS only → Ollama → BYO key → hosted); selection actions, inline rewrite (⌘I), "Explain changes" + chat; privacy badge; free by default. ✅ |
 | M5 | Agent hand-off + MCP | `mdopen` CLI + `mdopener://` scheme + MCP server agents can drive; one-click setup; ⌘K command palette; Agent Activity drawer (⌘B). ✅ |

@@ -881,7 +881,9 @@ describe("doc facts: release asset names", () => {
 // ── Keyboard shortcuts ────────────────────────────────────────────────────────
 // The linked shortcut reference and the landing page's shortcut grid list every
 // registered shortcut (src/lib/commands.ts) plus the inline AI rewrite, which
-// the WYSIWYG editor binds itself. Both used to miss ⌘⇧C and ⌘⇧T.
+// the WYSIWYG editor binds itself. Both used to miss ⇧⌘C and ⇧⌘T. Labels must
+// also use the modifier order the app shows (formatShortcut: ⌥⇧⌘), since the
+// docs once said ⌘⇧L while every in-app hint said ⇧⌘L.
 
 /** "mod+shift+t" (any modifier order) in one canonical order. */
 function canonShortcut(s: string): string {
@@ -906,6 +908,31 @@ function fromGlyphs(g: string): string {
   return canonShortcut([...mods, key].join("+"));
 }
 
+/** The mac label formatShortcut renders for a canonical shortcut: ⌥⇧⌘ then key. */
+function macLabel(canon: string): string {
+  const parts = canon.split("+");
+  const key = parts.filter((p) => !["mod", "alt", "shift"].includes(p)).join("+");
+  return (
+    (parts.includes("alt") ? "⌥" : "") +
+    (parts.includes("shift") ? "⇧" : "") +
+    (parts.includes("mod") ? "⌘" : "") +
+    key.toUpperCase()
+  );
+}
+
+/** Labels written in a different modifier order than the app displays. */
+function misordered(labels: string[]): string[] {
+  return labels.filter((l) => l !== macLabel(fromGlyphs(l)));
+}
+
+/** Every backticked shortcut in the Shortcut column of a Markdown table. */
+function tableShortcuts(doc: string): string[] {
+  return doc
+    .split("\n")
+    .filter((l) => l.startsWith("| ") && l.includes("`"))
+    .flatMap((l) => all(/`([^`]+)`/g, l.split("|")[2] ?? ""));
+}
+
 const registryShortcuts = [
   ...commandsSrc.matchAll(/shortcut: ("(?:[^"\\]|\\.)*")/g),
 ].map((m) => canonShortcut(JSON.parse(m[1]) as string));
@@ -925,28 +952,39 @@ describe("doc facts: keyboard shortcuts", () => {
   it("README links a shortcut reference listing exactly the real shortcuts", () => {
     expect(readme).toContain("[Keyboard shortcuts](./docs/SHORTCUTS.md)");
     expect(shortcutsDoc).toContain("use **Ctrl** on Windows & Linux");
-    const table = shortcutsDoc;
-    const listed = table
-      .split("\n")
-      .filter((l) => l.startsWith("| ") && l.includes("`"))
-      .flatMap((l) => all(/`([^`]+)`/g, l.split("|")[2] ?? ""))
-      .map(fromGlyphs);
+    const listed = tableShortcuts(shortcutsDoc);
     expect(
-      sorted([...new Set(listed)]),
+      sorted([...new Set(listed.map(fromGlyphs))]),
       "fix docs/SHORTCUTS.md's shortcut table",
     ).toEqual(documentedShortcuts);
+    expect(misordered(listed), "docs/SHORTCUTS.md: write modifiers as ⌥⇧⌘").toEqual([]);
+  });
+
+  it("README's own shortcut table lists exactly the real shortcuts", () => {
+    const at = readme.indexOf("## Keyboard shortcuts");
+    expect(at, "README.md has no Keyboard shortcuts section").toBeGreaterThan(-1);
+    const section = readme.slice(at, readme.indexOf("\n## ", at + 1));
+    const listed = tableShortcuts(section);
+    expect(
+      sorted([...new Set(listed.map(fromGlyphs))]),
+      "fix README.md's shortcut table",
+    ).toEqual(documentedShortcuts);
+    expect(misordered(listed), "README.md: write modifiers as ⌥⇧⌘").toEqual([]);
   });
 
   it("the landing page's grid lists exactly the real shortcuts", () => {
     const at = landingHtml.indexOf('<section id="shortcuts">');
     expect(at, "landing/index.html has no #shortcuts section").toBeGreaterThan(-1);
     const section = landingHtml.slice(at, landingHtml.indexOf("</section>", at));
-    const listed = all(/<kbd[^>]*>([^<]*)<\/kbd>/g, section)
-      .flatMap((k) => k.trim().split(/\s+/))
-      .map(fromGlyphs);
+    const listed = all(/<kbd[^>]*>([^<]*)<\/kbd>/g, section).flatMap((k) =>
+      k.trim().split(/\s+/),
+    );
     expect(
-      sorted([...new Set(listed)]),
+      sorted([...new Set(listed.map(fromGlyphs))]),
       "fix the shortcut grid in landing/index.html",
     ).toEqual(documentedShortcuts);
+    expect(misordered(listed), "landing/index.html: write modifiers as ⌥⇧⌘").toEqual(
+      [],
+    );
   });
 });

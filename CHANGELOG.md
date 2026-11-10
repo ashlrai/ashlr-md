@@ -14,8 +14,26 @@ Released 2026-06-06. [Release notes and downloads](https://github.com/ashlrai/as
 
 ## [Unreleased]
 
+### Added
+- `release-assemble-dispatch.yml` dispatches read-only release assembly on `main` once a Release build for an exact `vX.Y.Z` tag succeeds on its first attempt and the tagged commit has passed full CI. It peels the tag through an anchored `git/ref` (annotated tags included), never checks out code or reads secrets, and stops on any release lookup that is not an exact HTTP 404.
+- `release-publish.yml` publishes the GitHub Release from the default-branch workflow after assembly succeeds (`scripts/publish-verified-release.py`). It treats the assembly artifacts as data, publishes only when the peeled tag matches the prepare release binding, refuses a tag that already has a Release, creates the draft with `make_latest` false and names only the tag, then re-reads the Release to confirm it is published and latest. A tag created or moved during publishing is reported and never deleted, and error text redacts GitHub tokens.
+- `bun run docs:fixtures` regenerates `docs/mdlint-autofix-fixture-index.md` from the declarations in `src/lib/mdlint-autofix.test.ts`.
+- `bun run test:unit` runs the fast unit lane (punctuation, CLI build setup and mdlint) that the CI checks job now runs.
+
 ### Fixed
 - Release builds prefetch WiX, NSIS and AppImage tools with retries, and skip Finder AppleScript when creating macOS DMGs on CI, so a GitHub 504 or a hung Finder session no longer fails the Tauri bundle step.
+- Jumping to a source line inside a fenced code block, Mermaid diagram or diff block in Read view lands on that block: rendered code blocks now carry their source line.
+- Release assembly accepts a successful `main`-only `workflow_dispatch` of `release.yml` for an existing tag, after peeling the tag and checking out the resolved commit. Tag-push checks are unchanged.
+- Release provenance checks send the job's read-only `GH_TOKEN` to `api.github.com` when present, so a full proof no longer exhausts the anonymous API rate limit.
+- CI and release jobs pin Bun 1.3.14 instead of `latest`.
+
+### Changed
+- The keyboard shortcut tables in the README, `docs/SHORTCUTS.md` and the landing page list macOS modifiers in the order the app shows them (`⇧⌘L`, `⌥⌘F`), and the doc facts test now checks that order and the README's own table.
+- Rust `target/` build output is ignored and no longer committed.
+
+### Tests
+- Vitest allows 60 seconds per test and hook, so Milkdown mounts on a CPU-starved host no longer time out healthy suites.
+- Added reveal-line cases for fenced code blocks, empty documents and lines far beyond the end of the document, a diff hunk applied to empty content, and broad store, frontmatter, snippet, session, link export and mdlint autofix coverage.
 
 ## [0.7.5] - 2026-11-09
 
