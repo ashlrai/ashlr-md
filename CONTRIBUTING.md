@@ -40,7 +40,8 @@ bun run build
 ```bash
 bun run typecheck        # tsc --noEmit
 bunx biome check src     # lint + format
-bun run test             # Vitest unit tests
+bun run test             # llms.txt node test, then the full Vitest suite
+bun run test:unit        # fast lane CI runs first: punctuation, CLI build setup, mdlint
 bun run check:crypto     # classical-only crypto policy
 bun run check:doc-links  # relative links in the repo's Markdown resolve
 bun run test:freshness && bun run fresh:check  # generated release blocks
@@ -59,9 +60,15 @@ cargo audit              # known-vuln Rust deps (advisory; cargo install cargo-a
 
 Run `bunx biome check --write src` to auto-fix formatting and imports.
 
+After adding, renaming or removing a test in `src/lib/mdlint-autofix.test.ts`,
+run `bun run docs:fixtures` to regenerate
+[docs/mdlint-autofix-fixture-index.md](./docs/mdlint-autofix-fixture-index.md).
+The index is a lookup aid, so no test fails while it lags the test file.
+
 `scripts/ci-local.sh [base-ref]` runs the gates your change needs (JS, Rust or
 both) before you push. On a pull request, `Check (Linux)` is the one required
-check: it runs typecheck, Biome, the crypto policy and a diff secret scan. The
+check: it runs typecheck, Biome, `bun run test:unit`, the crypto policy and a
+diff secret scan. The
 full Linux and macOS suites run after merge on `main` and daily, so run the
 suites above for anything beyond a docs change.
 

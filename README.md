@@ -115,22 +115,22 @@ Shown with ⌘ on macOS; use **Ctrl** on Windows and Linux.
 | Command palette | `⌘K` |
 | AI assistant | `⌘L` |
 | Inline AI rewrite (in editor) | `⌘I` |
-| Cycle theme | `⌘⇧L` |
+| Cycle theme | `⇧⌘L` |
 | Open file | `⌘O` |
 | Save | `⌘S` |
 | Export | `⌘E` |
-| Copy as rich text | `⌘⇧C` |
-| Insert table | `⌘⇧T` |
+| Copy as rich text | `⇧⌘C` |
+| Insert table | `⇧⌘T` |
 | Read / Edit / Source view | `⌘1` / `⌘2` / `⌘3` |
 | Find in document | `⌘F` |
-| Find & replace (source) | `⌘⌥F` |
-| Search across files | `⌘⇧F` |
+| Find & replace (source) | `⌥⌘F` |
+| Search across files | `⇧⌘F` |
 | Split preview | `⌘\` |
-| Zen mode | `⌘⇧Z` |
-| Next / Previous tab | `⌘⇧]` / `⌘⇧[` |
+| Zen mode | `⇧⌘Z` |
+| Next / Previous tab | `⇧⌘]` / `⇧⌘[` |
 | Close tab | `⌘W` |
 | Agent activity drawer | `⌘B` |
-| Outline | `⌘⇧O` |
+| Outline | `⇧⌘O` |
 | Settings | `⌘,` |
 | Keyboard shortcuts (cheat sheet) | `⌘/` |
 
