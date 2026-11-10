@@ -478,6 +478,37 @@ describe("undescribed image surrounded by Unicode prose", () => {
     expect(fixed).toBe(expected);
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
+
+  it("fixes only the live image and leaves a code-span sample plus all Unicode prose untouched", () => {
+    const rules = [ruleMissingAltText];
+    const lines = [
+      "---",
+      "title: キャラクター設定 🌸",
+      "---",
+      "",
+      "`![](ignored.png)` はコード内の例なので修正されません。前 👩🏽‍💻 cafe\u0301",
+      "",
+      "見出しの下で ![](chart.png) を説明します。مرحبا 🌍 後文",
+      "",
+      "最後の段落はそのままです。🐈‍⬛ e\u0301!",
+      "",
+    ];
+    const doc = lines.join("\r\n");
+    const expectedLines = [...lines];
+    expectedLines[6] = "見出しの下で ![TODO: describe image](chart.png) を説明します。مرحبا 🌍 後文";
+    const expected = expectedLines.join("\r\n");
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe("![](chart.png)");
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.replace("TODO: describe image", "")).toBe(doc);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
 });
 
 describe("undescribed image surrounded by ordinary prose", () => {
