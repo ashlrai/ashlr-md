@@ -75,6 +75,15 @@ def verify_platform(path, target, version):
         verify_windows_payload(path, version)
 
 
+def child_env():
+    """Environment for 7-Zip, cargo and the verifier: never the API token.
+
+    Only the in-process provenance fetch needs GH_TOKEN; tools that parse
+    untrusted archives or run build scripts must not inherit it.
+    """
+    return {k: v for k, v in os.environ.items() if k not in ('GH_TOKEN', 'GITHUB_TOKEN')}
+
+
 def bounded_7zz(tool, args, limit):
     # The signed input remains untrusted archive data: bound output and runtime.
     # Stream to an unnamed file, never extract archive-provided paths to disk.
@@ -82,7 +91,7 @@ def bounded_7zz(tool, args, limit):
         def limits():
             resource.setrlimit(resource.RLIMIT_FSIZE, (limit, limit))
         subprocess.run([str(tool), *args], stdout=out, stderr=subprocess.DEVNULL,
-                       check=True, timeout=60, preexec_fn=limits)
+                       check=True, timeout=60, preexec_fn=limits, env=child_env())
         if out.tell() > limit: fail('7-Zip output exceeds limit')
         out.seek(0)
         return out.read()
@@ -187,10 +196,10 @@ def assemble(root, output, date, version, pubkey, evidence):
         stage = Path(tmp)
         keyfile = stage / '.public-key'
         keyfile.write_text(pubkey)
-        subprocess.run(['cargo', 'build', '--locked', '--manifest-path', str(ROOT / 'scripts/release-signature-check/Cargo.toml')], check=True)
+        subprocess.run(['cargo', 'build', '--locked', '--manifest-path', str(ROOT / 'scripts/release-signature-check/Cargo.toml')], check=True, env=child_env())
         # Cargo's target dir may be supplied by the operator; use cargo metadata
         # rather than guessing its location.
-        metadata = json.loads(subprocess.check_output(['cargo', 'metadata', '--locked', '--no-deps', '--format-version', '1', '--manifest-path', str(ROOT / 'scripts/release-signature-check/Cargo.toml')]))
+        metadata = json.loads(subprocess.check_output(['cargo', 'metadata', '--locked', '--no-deps', '--format-version', '1', '--manifest-path', str(ROOT / 'scripts/release-signature-check/Cargo.toml')], env=child_env()))
         verifier = Path(metadata['target_directory']) / 'debug' / ('release-signature-check.exe' if os.name == 'nt' else 'release-signature-check')
         platforms = {}
         selected = {}
@@ -202,7 +211,7 @@ def assemble(root, output, date, version, pubkey, evidence):
                 if digest(source) != digest(dest): fail(f'copy changed bytes: {source}')
             staged_item = stage / name
             staged_sig = stage / (name + '.sig')
-            subprocess.run([str(verifier), str(keyfile), str(staged_sig), str(staged_item)], check=True)
+            subprocess.run([str(verifier), str(keyfile), str(staged_sig), str(staged_item)], check=True, env=child_env())
             verify_platform(staged_item, target, version)
             selected[target] = {'source_entry': str(item.relative_to(root / LEGS[target])), 'asset_sha256': digest(staged_item), 'signature_entry': str(sig.relative_to(root / LEGS[target])), 'signature_sha256': digest(staged_sig)}
             platforms[target] = {'signature': staged_sig.read_text(), 'url': f'https://github.com/ashlrai/ashlr-md/releases/download/v{version}/{name}'}

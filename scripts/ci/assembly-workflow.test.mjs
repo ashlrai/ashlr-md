@@ -58,6 +58,17 @@ test('download step passes hostile inputs as literal arguments, never shell code
 });
 
 
+test('provenance API reads authenticate with the read-only job token', () => {
+  // Anonymous api.github.com reads share 60/hour per runner IP; prepare plus
+  // assemble each rerun the full proof and failed with HTTP 403 rate limit.
+  for (const name of ['Download original source-bound artifact ZIPs', 'Assemble and verify all four updater payloads']) {
+    const start = workflow.indexOf(`- name: ${name}\n`);
+    assert.ok(start > 0, name);
+    const step = workflow.slice(start, workflow.indexOf('\n      - ', start + 1));
+    assert.match(step, /^\s+GH_TOKEN: \$\{\{ github\.token \}\}$/m, name);
+  }
+});
+
 test('dependency probe is an isolated simulation with no assembly authority', () => {
   const normal = workflow.slice(workflow.indexOf('  assemble:'), workflow.indexOf('  apt-plan:'));
   const probe = workflow.slice(workflow.indexOf('  apt-plan:'));

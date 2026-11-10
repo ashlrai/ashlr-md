@@ -3,6 +3,7 @@ import base64
 import copy
 import hashlib
 import importlib.util
+import io
 import json
 from pathlib import Path
 import tempfile
@@ -402,6 +403,33 @@ class ProvenanceTests(unittest.TestCase):
         self.data[f'{REPO}/actions/runs/{RUN}']['head_branch'] = 'feature'
         with self.assertRaisesRegex(ValueError, 'release run identity/status mismatch'):
             self.verify()
+
+
+class FetchAuthTests(unittest.TestCase):
+    """Anonymous reads hit the shared 60/hour runner-IP limit (HTTP 403)."""
+    def captured(self, env):
+        seen = []
+        class Response(io.BytesIO):
+            def __enter__(self): return self
+            def __exit__(self, *exc): return False
+        class Opener:
+            def open(self, req, timeout): seen.append(req); return Response(b'{"ok": true}')
+        with patch.dict(p.os.environ, env, clear=True), patch.object(p.urllib.request, 'build_opener', return_value=Opener()):
+            self.assertEqual(p.fetch(f'{REPO}/actions/runs/{RUN}'), {'ok': True})
+        return seen[0]
+    def test_job_token_authenticates_only_the_fixed_api_host(self):
+        req = self.captured({'GH_TOKEN': 'test-only-token'})
+        self.assertEqual(req.full_url, f'https://api.github.com{REPO}/actions/runs/{RUN}')
+        self.assertEqual(req.get_header('Authorization'), 'Bearer test-only-token')
+    def test_without_token_the_request_stays_anonymous(self):
+        self.assertIsNone(self.captured({}).get_header('Authorization'))
+        self.assertIsNone(self.captured({'GH_TOKEN': ''}).get_header('Authorization'))
+    def test_header_injection_token_and_path_are_refused(self):
+        for bad in ('x\r\nX-Evil: 1', 'x\n', ' x'):
+            with patch.dict(p.os.environ, {'GH_TOKEN': bad}, clear=True):
+                with self.assertRaisesRegex(ValueError, 'invalid GH_TOKEN'): p.fetch(f'{REPO}/actions/runs/1')
+        for path in (f'{REPO}/x\nHost: evil', f'{REPO}/x\r', '/repos/other/repo/x', None):
+            with self.assertRaisesRegex(ValueError, 'invalid API path'): p.fetch(path)
 
 
 if __name__ == '__main__': unittest.main()

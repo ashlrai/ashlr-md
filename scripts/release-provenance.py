@@ -3,6 +3,7 @@
 import base64
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import tomllib
@@ -31,11 +32,28 @@ CI_STEPS = {
 def fail(message): raise ValueError(message)
 
 
+def api_token(env=os.environ):
+    """The job's read-only GH_TOKEN, or None for a local anonymous audit.
+
+    Anonymous API reads share a 60/hour limit per runner IP, which one full
+    provenance proof (repeated by prepare and assemble) can exhaust.
+    """
+    token = env.get('GH_TOKEN') or None
+    if token is not None and (any(c in token for c in '\r\n') or token != token.strip()):
+        fail('invalid GH_TOKEN')
+    return token
+
+
 def fetch(path):
-    # Fixed host and repository only; no token, caller-controlled URL or redirects
-    # to other hosts. API responses are bounded. API denial is an error.
-    if not path.startswith(REPO + '/') or '\\n' in path: fail('invalid API path')
-    req = urllib.request.Request('https://api.github.com' + path, headers={'Accept': 'application/vnd.github+json', 'User-Agent': 'ashlr-md-release-audit', 'X-GitHub-Api-Version': '2022-11-28'})
+    # Fixed host and repository only; no caller-controlled URL and no redirects,
+    # so the optional token is only ever sent to api.github.com. API responses
+    # are bounded. API denial is an error.
+    if not isinstance(path, str) or not path.startswith(REPO + '/') or '\n' in path or '\r' in path:
+        fail('invalid API path')
+    headers = {'Accept': 'application/vnd.github+json', 'User-Agent': 'ashlr-md-release-audit', 'X-GitHub-Api-Version': '2022-11-28'}
+    token = api_token()
+    if token: headers['Authorization'] = f'Bearer {token}'
+    req = urllib.request.Request('https://api.github.com' + path, headers=headers)
     class NoRedirect(urllib.request.HTTPRedirectHandler):
         def redirect_request(self, *args, **kwargs): return None
     with urllib.request.build_opener(NoRedirect).open(req, timeout=30) as response:
