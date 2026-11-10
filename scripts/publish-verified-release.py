@@ -276,6 +276,9 @@ def publish_release(api, write, tag, sha, notes, files, upload):
             'draft': True,
             'prerelease': False,
             'generate_release_notes': False,
+            # A draft cannot be latest. The API defaults this to true and
+            # rejects the create. The value is the string enum, not a boolean.
+            'make_latest': 'false',
         })
         if release.get('tag_name') != tag or release.get('draft') is not True:
             fail('GitHub did not create a draft for the existing tag')
@@ -286,7 +289,10 @@ def publish_release(api, write, tag, sha, notes, files, upload):
             upload(tag, path)
         if provenance.peel_annotated_tag(api, tag)[0] != sha:
             fail('tag moved during publish')
-        published = write('PATCH', f'/repos/ashlrai/ashlr-md/releases/{created}', {'draft': False})
+        published = write('PATCH', f'/repos/ashlrai/ashlr-md/releases/{created}', {
+            'draft': False,
+            'make_latest': 'true',
+        })
         if published.get('draft') is not False or published.get('tag_name') != tag:
             fail('GitHub did not publish the draft')
         created = None
@@ -323,6 +329,53 @@ def gh_get(path):
     return json.loads(completed.stdout)
 
 
+TOKEN_SHAPE = re.compile(
+    r'(?:ghp_|github_pat_|gho_|ghu_|ghs_)[A-Za-z0-9_]+|Bearer\s+\S+',
+)
+
+
+def scrub_secret(text):
+    redacted = text
+    for key in ('GH_TOKEN', 'GITHUB_TOKEN'):
+        value = os.environ.get(key) or ''
+        if len(value) >= 8:
+            redacted = redacted.replace(value, '[redacted]')
+    return TOKEN_SHAPE.sub('[redacted]', redacted)
+
+
+def github_write_error(method, path, completed):
+    chunks = []
+    for raw in (completed.stdout, completed.stderr):
+        if raw:
+            chunks.append(raw.decode('utf-8', 'replace'))
+    text = scrub_secret('\n'.join(chunks))
+    status = 'unknown'
+    found = re.search(r'\bHTTP\s+(\d{3})\b', text) or re.search(r'"status"\s*:\s*"?(\d{3})"?', text)
+    if found:
+        status = found.group(1)
+    message = ''
+    for raw in (completed.stdout, completed.stderr):
+        try:
+            payload = json.loads(raw.decode('utf-8') if raw else '')
+        except (json.JSONDecodeError, UnicodeError, AttributeError):
+            continue
+        if not isinstance(payload, dict) or not payload.get('message'):
+            continue
+        message = str(payload['message']).split('\n', 1)[0]
+        details = []
+        for item in payload.get('errors') or []:
+            if isinstance(item, dict) and item.get('message'):
+                details.append(str(item['message']))
+        if details:
+            message = message + ': ' + '; '.join(details[:3])
+        break
+    message = scrub_secret(message)[:300]
+    detail = f'GitHub API {method} {path} failed: HTTP {status}'
+    if message:
+        detail = f'{detail}: {message}'
+    fail(detail)
+
+
 def gh_write(method, path, body=None):
     if method not in ('POST', 'PATCH', 'DELETE'):
         fail('unsupported API method')
@@ -337,7 +390,7 @@ def gh_write(method, path, body=None):
         payload = json.dumps(body).encode()
     completed = subprocess.run(command, input=payload, check=False, capture_output=True)
     if completed.returncode != 0:
-        fail('GitHub API write failed')
+        github_write_error(method, path, completed)
     if not completed.stdout:
         return {}
     return json.loads(completed.stdout)
