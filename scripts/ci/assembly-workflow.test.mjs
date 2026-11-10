@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -98,6 +98,93 @@ test('Linux CI upgrades source URIs from its checked-out source before the uncha
   assert.match(step.run, /Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30/);
   assert.match(step.run, /sudo apt-get "\$\{apt_opts\[@\]\}" update/);
   assert.doesNotMatch(step.run, /no-install-recommends/);
+});
+
+test('assembly dispatch peels an annotated tag and refuses a downgrade', () => {
+  const source = readFileSync(new URL('../../.github/workflows/release-assemble-dispatch.yml', import.meta.url), 'utf8');
+  const step = extractRuns(source).find(item => item.name === 'Validate the release build and CI, then dispatch assembly');
+  assert.ok(step);
+  assert.match(step.run, /git\/ref\/tags/);
+  assert.match(step.run, /\^v\[0-9\]\+\\\.\[0-9\]\+\\\.\[0-9\]\+\$/);
+  assert.doesNotMatch(step.run, /--log|version carriers match/);
+  const directory = mkdtempSync(join(tmpdir(), 'md-dispatch-'));
+  const bin = join(directory, 'bin');
+  const runner = join(directory, 'runner');
+  mkdirSync(bin);
+  mkdirSync(runner);
+  const trace = join(directory, 'trace');
+  const dispatched = join(directory, 'dispatched');
+  writeFileSync(join(bin, 'gh'), `#!/bin/sh
+printf '%s\\n' "$*" >> "$TRACE"
+case "$*" in
+  *"run download"*)
+    dir=$(printf '%s\\n' "$*" | sed -n 's/.*--dir //p')
+    mkdir -p "$dir"
+    printf '%s\\n' '{"event":"workflow_dispatch","inputs_version":"0.7.5","version":"0.7.5","tag":"v0.7.5","sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}' > "$dir/release-binding.json"
+    ;;
+  *git/ref/tags/v0.7.5*)
+    printf '%s\\n' '{"ref":"refs/tags/v0.7.5","object":{"type":"tag","sha":"dddddddddddddddddddddddddddddddddddddddd"}}'
+    ;;
+  *git/tags/dddddddddddddddddddddddddddddddddddddddd*)
+    printf '%s\\n' '{"sha":"dddddddddddddddddddddddddddddddddddddddd","object":{"type":"commit","sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}'
+    ;;
+  *commits/v0.7.3*) printf '%s\\n' bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb ;;
+  *releases/tags/*) echo "HTTP 404: Not Found" >&2; exit 1 ;;
+  *releases/latest*)
+    if [ -n "\${GH_FAKE_LATEST:-}" ]; then printf '%s\\n' "{\\"tag_name\\":\\"\${GH_FAKE_LATEST}\\",\\"draft\\":false}"; else echo "HTTP 404: Not Found" >&2; exit 1; fi
+    ;;
+  *actions/runs/42739085824*) printf '%s\\n' '.github/workflows/release.yml workflow_dispatch success 1 main cccccccccccccccccccccccccccccccccccccccc' ;;
+  *actions/runs/99*) printf '%s\\n' '.github/workflows/release.yml push success 1 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' ;;
+  *workflows/ci.yml/runs*) printf '%s\\n' 1 ;;
+  *"workflow run"*) printf '%s\\n' "$*" > "$DISPATCHED" ;;
+  *) echo "unmocked: $*" >&2; exit 9 ;;
+esac
+`);
+  chmodSync(join(bin, 'gh'), 0o755);
+  const base = {
+    ...process.env,
+    PATH: `${bin}:${process.env.PATH}`,
+    TRACE: trace,
+    DISPATCHED: dispatched,
+    RUNNER_TEMP: runner,
+    REPO: 'ashlrai/ashlr-md',
+  };
+  try {
+    const dispatchedRun = spawnSync('bash', ['-c', step.run], {
+      encoding: 'utf8',
+      env: {
+        ...base,
+        EVENT: 'workflow_dispatch',
+        HEAD_BRANCH: 'main',
+        HEAD_SHA: 'c'.repeat(40),
+        RELEASE_RUN_ID: '42739085824',
+      },
+    });
+    assert.equal(dispatchedRun.status, 0, dispatchedRun.stderr + dispatchedRun.stdout);
+    const sent = readFileSync(dispatched, 'utf8');
+    assert.match(sent, /release_tag=v0\.7\.5/);
+    assert.match(sent, /source_sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/);
+    const calls = readFileSync(trace, 'utf8');
+    assert.match(calls, /git\/ref\/tags\/v0\.7\.5/);
+    assert.match(calls, /git\/tags\/dddddddddddddddddddddddddddddddddddddddd/);
+    assert.doesNotMatch(calls, /--log/);
+    rmSync(dispatched);
+    const downgraded = spawnSync('bash', ['-c', step.run], {
+      encoding: 'utf8',
+      env: { ...base, EVENT: 'workflow_dispatch', HEAD_BRANCH: 'main', HEAD_SHA: 'c'.repeat(40),
+        RELEASE_RUN_ID: '42739085824', GH_FAKE_LATEST: 'v9.9.9' },
+    });
+    assert.notEqual(downgraded.status, 0);
+    assert.match(downgraded.stderr + downgraded.stdout, /not strictly greater/);
+    const pushed = spawnSync('bash', ['-c', step.run], {
+      encoding: 'utf8',
+      env: { ...base, EVENT: 'push', HEAD_BRANCH: 'v0.7.3', HEAD_SHA: 'b'.repeat(40), RELEASE_RUN_ID: '99' },
+    });
+    assert.equal(pushed.status, 0, pushed.stderr + pushed.stdout);
+    assert.match(readFileSync(dispatched, 'utf8'), /source_sha=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test('every setup-bun step pins an exact Bun version instead of resolving latest', () => {

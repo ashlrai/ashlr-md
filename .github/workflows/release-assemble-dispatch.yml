@@ -1,10 +1,13 @@
 name: Release assembly dispatch
 
-# Removes the human dispatch of release-assemble.yml. When the push-triggered
-# Release build for an exact vX.Y.Z tag completes successfully on attempt 1,
-# and the tagged commit has a successful full CI run (canonical push to main or
-# manual dispatch), this job dispatches release-assemble.yml on main with the
-# same inputs docs/RELEASING.md lists. It uses the workflow GITHUB_TOKEN, so the
+# Removes the human dispatch of release-assemble.yml. When a Release build for
+# an exact vX.Y.Z tag completes successfully on attempt 1, and the tagged
+# commit has a successful full CI run (canonical push to main or manual
+# dispatch), this job dispatches release-assemble.yml on main with the same
+# inputs docs/RELEASING.md lists. The Release build may be a tag push or a
+# main-only workflow_dispatch of release.yml for an existing tag. In the
+# dispatch case the run's head SHA is the workflow revision on main, so this
+# job peels the tag for source_sha. It uses the workflow GITHUB_TOKEN, so the
 # dispatched run belongs to github-actions[bot], not a maintainer account.
 # release-assemble.yml keeps its read-only contract and every input check.
 # This job never checks out code, never reads secrets and cannot publish.
@@ -24,7 +27,7 @@ jobs:
     if: >-
       github.repository == 'ashlrai/ashlr-md' &&
       github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.event == 'push' &&
+      (github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'workflow_dispatch') &&
       github.event.workflow_run.run_attempt == 1 &&
       github.event.workflow_run.head_repository.full_name == github.repository
     runs-on: ubuntu-22.04
@@ -35,24 +38,54 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       REPO: ${{ github.repository }}
-      RELEASE_TAG: ${{ github.event.workflow_run.head_branch }}
-      SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+      EVENT: ${{ github.event.workflow_run.event }}
+      HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+      HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
       RELEASE_RUN_ID: ${{ github.event.workflow_run.id }}
     steps:
       - name: Validate the release build and CI, then dispatch assembly
         run: |
           set -euo pipefail
-          if ! [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "::notice::$RELEASE_TAG is not an exact stable tag; no assembly dispatch"
-            exit 0
-          fi
-          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::invalid source sha"; exit 1; }
           [[ "$RELEASE_RUN_ID" =~ ^[0-9]+$ ]] || { echo "::error::invalid run id"; exit 1; }
-          tag_sha=$(gh api "repos/$REPO/commits/$RELEASE_TAG" --jq .sha)
-          test "$tag_sha" = "$SOURCE_SHA" || { echo "::error::tag does not point at the built commit"; exit 1; }
-          run=$(gh api "repos/$REPO/actions/runs/$RELEASE_RUN_ID" \
-            --jq '[.path, .event, .conclusion, (.run_attempt|tostring), .head_sha] | join(" ")')
-          test "$run" = ".github/workflows/release.yml push success 1 $SOURCE_SHA" || { echo "::error::release run mismatch"; exit 1; }
+          if [ "$EVENT" = push ]; then
+            RELEASE_TAG="$HEAD_BRANCH"
+            if ! [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::notice::$RELEASE_TAG is not an exact stable tag; no assembly dispatch"
+              exit 0
+            fi
+            SOURCE_SHA="$HEAD_SHA"
+            [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::invalid source sha"; exit 1; }
+            tag_sha=$(gh api "repos/$REPO/commits/$RELEASE_TAG" --jq .sha)
+            test "$tag_sha" = "$SOURCE_SHA" || { echo "::error::tag does not point at the built commit"; exit 1; }
+            run=$(gh api "repos/$REPO/actions/runs/$RELEASE_RUN_ID" \
+              --jq '[.path, .event, .conclusion, (.run_attempt|tostring), .head_sha] | join(" ")')
+            test "$run" = ".github/workflows/release.yml push success 1 $SOURCE_SHA" || { echo "::error::release run mismatch"; exit 1; }
+          elif [ "$EVENT" = workflow_dispatch ]; then
+            test "$HEAD_BRANCH" = main || { echo "::error::workflow_dispatch release must run from main"; exit 1; }
+            [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::invalid workflow revision sha"; exit 1; }
+            mkdir -p "$RUNNER_TEMP/release-binding"
+            gh run download "$RELEASE_RUN_ID" --repo "$REPO" --name release-binding --dir "$RUNNER_TEMP/release-binding"
+            read -r RELEASE_TAG PREPARE_SHA < <(python3 -c 'import json,re,sys; p=json.load(open(sys.argv[1])); tag,sha,version=p.get("tag"),p.get("sha"),p.get("version"); ok=p.get("event")=="workflow_dispatch" and p.get("inputs_version")==version and isinstance(tag,str) and re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+", tag) and version==tag[1:] and isinstance(sha,str) and re.fullmatch(r"[0-9a-f]{40}", sha); sys.exit("prepare binding does not match this dispatch") if not ok else print(tag, sha)' "$RUNNER_TEMP/release-binding/release-binding.json")
+            [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::prepare tag is not an exact stable tag"; exit 1; }
+            ref_json=$(gh api "repos/$REPO/git/ref/tags/$RELEASE_TAG")
+            SOURCE_SHA=$(printf '%s' "$ref_json" | REPO="$REPO" RELEASE_TAG="$RELEASE_TAG" PREPARE_SHA="$PREPARE_SHA" python3 -c 'import json,os,re,subprocess,sys; repo=os.environ["REPO"]; tag=os.environ["RELEASE_TAG"]; prepare=os.environ["PREPARE_SHA"]; gh=lambda path: json.loads(subprocess.check_output(["gh","api","repos/%s/%s"%(repo,path)])); ref=json.load(sys.stdin); sys.exit("tag ref mismatch") if ref.get("ref")!="refs/tags/%s"%tag else exec("obj=ref.get(\"object\") or {}\nseen=set()\nfor _ in range(6):\n kind,sha=obj.get(\"type\"),obj.get(\"sha\")\n if kind==\"commit\":\n  sys.exit(\"peeled tag does not match the prepare sha\") if not (re.fullmatch(r\"[0-9a-f]{40}\", sha or \"\") and sha==prepare) else print(sha)\n  break\n if kind!=\"tag\" or sha in seen or not re.fullmatch(r\"[0-9a-f]{40}\", sha or \"\"): sys.exit(\"invalid annotated tag\")\n seen.add(sha); obj=(gh(\"git/tags/\"+sha).get(\"object\") or {})\nelse: sys.exit(\"tag chain too deep\")")')
+            [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::invalid source sha"; exit 1; }
+            run=$(gh api "repos/$REPO/actions/runs/$RELEASE_RUN_ID" \
+              --jq '[.path, .event, .conclusion, (.run_attempt|tostring), .head_branch, .head_sha] | join(" ")')
+            test "$run" = ".github/workflows/release.yml workflow_dispatch success 1 main $HEAD_SHA" || { echo "::error::release run mismatch"; exit 1; }
+          else
+            echo "::error::unsupported release event"; exit 1
+          fi
+          export SOURCE_SHA RELEASE_TAG
+          # Refuse a published tag, and a version that is not strictly newer
+          # than the latest published stable release. A missing release is 404.
+          if release_json=$(gh api "repos/$REPO/releases/tags/$RELEASE_TAG" 2>/dev/null); then
+            draft=$(printf '%s' "$release_json" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("draft"))')
+            test "$draft" = True || { echo "::error::$RELEASE_TAG is already published"; exit 1; }
+          fi
+          if latest_json=$(gh api "repos/$REPO/releases/latest" 2>/dev/null); then
+            printf '%s' "$latest_json" | RELEASE_TAG="$RELEASE_TAG" python3 -c 'import json,os,re,sys; tag=os.environ["RELEASE_TAG"]; latest=json.load(sys.stdin).get("tag_name"); parse=lambda value: tuple(int(part) for part in value[1:].split(".")) if isinstance(value,str) and re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+", value) else sys.exit("latest release is not a stable tag"); sys.exit("version is not strictly greater than the latest release") if parse(tag)<=parse(latest) else None' || { echo "::error::version is not strictly greater than the latest release"; exit 1; }
+          fi
           ok=$(gh api "repos/$REPO/actions/workflows/ci.yml/runs?head_sha=$SOURCE_SHA&status=success&per_page=20" \
             --jq '[.workflow_runs[] | select(.head_sha == env.SOURCE_SHA and ((.event == "push" and .head_branch == "main") or .event == "workflow_dispatch"))] | length')
           test "$ok" -ge 1 || { echo "::error::no successful full CI run for $SOURCE_SHA"; exit 1; }

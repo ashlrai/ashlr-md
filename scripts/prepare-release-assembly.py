@@ -61,15 +61,18 @@ def prepare(tag, sha, run_id, attempt, *, env, api=provenance.fetch, download=do
     validate_context(env, tag, sha, run_id, attempt)
     directory = output_directory(env)
     run = api(f'{provenance.REPO}/actions/runs/{run_id}')
-    if (run.get('id') != run_id or run.get('run_attempt') != 1 or run.get('head_sha') != sha
-            or run.get('head_branch') != tag or run.get('event') != 'push'
-            or run.get('path') != '.github/workflows/release.yml'
-            or run.get('repository', {}).get('id') != provenance.REPO_ID
-            or run.get('head_repository', {}).get('id') != provenance.REPO_ID
-            or (run.get('status'), run.get('conclusion')) != ('completed', 'success')):
+    release_workflow = api(f'{provenance.REPO}/actions/workflows/release.yml')
+    if run.get('run_attempt') != 1 or release_workflow.get('path') != '.github/workflows/release.yml':
+        fail('original release run is not eligible')
+    try:
+        job_head_sha = provenance.release_run_matches(run, tag, sha, run_id, release_workflow.get('id'))
+    except ValueError:
         fail('original release run is not eligible')
     artifacts = provenance.pages(api, f'{provenance.REPO}/actions/runs/{run_id}/artifacts', 'artifacts')
-    if len(artifacts) != len(provenance.LEGS) or {a.get('name') for a in artifacts} != set(provenance.LEGS):
+    names = {a.get('name') for a in artifacts}
+    extra = names - set(provenance.LEGS)
+    if (not set(provenance.LEGS) <= names or (run.get('event') == 'workflow_dispatch' and extra != {'release-binding'})
+            or (run.get('event') != 'workflow_dispatch' and extra not in (set(), {'release-binding'}))):
         fail('original artifact inventory differs')
     ids = set()
     for artifact in artifacts:
@@ -79,7 +82,7 @@ def prepare(tag, sha, run_id, attempt, *, env, api=provenance.fetch, download=do
                 or type(size) is not int or not 0 < size <= MAX_ZIP
                 or artifact.get('expired') is not False
                 or not re.fullmatch(r'sha256:[0-9a-f]{64}', artifact.get('digest', ''))
-                or binding.get('id') != run_id or binding.get('head_sha') != sha
+                or binding.get('id') != run_id or binding.get('head_sha') != job_head_sha
                 or binding.get('repository_id') != provenance.REPO_ID
                 or binding.get('head_repository_id') != provenance.REPO_ID):
             fail('original artifact identity/digest/size differs')
@@ -95,13 +98,18 @@ def prepare(tag, sha, run_id, attempt, *, env, api=provenance.fetch, download=do
             download(artifact, destination)
             if not stat.S_ISREG(destination.lstat().st_mode):
                 fail('download must be a regular file')
-        if sorted(p.name for p in directory.iterdir()) != sorted(name + '.zip' for name in provenance.LEGS):
+        expected_names = [name + '.zip' for name in provenance.LEGS]
+        if run.get('event') == 'workflow_dispatch':
+            expected_names.append('release-binding.zip')
+        if sorted(p.name for p in directory.iterdir()) != sorted(expected_names):
             fail('downloaded ZIP inventory differs')
         zips = {name: directory / (name + '.zip') for name in provenance.LEGS}
+        binding_zip = directory / 'release-binding.zip'
         # Reuse every original live check: tag, workflow IDs, exact attempt,
         # all native jobs/steps, manual full CI, source blobs and ZIP digests.
-        evidence = provenance.verify_provenance(api, tag, sha, run_id, zips)
-        expected = {a['name']: {'id': a['id'], 'digest': a['digest']} for a in artifacts}
+        evidence = provenance.verify_provenance(
+            api, tag, sha, run_id, zips, binding_zip=binding_zip if binding_zip.is_file() else None)
+        expected = {a['name']: {'id': a['id'], 'digest': a['digest']} for a in artifacts if a.get('name') in provenance.LEGS}
         if evidence['artifacts'] != expected:
             fail('original artifact inventory changed during download')
         return evidence

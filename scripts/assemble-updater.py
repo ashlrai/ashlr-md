@@ -271,8 +271,11 @@ def main():
         provenance = load_local('release-provenance')
         archives = load_local('release-archive')
         zips = {name: args.zip_directory / (name + '.zip') for name in provenance.LEGS}
+        binding_zip = args.zip_directory / 'release-binding.zip'
         # The API adapter is fixed in code; callers cannot supply a receipt.
-        evidence = provenance.verify_provenance(provenance.fetch, args.tag, args.source_sha, args.run_id, zips)
+        evidence = provenance.verify_provenance(
+            provenance.fetch, args.tag, args.source_sha, args.run_id, zips,
+            binding_zip=binding_zip if binding_zip.is_file() else None)
         with tempfile.TemporaryDirectory(prefix='md-verified-inventory-', dir=STAGING_ROOT) as tmp:
             root = Path(tmp)
             for name in provenance.LEGS:
@@ -283,7 +286,10 @@ def main():
             current = provenance.fetch(f'{provenance.REPO}/git/ref/tags/{args.tag}')
             if current.get('object') != evidence['tag_object']: fail('tag changed before staging completed')
             run = provenance.fetch(f'{provenance.REPO}/actions/runs/{args.run_id}')
-            if (run.get('id') != args.run_id or run.get('run_attempt') != 1 or run.get('workflow_id') != evidence['release_workflow_id'] or run.get('head_sha') != args.source_sha or (run.get('status'), run.get('conclusion')) != ('completed', 'success')): fail('release run changed before staging completed')
+            try:
+                provenance.release_run_matches(run, args.tag, args.source_sha, args.run_id, evidence['release_workflow_id'])
+            except ValueError:
+                fail('release run changed before staging completed')
             rename_no_replace(staging, args.output_name, staging_fd)
     except (ValueError, OSError, KeyError, struct.error, tarfile.TarError, zipfile.BadZipFile, subprocess.SubprocessError) as error:
         p.exit(1, f'assembly failed: {error}\n')

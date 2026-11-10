@@ -139,13 +139,20 @@ source and original build artifacts, no release-write permission, no OIDC and
 no signing key. It never creates tags or publishes a GitHub Release.
 
 `release-assemble-dispatch.yml` runs this dispatch automatically, as
-`github-actions[bot]`, when the push-triggered Release build for an exact
-`vX.Y.Z` tag completes successfully on attempt 1 and the tagged commit has
-successful full CI. Dispatch by hand only to retry.
+`github-actions[bot]`, when the Release build for an exact `vX.Y.Z` tag
+completes successfully on attempt 1 and the tagged commit has successful full
+CI. That build may be a tag push, or a `workflow_dispatch` of `release.yml` on
+`main` for an already existing tag (`-f version=X.Y.Z`). A dispatch run's head
+SHA is the workflow revision on main, not the tag; `source_sha` is still the
+peeled tag commit. A dispatch is bound to the prepare job's `release-binding`
+artifact (`inputs.version`, tag and sha), not to the job log. Assembly refuses
+a tag that already has a published GitHub Release, and a version that is not
+strictly greater than the latest published release. Dispatch by hand only to retry.
 
 After the exact tagged source has successful full CI from a manual dispatch or
 a canonical push to `main`, and its original
-push release build has completed successfully on attempt 1, dispatch:
+release build (tag push, or main-only `workflow_dispatch` for that tag) has
+completed successfully on attempt 1, dispatch:
 
 ```sh
 gh workflow run release-assemble.yml --repo ashlrai/ashlr-md --ref main \
@@ -200,7 +207,9 @@ qualified on four actual artifacts from one eligible run. It does not publish.
    `bundle-ubuntu-22.04.zip` and `bundle-windows-latest.zip`. Do not substitute
    extracted files or ZIPs from another run. The helper queries GitHub's public
    API itself, binds the reviewed full SHA to the peeled tag and release run,
-   checks the push event, successful full-CI gate, all four native jobs and
+   accepts a tag push or a main-only `workflow_dispatch` of `release.yml`
+   (a dispatch run's head SHA is the workflow revision, and the build must
+   check out the peeled tag), the successful full-CI gate, all four native jobs and
    their build/upload steps, and an exact-SHA manual or canonical main-push CI run with successful
    required jobs and full-suite steps. It compares each original ZIP's SHA-256 to
    the live API's artifact digest before privately and safely extracting it.
