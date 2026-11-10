@@ -3,7 +3,7 @@
  *
  * Shortcuts are written as lowercase, plus-delimited strings, e.g.
  *   "mod+k"        → ⌘K (mac) / Ctrl+K (other)
- *   "mod+shift+l"  → ⌘⇧L
+ *   "mod+shift+l"  → ⇧⌘L
  *   "mod+1"        → ⌘1
  *
  * `mod` resolves to the platform-conventional command modifier: ⌘ (metaKey)
@@ -101,7 +101,7 @@ export function matchShortcut(e: KeyboardEvent, shortcut: string): boolean {
 
 /**
  * Format a shortcut for display, e.g.:
- *   mac:   "mod+shift+l" → "⌘⇧L"
+ *   mac:   "mod+shift+l" → "⇧⌘L"
  *   other: "mod+shift+l" → "Ctrl+Shift+L"
  */
 export function formatShortcut(shortcut: string): string {

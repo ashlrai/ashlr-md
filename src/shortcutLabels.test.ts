@@ -52,6 +52,24 @@ function glyphStrings(file: string, src: string): string[] {
 }
 
 describe("shortcut labels", () => {
+  it("formats multiple modifiers in platform order", async () => {
+    try {
+      for (const [platform, expected] of [
+        ["MacIntel", "⌥⇧⌘L"],
+        ["Linux", "Ctrl+Alt+Shift+L"],
+      ]) {
+        vi.stubGlobal("navigator", { platform });
+        vi.resetModules();
+        const { formatShortcut: format } = await import("./lib/keymap");
+        expect(format("mod+shift+alt+l")).toBe(expected);
+        expect(format("alt+mod+shift+l")).toBe(expected);
+      }
+    } finally {
+      vi.unstubAllGlobals();
+      vi.resetModules();
+    }
+  });
+
   it("uses fallback labels for unknown keys", () => {
     expect(formatShortcut("PageDown")).toBe("pagedown");
     expect(formatShortcut("x")).toBe("X");
