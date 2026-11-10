@@ -62,6 +62,15 @@ describe("empty or whitespace-only image description", () => {
 });
 
 describe("image with descriptive alt text", () => {
+  it("leaves a valid image unchanged when autofix runs", () => {
+    const doc = '---\ntitle: Revenue\n---\n\n![Revenue by quarter](images/revenue.png "Quarterly revenue")\n';
+    const violations = lintDocument(doc);
+
+    expect(violations).toEqual([]);
+    expect(applyAllFixes(doc, violations)).toBe(doc);
+    expect(fixAllViolations(doc, violations)).toBe(doc);
+  });
+
   it("preserves the description and destination while fixing another violation", () => {
     const image = '![Revenue by quarter](images/revenue%20chart.png?year=2026#q4 "Revenue")';
     const doc = `See ${image} and [the draft](#).\n`;
