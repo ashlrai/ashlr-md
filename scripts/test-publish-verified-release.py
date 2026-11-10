@@ -152,6 +152,10 @@ class PublishTests(unittest.TestCase):
                 return {'ref': f'refs/tags/{TAG}', 'object': {'type': 'commit', 'sha': SHA}}
             if path.endswith(f'/releases/tags/{TAG}'):
                 raise FileNotFoundError(path)
+            if path.endswith('/releases/9'):
+                return {'id': 9, 'tag_name': TAG, 'draft': False, 'make_latest': 'true'}
+            if path.endswith('/releases/latest'):
+                return {'tag_name': TAG, 'draft': False}
             raise AssertionError(path)
 
         def write(method, path, body=None):
@@ -198,6 +202,66 @@ class PublishTests(unittest.TestCase):
         self.assertNotIn('DELETE', [method for method, _path, _body in writes])
         self.assertTrue(all(method in ('POST', 'PATCH', 'UPLOAD') or '/git/' not in path
                             for method, path, _body in writes))
+
+    def test_publish_fails_unless_the_reread_release_is_latest(self):
+        def api(path, make_latest='true', latest_tag=TAG):
+            if path.endswith(f'/git/ref/tags/{TAG}'):
+                return {'ref': f'refs/tags/{TAG}', 'object': {'type': 'commit', 'sha': SHA}}
+            if path.endswith(f'/releases/tags/{TAG}'):
+                raise FileNotFoundError(path)
+            if path.endswith('/releases/9'):
+                return {'id': 9, 'tag_name': TAG, 'draft': False, 'make_latest': make_latest}
+            if path.endswith('/releases/latest'):
+                return {'tag_name': latest_tag, 'draft': False}
+            raise AssertionError(path)
+
+        def write(method, path, body=None):
+            if method == 'POST':
+                return {'id': 9, 'tag_name': TAG, 'draft': True}
+            if method == 'PATCH':
+                return {'id': 9, 'tag_name': TAG, 'draft': False}
+            if method == 'DELETE':
+                raise AssertionError('published release must not be deleted')
+            raise AssertionError(method)
+
+        with self.assertRaisesRegex(ValueError, 'not marked make_latest'):
+            publish.publish_release(lambda path: api(path, make_latest='false'), write, TAG, SHA, 'notes\n', [], lambda *_args: None)
+        with self.assertRaisesRegex(ValueError, 'not the latest release'):
+            publish.publish_release(lambda path: api(path, latest_tag='v9.9.9'), write, TAG, SHA, 'notes\n', [], lambda *_args: None)
+
+    def test_abort_reports_a_tag_this_run_created_and_does_not_delete_it(self):
+        peels = {'n': 0}
+
+        def api(path):
+            if path.endswith(f'/git/ref/tags/{TAG}'):
+                peels['n'] += 1
+                pointed = SHA if peels['n'] == 1 else OTHER
+                return {'ref': f'refs/tags/{TAG}', 'object': {'type': 'commit', 'sha': pointed}}
+            if path.endswith(f'/releases/tags/{TAG}'):
+                raise FileNotFoundError(path)
+            raise AssertionError(path)
+
+        writes = []
+
+        def write(method, path, body=None):
+            writes.append((method, path))
+            if '/git/' in path:
+                raise AssertionError('git mutation')
+            if method == 'POST':
+                return {'id': 9, 'tag_name': TAG, 'draft': True}
+            if method == 'DELETE':
+                self.assertEqual(path, '/repos/ashlrai/ashlr-md/releases/9')
+                return {}
+            raise AssertionError(method)
+
+        with self.assertRaises(ValueError) as caught:
+            publish.publish_release(api, write, TAG, SHA, 'notes\n', [], lambda *_args: None)
+        message = str(caught.exception)
+        self.assertIn('was not deleted', message)
+        self.assertIn(OTHER, message)
+        self.assertIn(SHA, message)
+        self.assertNotIn('git/', ' '.join(path for _method, path in writes))
+        self.assertIn(('DELETE', '/repos/ashlrai/ashlr-md/releases/9'), writes)
 
     def test_annotated_peel_and_binding_come_from_provenance(self):
         seen = []
@@ -312,38 +376,46 @@ class PublishTests(unittest.TestCase):
             'ghu_FAKEFAKEFAKEFAKE',
             'ghr_FAKEFAKEFAKEFAKE',
             'Bearer fake-bearer-token',
+            'bearer FAKE-BEARER-TOKEN',
         )
-        with tempfile.TemporaryDirectory() as tmp:
-            fake = Path(tmp) / 'gh'
-            fake.write_text(
-                '#!/bin/sh\n'
-                'echo \'{"message":"Validation Failed","errors":[{"message":"Draft releases cannot be set as latest"}],"status":"422"}\'\n'
-                'echo "gh: Validation Failed (HTTP 422)" >&2\n'
-                'echo "token ghp_FAKEFAKEFAKEFAKE ghs_FAKEFAKEFAKEFAKE github_pat_FAKEFAKEFAKEFAKE '
-                'gho_FAKEFAKEFAKEFAKE ghu_FAKEFAKEFAKEFAKE ghr_FAKEFAKEFAKEFAKE Bearer fake-bearer-token" >&2\n'
-                'exit 1\n',
-                encoding='utf-8',
-            )
-            fake.chmod(0o755)
-            previous_path = os.environ.get('PATH', '')
-            previous_token = os.environ.get('GH_TOKEN')
-            os.environ['PATH'] = tmp + os.pathsep + previous_path
-            os.environ['GH_TOKEN'] = secrets[0]
-            try:
-                with self.assertRaises(ValueError) as caught:
-                    publish.gh_write('POST', '/repos/ashlrai/ashlr-md/releases', {'draft': True})
-            finally:
-                os.environ['PATH'] = previous_path
-                if previous_token is None:
-                    os.environ.pop('GH_TOKEN', None)
-                else:
-                    os.environ['GH_TOKEN'] = previous_token
-        message = str(caught.exception)
-        self.assertIn('HTTP 422', message)
-        self.assertIn('Draft releases cannot be set as latest', message)
-        for secret in secrets:
-            self.assertNotIn(secret, message)
-        self.assertNotIn('fake-bearer-token', message)
+        cases = (
+            ('422', 'Validation Failed', 'Draft releases cannot be set as latest'),
+            ('403', 'Resource not accessible by integration', 'Resource not accessible by integration'),
+        )
+        for status, summary, detail in cases:
+            with tempfile.TemporaryDirectory() as tmp:
+                fake = Path(tmp) / 'gh'
+                fake.write_text(
+                    '#!/bin/sh\n'
+                    f'echo \'{{"message":"{summary}","errors":[{{"message":"{detail}"}}],"status":"{status}"}}\'\n'
+                    f'echo "gh: {summary} (HTTP {status})" >&2\n'
+                    'echo "token ghp_FAKEFAKEFAKEFAKE ghs_FAKEFAKEFAKEFAKE github_pat_FAKEFAKEFAKEFAKE '
+                    'gho_FAKEFAKEFAKEFAKE ghu_FAKEFAKEFAKEFAKE ghr_FAKEFAKEFAKEFAKE '
+                    'Bearer fake-bearer-token bearer FAKE-BEARER-TOKEN" >&2\n'
+                    'exit 1\n',
+                    encoding='utf-8',
+                )
+                fake.chmod(0o755)
+                previous_path = os.environ.get('PATH', '')
+                previous_token = os.environ.get('GH_TOKEN')
+                os.environ['PATH'] = tmp + os.pathsep + previous_path
+                os.environ['GH_TOKEN'] = secrets[0]
+                try:
+                    with self.assertRaises(ValueError) as caught:
+                        publish.gh_write('POST', '/repos/ashlrai/ashlr-md/releases', {'draft': True})
+                finally:
+                    os.environ['PATH'] = previous_path
+                    if previous_token is None:
+                        os.environ.pop('GH_TOKEN', None)
+                    else:
+                        os.environ['GH_TOKEN'] = previous_token
+            message = str(caught.exception)
+            self.assertIn(f'HTTP {status}', message)
+            self.assertIn(detail, message)
+            for secret in secrets:
+                self.assertNotIn(secret, message)
+            self.assertNotIn('fake-bearer-token', message)
+            self.assertNotIn('FAKE-BEARER-TOKEN', message)
 
 
 if __name__ == '__main__':
