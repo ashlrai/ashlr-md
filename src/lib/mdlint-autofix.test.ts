@@ -220,6 +220,38 @@ describe("invalid link beside a valid link", () => {
   );
 });
 
+describe("empty link on a line with trailing spaces", () => {
+  it.each(["\n", "\r\n"].flatMap((nl) => [" ", "  ", " \t ", "\t"].map((spaces) => [nl, spaces] as const)))(
+    "repairs the link and preserves the trailing whitespace (%j, %j)",
+    (nl, spaces) => {
+      const rules = [ruleInvalidLinkTarget];
+      const doc = `Read [the guide]() for details.${spaces}${nl}`;
+      const expected = `Read [the guide](TODO) for details.${spaces}${nl}`;
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      expect(applyAllFixes(doc, violations)).toBe(expected);
+      expect(fixAllViolations(doc, violations)).toBe(expected);
+      expect(lintDocument(expected, { rules })).toEqual([]);
+    },
+  );
+
+  it.each(["\n", "\r\n"])("keeps trailing spaces when the empty link ends the line (%j)", (nl) => {
+    const rules = [ruleInvalidLinkTarget];
+    const doc = `See the [guide]()   ${nl}Next line.   ${nl}`;
+    const expected = `See the [guide](TODO)   ${nl}Next line.   ${nl}`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(expected);
+  });
+});
+
 describe("empty link and image description on separate lines", () => {
   it.each(["\n", "\r\n"].flatMap((nl) => [true, false].map((linkFirst) => [nl, linkFirst] as const)))(
     "inserts both placeholders in place (newline %j, link first %s)",
