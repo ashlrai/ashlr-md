@@ -88,6 +88,14 @@ describe("describeAIError", () => {
     expect(aiErrorLine(error)).toBe(info.message);
   });
 
+  it("handles an unknown error value with a useful fallback", () => {
+    const error: unknown = { reason: "unexpected failure" };
+    const info = describeAIError(error);
+    expect(info.message).toBe("The AI request failed. Wait a moment, then retry.");
+    expect(info.detail).toBe('{"reason":"unexpected failure"}');
+    expect(aiErrorLine(error)).toBe(info.message);
+  });
+
   it("messages use no em-dashes", () => {
     for (const raw of [ANTHROPIC_401, "Ollama request failed: x", "zzz"]) {
       expect(describeAIError(new Error(raw)).message).not.toContain("—");
