@@ -105,6 +105,11 @@ test('assembly dispatch peels an annotated tag and refuses a downgrade', () => {
   const step = extractRuns(source).find(item => item.name === 'Validate the release build and CI, then dispatch assembly');
   assert.ok(step);
   assert.match(step.run, /git\/ref\/tags/);
+  assert.match(step.run, /refs\/tags\//);
+  assert.equal(step.run.split('peel_release_tag').length - 1, 3);
+  assert.doesNotMatch(step.run, /commits\/\$RELEASE_TAG/);
+  assert.doesNotMatch(step.run, /2>\/dev\/null/);
+  assert.match(step.run, /could not read/);
   assert.match(step.run, /\^v\[0-9\]\+\\\.\[0-9\]\+\\\.\[0-9\]\+\$/);
   assert.doesNotMatch(step.run, /--log|version carriers match/);
   const directory = mkdtempSync(join(tmpdir(), 'md-dispatch-'));
@@ -128,9 +133,24 @@ case "$*" in
   *git/tags/dddddddddddddddddddddddddddddddddddddddd*)
     printf '%s\\n' '{"sha":"dddddddddddddddddddddddddddddddddddddddd","object":{"type":"commit","sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}'
     ;;
-  *commits/v0.7.3*) printf '%s\\n' bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb ;;
-  *releases/tags/*) echo "HTTP 404: Not Found" >&2; exit 1 ;;
+  *git/ref/tags/v0.7.3*)
+    if [ -n "\${GH_FAKE_REF_NAME:-}" ]; then
+      printf '%s\\n' "{\\"ref\\":\\"\${GH_FAKE_REF_NAME}\\",\\"object\\":{\\"type\\":\\"commit\\",\\"sha\\":\\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\"}}"
+    elif [ -n "\${GH_FAKE_PUSH_ANNOTATED:-}" ]; then
+      printf '%s\\n' '{"ref":"refs/tags/v0.7.3","object":{"type":"tag","sha":"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"}}'
+    else
+      printf '%s\\n' '{"ref":"refs/tags/v0.7.3","object":{"type":"commit","sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}'
+    fi
+    ;;
+  *git/tags/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee*)
+    printf '%s\\n' '{"sha":"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee","object":{"type":"commit","sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}'
+    ;;
+  *releases/tags/*)
+    if [ -n "\${GH_FAKE_RELEASE_ERROR:-}" ]; then echo "\${GH_FAKE_RELEASE_ERROR}" >&2; exit 1; fi
+    echo "HTTP 404: Not Found" >&2; exit 1
+    ;;
   *releases/latest*)
+    if [ -n "\${GH_FAKE_LATEST_ERROR:-}" ]; then echo "\${GH_FAKE_LATEST_ERROR}" >&2; exit 1; fi
     if [ -n "\${GH_FAKE_LATEST:-}" ]; then printf '%s\\n' "{\\"tag_name\\":\\"\${GH_FAKE_LATEST}\\",\\"draft\\":false}"; else echo "HTTP 404: Not Found" >&2; exit 1; fi
     ;;
   *actions/runs/42739085824*) printf '%s\\n' '.github/workflows/release.yml workflow_dispatch success 1 main cccccccccccccccccccccccccccccccccccccccc' ;;
@@ -182,6 +202,42 @@ esac
     });
     assert.equal(pushed.status, 0, pushed.stderr + pushed.stdout);
     assert.match(readFileSync(dispatched, 'utf8'), /source_sha=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/);
+    assert.match(readFileSync(trace, 'utf8'), /git\/ref\/tags\/v0\.7\.3/);
+    assert.doesNotMatch(readFileSync(trace, 'utf8'), /commits\/v0\.7\.3/);
+    rmSync(dispatched);
+    const annotatedPush = spawnSync('bash', ['-c', step.run], {
+      encoding: 'utf8',
+      env: { ...base, EVENT: 'push', HEAD_BRANCH: 'v0.7.3', HEAD_SHA: 'b'.repeat(40), RELEASE_RUN_ID: '99',
+        GH_FAKE_PUSH_ANNOTATED: '1' },
+    });
+    assert.equal(annotatedPush.status, 0, annotatedPush.stderr + annotatedPush.stdout);
+    assert.match(readFileSync(trace, 'utf8'), /git\/tags\/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee/);
+    assert.match(readFileSync(dispatched, 'utf8'), /source_sha=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/);
+    rmSync(dispatched);
+    const unanchored = spawnSync('bash', ['-c', step.run], {
+      encoding: 'utf8',
+      env: { ...base, EVENT: 'push', HEAD_BRANCH: 'v0.7.3', HEAD_SHA: 'b'.repeat(40), RELEASE_RUN_ID: '99',
+        GH_FAKE_REF_NAME: 'refs/heads/v0.7.3' },
+    });
+    assert.notEqual(unanchored.status, 0);
+    assert.match(unanchored.stderr + unanchored.stdout, /tag ref mismatch/);
+    assert.throws(() => readFileSync(dispatched, 'utf8'));
+    const releaseError = spawnSync('bash', ['-c', step.run], {
+      encoding: 'utf8',
+      env: { ...base, EVENT: 'workflow_dispatch', HEAD_BRANCH: 'main', HEAD_SHA: 'c'.repeat(40),
+        RELEASE_RUN_ID: '42739085824', GH_FAKE_RELEASE_ERROR: 'HTTP 500: Server Error' },
+    });
+    assert.notEqual(releaseError.status, 0);
+    assert.match(releaseError.stderr + releaseError.stdout, /could not read the GitHub Release/);
+    assert.throws(() => readFileSync(dispatched, 'utf8'));
+    const latestError = spawnSync('bash', ['-c', step.run], {
+      encoding: 'utf8',
+      env: { ...base, EVENT: 'workflow_dispatch', HEAD_BRANCH: 'main', HEAD_SHA: 'c'.repeat(40),
+        RELEASE_RUN_ID: '42739085824', GH_FAKE_LATEST_ERROR: 'HTTP 500: Server Error' },
+    });
+    assert.notEqual(latestError.status, 0);
+    assert.match(latestError.stderr + latestError.stdout, /could not read the latest GitHub Release/);
+    assert.throws(() => readFileSync(dispatched, 'utf8'));
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
