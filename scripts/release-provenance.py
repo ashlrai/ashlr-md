@@ -228,11 +228,8 @@ def source(api, path, sha):
     return raw
 
 
-def verify_provenance(api, tag, expected_sha, run_id, zips, binding_zip=None):
-    if not re.fullmatch(r'v\d+\.\d+\.\d+', tag): fail('only stable vX.Y.Z tags supported')
-    if not re.fullmatch(r'[0-9a-f]{40}', expected_sha): fail('reviewed SHA must be a full lowercase commit SHA')
-    if not isinstance(run_id, int) or run_id < 1: fail('invalid run ID')
-    if set(zips) != set(LEGS): fail('four original named artifact ZIPs are required')
+def peel_annotated_tag(api, tag):
+    """Walk git/ref/tags/<tag> through annotated tag objects to the commit."""
     ref = api(f'{REPO}/git/ref/tags/{tag}')
     if ref.get('ref') != f'refs/tags/{tag}': fail('tag ref mismatch')
     obj = ref['object']
@@ -245,6 +242,15 @@ def verify_provenance(api, tag, expected_sha, run_id, zips, binding_zip=None):
         if tagged.get('sha') != sha: fail('tag object mismatch')
         obj = tagged['object']
     else: fail('tag chain too deep')
+    return sha, ref
+
+
+def verify_provenance(api, tag, expected_sha, run_id, zips, binding_zip=None):
+    if not re.fullmatch(r'v\d+\.\d+\.\d+', tag): fail('only stable vX.Y.Z tags supported')
+    if not re.fullmatch(r'[0-9a-f]{40}', expected_sha): fail('reviewed SHA must be a full lowercase commit SHA')
+    if not isinstance(run_id, int) or run_id < 1: fail('invalid run ID')
+    if set(zips) != set(LEGS): fail('four original named artifact ZIPs are required')
+    sha, ref = peel_annotated_tag(api, tag)
     if sha != expected_sha: fail('peeled tag does not match reviewed SHA')
     assert_not_replay_or_downgrade(api, tag)
     release_workflow = api(f'{REPO}/actions/workflows/release.yml')

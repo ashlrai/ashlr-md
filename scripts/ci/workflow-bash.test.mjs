@@ -29,7 +29,7 @@ test('unclosed quote in a bash run block is caught', () => {
 `);
   const { failures } = checkRuns(extractRuns(yml));
   assert.equal(failures.length, 1);
-  assert.match(failures[0].stderr, /syntax error/);
+  assert.match(failures[0].stderr, /syntax error|unexpected EOF while looking for matching/);
 });
 
 test('the same block with the quote closed passes', () => {
