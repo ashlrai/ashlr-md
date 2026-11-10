@@ -19248,6 +19248,10 @@ fn export_text_keeps_a_bracketed_marker_alone_on_its_line() {
         ("[TODO]\n[link](https://example.com)\n", "[TODO]\nlink"),
         ("[a link](https://example.com)\n[TODO]\n", "a link\n[TODO]"),
         ("[TODO]\n\n[TODO]\n", "[TODO]\n\n[TODO]"),
+        (
+            "First [draft] needs review.\nSecond [note] follows.\n",
+            "First [draft] needs review.\nSecond [note] follows.",
+        ),
     ];
     for (markdown, expected) in cases {
         let result = run_export_text_on(markdown);
