@@ -161,6 +161,21 @@ describe("invalid link target surrounded by prose", () => {
   });
 });
 
+describe("empty link in a list item", () => {
+  it.each(["-", "*", "1.", "  -"])("preserves the %j marker and surrounding text", (marker) => {
+    const rules = [ruleInvalidLinkTarget];
+    const doc = `Introduction.\n\n${marker} Read [the guide]() before continuing.\n- Another item.\n`;
+    const expected = `Introduction.\n\n${marker} Read [the guide](TODO) before continuing.\n- Another item.\n`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(fixAllViolations(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+});
+
 describe("two invalid links on one line", () => {
   it.each([
     ["", "#"],
