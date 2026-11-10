@@ -109,6 +109,9 @@ test('assembly dispatch peels an annotated tag and refuses a downgrade', () => {
   assert.equal(step.run.split('peel_release_tag').length - 1, 3);
   assert.doesNotMatch(step.run, /commits\/\$RELEASE_TAG/);
   assert.doesNotMatch(step.run, /2>\/dev\/null/);
+  assert.doesNotMatch(step.run, /grep -q 404/);
+  assert.match(step.run, /gh api -i /);
+  assert.match(step.run, /\[ "\$http_status" = 404 \]/);
   assert.match(step.run, /could not read/);
   assert.match(step.run, /\^v\[0-9\]\+\\\.\[0-9\]\+\\\.\[0-9\]\+\$/);
   assert.doesNotMatch(step.run, /--log|version carriers match/);
@@ -145,13 +148,18 @@ case "$*" in
   *git/tags/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee*)
     printf '%s\\n' '{"sha":"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee","object":{"type":"commit","sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}'
     ;;
-  *releases/tags/*)
-    if [ -n "\${GH_FAKE_RELEASE_ERROR:-}" ]; then echo "\${GH_FAKE_RELEASE_ERROR}" >&2; exit 1; fi
-    echo "HTTP 404: Not Found" >&2; exit 1
-    ;;
-  *releases/latest*)
-    if [ -n "\${GH_FAKE_LATEST_ERROR:-}" ]; then echo "\${GH_FAKE_LATEST_ERROR}" >&2; exit 1; fi
-    if [ -n "\${GH_FAKE_LATEST:-}" ]; then printf '%s\\n' "{\\"tag_name\\":\\"\${GH_FAKE_LATEST}\\",\\"draft\\":false}"; else echo "HTTP 404: Not Found" >&2; exit 1; fi
+  *releases/tags/*|*releases/latest*)
+    code=404
+    if [ -n "\${GH_FAKE_HTTP_STATUS:-}" ]; then code="\${GH_FAKE_HTTP_STATUS}"; fi
+    if [ -n "\${GH_FAKE_RELEASE_ERROR:-}" ] && printf '%s' "$*" | grep -q 'releases/tags/'; then code=500; fi
+    if [ -n "\${GH_FAKE_LATEST_ERROR:-}" ] && printf '%s' "$*" | grep -q 'releases/latest'; then code=500; fi
+    if [ -n "\${GH_FAKE_LATEST:-}" ] && printf '%s' "$*" | grep -q 'releases/latest' && [ "\$code" = 404 ]; then
+      printf '%s\\n\\n%s\\n' 'HTTP/2.0 200 OK' "{\\"tag_name\\":\\"\${GH_FAKE_LATEST}\\",\\"draft\\":false}"
+      exit 0
+    fi
+    printf '%s\\n\\n%s\\n' "HTTP/2.0 \${code} Synthetic" "{\\"message\\":\\"body mentions 404\\",\\"status\\":\\"\${code}\\"}"
+    if [ "\$code" = 200 ]; then exit 0; fi
+    exit 1
     ;;
   *actions/runs/42739085824*) printf '%s\\n' '.github/workflows/release.yml workflow_dispatch success 1 main cccccccccccccccccccccccccccccccccccccccc' ;;
   *actions/runs/99*) printf '%s\\n' '.github/workflows/release.yml push success 1 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' ;;
@@ -237,6 +245,22 @@ esac
     });
     assert.notEqual(latestError.status, 0);
     assert.match(latestError.stderr + latestError.stdout, /could not read the latest GitHub Release/);
+    assert.throws(() => readFileSync(dispatched, 'utf8'));
+    const mentions404 = spawnSync('bash', ['-c', step.run], {
+      encoding: 'utf8',
+      env: { ...base, EVENT: 'workflow_dispatch', HEAD_BRANCH: 'main', HEAD_SHA: 'c'.repeat(40),
+        RELEASE_RUN_ID: '42739085824', GH_FAKE_HTTP_STATUS: '500' },
+    });
+    assert.notEqual(mentions404.status, 0, mentions404.stderr + mentions404.stdout);
+    assert.match(mentions404.stderr + mentions404.stdout, /could not read the GitHub Release/);
+    assert.throws(() => readFileSync(dispatched, 'utf8'));
+    const notThreeDigits = spawnSync('bash', ['-c', step.run], {
+      encoding: 'utf8',
+      env: { ...base, EVENT: 'workflow_dispatch', HEAD_BRANCH: 'main', HEAD_SHA: 'c'.repeat(40),
+        RELEASE_RUN_ID: '42739085824', GH_FAKE_HTTP_STATUS: '4040' },
+    });
+    assert.notEqual(notThreeDigits.status, 0);
+    assert.match(notThreeDigits.stderr + notThreeDigits.stdout, /could not read the GitHub Release/);
     assert.throws(() => readFileSync(dispatched, 'utf8'));
   } finally {
     rmSync(directory, { recursive: true, force: true });
