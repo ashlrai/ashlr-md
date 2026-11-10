@@ -69,6 +69,19 @@ describe("remarkWikilinks", () => {
     expect(collect("[[a]] and [[b]] and [[c]]", "wikilink")).toHaveLength(3);
   });
 
+  it("handles two adjacent links with no text between them", () => {
+    const links = collect("See [[alpha]][[beta]] done", "wikilink");
+    expect(links).toHaveLength(2);
+    expect(links.map((l) => l.data.hProperties.dataWikitarget)).toEqual([
+      "alpha",
+      "beta",
+    ]);
+    expect(links.map((l) => l.data.hProperties.dataWikialias)).toEqual([
+      "alpha",
+      "beta",
+    ]);
+  });
+
   it("links [[#Heading]] and [[#^block]] to this document", () => {
     const links = collect("See [[#Setup]], [[#^b1]] and [[#Setup|there]].", "wikilink");
     expect(links.map((l) => l.data.hProperties.dataWikitarget)).toEqual([
