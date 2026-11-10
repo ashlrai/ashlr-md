@@ -121,6 +121,20 @@ describe("missing image alt text autofix idempotence", () => {
 });
 
 describe("invalid link target surrounded by prose", () => {
+  it.each(["\n", "\r\n"])("fixes an empty href at the start of the document and preserves following text (%j)", (nl) => {
+    const rules = [ruleInvalidLinkTarget];
+    const doc = `[Start]() and continue reading.${nl}${nl}Another paragraph. 📖${nl}`;
+    const expected = `[Start](TODO) and continue reading.${nl}${nl}Another paragraph. 📖${nl}`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    expect(violations[0].range?.from.offset).toBe(0);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(fixAllViolations(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+
   it.each(["", "#", "?"])("reaches a fixed point after repairing destination %j", (target) => {
     const rules = [ruleInvalidLinkTarget];
     const doc = `Read [the guide](${target}) before continuing.\n`;
