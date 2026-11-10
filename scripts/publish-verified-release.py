@@ -279,8 +279,10 @@ def report_tag_created_during_publish(api, tag, expected, original):
     if current == expected:
         return
     raise ValueError(
-        f'tag {tag} was created or moved during publish and now points at {current}, '
-        f'not {expected}. The tag was not deleted'
+        scrub_secret(
+            f'tag {tag} was created or moved during publish and now points at {current}, '
+            f'not {expected}. The tag was not deleted'
+        )
     ) from original
 
 

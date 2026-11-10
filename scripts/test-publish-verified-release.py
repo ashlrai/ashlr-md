@@ -263,6 +263,31 @@ class PublishTests(unittest.TestCase):
         self.assertNotIn('git/', ' '.join(path for _method, path in writes))
         self.assertIn(('DELETE', '/repos/ashlrai/ashlr-md/releases/9'), writes)
 
+    def test_created_tag_report_scrubs_secrets(self):
+        secrets = (
+            'ghp_FAKEFAKEFAKEFAKE',
+            'ghr_FAKEFAKEFAKEFAKE',
+            'Bearer fake-bearer-token',
+            'bearer FAKE-BEARER-TOKEN',
+        )
+        leaked = ' '.join(secrets)
+
+        def api(path):
+            if path.endswith(f'/git/ref/tags/{TAG}'):
+                return {'ref': f'refs/tags/{TAG}', 'object': {'type': 'commit', 'sha': leaked}}
+            raise AssertionError(path)
+
+        with self.assertRaises(ValueError) as caught:
+            publish.report_tag_created_during_publish(api, TAG, SHA, RuntimeError('upload failed'))
+        message = str(caught.exception)
+        self.assertIn('was not deleted', message)
+        self.assertIn(SHA, message)
+        self.assertIn('[redacted]', message)
+        for secret in secrets:
+            self.assertNotIn(secret, message)
+        self.assertNotIn('fake-bearer-token', message)
+        self.assertNotIn('FAKE-BEARER-TOKEN', message)
+
     def test_annotated_peel_and_binding_come_from_provenance(self):
         seen = []
 
