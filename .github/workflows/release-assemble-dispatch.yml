@@ -83,17 +83,25 @@ jobs:
           export SOURCE_SHA RELEASE_TAG
           # A missing release is a 404. Any other API failure stops the dispatch.
           read_github_record() {
-            local endpoint="$1" label="$2" err body status
+            local endpoint="$1" label="$2" err raw http_status body status
             err="$RUNNER_TEMP/gh-read-record.err"
             set +e
-            body=$(gh api "$endpoint" 2>"$err")
+            raw=$(gh api -i "$endpoint" 2>"$err")
             status=$?
             set -e
+            # The status is the second token of the HTTP status line, and only
+            # a three-digit code counts. A 500 body that mentions 404 is not a 404.
+            http_status=$(printf '%s\n' "$raw" | tr -d '\r' | awk 'NR==1 && $1 ~ /^HTTP\// { print $2; exit }')
+            case "$http_status" in
+              [0-9][0-9][0-9]) ;;
+              *) http_status="" ;;
+            esac
+            body=$(printf '%s\n' "$raw" | tr -d '\r' | awk 'BEGIN{header=1} header && NF==0 {header=0; next} !header {print}')
             if [ "$status" -eq 0 ]; then
               printf '%s' "$body"
               return 0
             fi
-            if grep -q 404 "$err"; then
+            if [ "$http_status" = 404 ]; then
               return 2
             fi
             echo "::error::could not read $label" >&2
