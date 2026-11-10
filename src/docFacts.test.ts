@@ -849,7 +849,7 @@ describe("doc facts: release asset names", () => {
     const publish = releasingDoc.split("\n## 4.")[1]?.split("\n## ")[0] ?? "";
     const rename = publish.indexOf("4. Rename each bundle");
     const manifest = publish.indexOf("5. Construct one `latest.json`");
-    const publication = publish.indexOf("6. Only with separate release authorization");
+    const publication = publish.indexOf("6. `release-publish.yml` does this");
     expect(rename, `${RELEASING} §4: missing rename step`).toBeGreaterThanOrEqual(0);
     expect(manifest, `${RELEASING} §4: manifest must follow rename`).toBeGreaterThan(
       rename,
