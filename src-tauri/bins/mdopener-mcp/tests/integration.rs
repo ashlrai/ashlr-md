@@ -19266,6 +19266,23 @@ fn export_text_keeps_a_bracketed_marker_alone_on_its_line() {
     }
 }
 
+/// A prose marker touching punctuation survives in the returned text.
+#[test]
+fn export_text_preserves_marker_next_to_punctuation() {
+    let markdown = "The editor wrote: [NOTE], then continued!\n";
+    let expected = "The editor wrote: [NOTE], then continued!";
+    let result = run_export_text_on(markdown);
+    assert_eq!(result["text"].as_str().unwrap(), expected);
+
+    let ipc = MockIpc::new().on_get(
+        "/content",
+        Ok(json!({ "path": "/docs/test.md", "content": markdown })),
+    );
+    let response = tool_export_text(id(3), &json!({}), &ipc);
+    assert!(response.error.is_none());
+    assert_eq!(content_text(&response)["text"].as_str().unwrap(), expected);
+}
+
 /// Prose brackets and a real link on one line: only the link loses its
 /// brackets and url, the link text stays readable, and the prose brackets stay.
 #[test]
