@@ -138,6 +138,11 @@ canonical `main`. This workflow assembles staging only. It has read access to
 source and original build artifacts, no release-write permission, no OIDC and
 no signing key. It never creates tags or publishes a GitHub Release.
 
+`release-assemble-dispatch.yml` runs this dispatch automatically, as
+`github-actions[bot]`, when the push-triggered Release build for an exact
+`vX.Y.Z` tag completes successfully on attempt 1 and the tagged commit has
+successful full CI. Dispatch by hand only to retry.
+
 After the exact tagged source has successful full CI from a manual dispatch or
 a canonical push to `main`, and its original
 push release build has completed successfully on attempt 1, dispatch:
