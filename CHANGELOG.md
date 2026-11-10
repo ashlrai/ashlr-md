@@ -12,10 +12,29 @@ All notable changes to Ashlr MD are documented here. This project adheres to
 Released 2026-06-06. [Release notes and downloads](https://github.com/ashlrai/ashlr-md/releases/tag/v0.4.0).
 <!-- fresh:end -->
 
-## [Unreleased]
+## [0.7.6] - 2026-11-10
+
+This release supersedes 0.7.5, whose release build failed on three of four platforms before any GitHub Release was published.
 
 ### Fixed
+- Code, Mermaid and diff blocks in the read view carry their source line, so revealing or syncing a line inside a fenced code block scrolls to that block.
+- Applying an AI edit hunk to an empty document inserts the new text instead of reporting that the original text was not found.
 - Release builds prefetch WiX, NSIS and AppImage tools with retries, and skip Finder AppleScript when creating macOS DMGs on CI, so a GitHub 504 or a hung Finder session no longer fails the Tauri bundle step.
+- Release and CI workflows pin Bun to 1.3.14 instead of the floating latest version, which broke the 0.7.5 release build.
+
+### Added
+- The GitHub Release is now published automatically from the default-branch workflow, only after read-only assembly verifies the exact tagged source, original build artifacts, signatures and full CI. The draft is created with `make_latest` false and confirmed as latest only once published.
+- A successful tagged release build dispatches the read-only release assembly automatically, including main-only `workflow_dispatch` rebuilds of an existing tag.
+- `bun run docs:fixtures` generates documentation fixtures, and `bun run test:unit` runs a fast unit subset that now gates every pull request.
+
+### Changed
+- Release lookups fail closed: only an exact HTTP 404 counts as a missing release, tag pushes are peeled through `git/ref`, and publish errors for a created tag are scrubbed of secrets.
+- Rust `target/` build output is ignored repository-wide, and stray committed build artifacts under `scripts/release-signature-check/` are removed.
+- The vitest test and hook timeout is 60 seconds, so slow editor mounts on a busy host no longer fail healthy tests.
+
+### Tests
+- Broad new coverage across Markdown lint autofix, link export, frontmatter, word count, reveal line, fenced snippets, stores and session persistence, and MCP plain-text export bracket preservation.
+- Cover release provenance, verified publishing, bundler tool prefetch and assembly dispatch.
 
 ## [0.7.5] - 2026-11-09
 
