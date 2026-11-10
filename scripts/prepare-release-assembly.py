@@ -61,12 +61,12 @@ def prepare(tag, sha, run_id, attempt, *, env, api=provenance.fetch, download=do
     validate_context(env, tag, sha, run_id, attempt)
     directory = output_directory(env)
     run = api(f'{provenance.REPO}/actions/runs/{run_id}')
-    if (run.get('id') != run_id or run.get('run_attempt') != 1 or run.get('head_sha') != sha
-            or run.get('head_branch') != tag or run.get('event') != 'push'
-            or run.get('path') != '.github/workflows/release.yml'
-            or run.get('repository', {}).get('id') != provenance.REPO_ID
-            or run.get('head_repository', {}).get('id') != provenance.REPO_ID
-            or (run.get('status'), run.get('conclusion')) != ('completed', 'success')):
+    release_workflow = api(f'{provenance.REPO}/actions/workflows/release.yml')
+    if run.get('run_attempt') != 1 or release_workflow.get('path') != '.github/workflows/release.yml':
+        fail('original release run is not eligible')
+    try:
+        job_head_sha = provenance.release_run_matches(run, tag, sha, run_id, release_workflow.get('id'))
+    except ValueError:
         fail('original release run is not eligible')
     artifacts = provenance.pages(api, f'{provenance.REPO}/actions/runs/{run_id}/artifacts', 'artifacts')
     if len(artifacts) != len(provenance.LEGS) or {a.get('name') for a in artifacts} != set(provenance.LEGS):
@@ -79,7 +79,7 @@ def prepare(tag, sha, run_id, attempt, *, env, api=provenance.fetch, download=do
                 or type(size) is not int or not 0 < size <= MAX_ZIP
                 or artifact.get('expired') is not False
                 or not re.fullmatch(r'sha256:[0-9a-f]{64}', artifact.get('digest', ''))
-                or binding.get('id') != run_id or binding.get('head_sha') != sha
+                or binding.get('id') != run_id or binding.get('head_sha') != job_head_sha
                 or binding.get('repository_id') != provenance.REPO_ID
                 or binding.get('head_repository_id') != provenance.REPO_ID):
             fail('original artifact identity/digest/size differs')

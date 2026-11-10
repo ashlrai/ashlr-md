@@ -43,6 +43,13 @@ class HostedAssemblyTests(unittest.TestCase):
         return prepare.prepare('v0.4.0', fixture.SHA, fixture.RUN, 1,
                                env=self.env, api=self.fixture.api, download=kwargs.get('download', self.download))
 
+    def test_main_dispatch_release_keeps_the_peeled_tag(self):
+        self.fixture.use_dispatch_release()
+        evidence = self.run_prepare()
+        self.assertEqual(evidence['sha'], fixture.SHA)
+        self.assertEqual(evidence['release_run'], fixture.RUN)
+        self.assertEqual(len(self.downloads), 4)
+
     def test_original_bytes_and_all_live_proofs_are_retained(self):
         evidence = self.run_prepare()
         self.assertEqual(evidence['sha'], fixture.SHA)

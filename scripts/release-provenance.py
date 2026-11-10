@@ -71,6 +71,44 @@ def job_ok(jobs, name, run_id, sha, steps=(), attempt=None):
         s = exactly([x for x in j.get('steps', []) if x.get('name') == step], f'step {name}/{step}')
         if (s.get('status'), s.get('conclusion')) != ('completed', 'success'): fail(f'step {name}/{step} did not succeed')
 
+def workflow_revision_builds_resolved_tag(text):
+    if not isinstance(text, (bytes, str)): fail('invalid workflow revision')
+    body = text.decode() if isinstance(text, bytes) else text
+    peel = 'sha="$(gh api "repos/${REPO}/commits/refs/tags/${tag}" --jq ' + "'.sha'" + ')"'
+    required = (
+        'tag="v${INPUT_VERSION}"',
+        'INPUT_VERSION: ${{ inputs.version }}',
+        'ref: ${{ needs.prepare.outputs.sha }}',
+        peel,
+        'Require version carriers to equal the tag',
+    )
+    for snippet in required:
+        if snippet not in body: fail('workflow revision does not build the resolved tag')
+    # The build must not check out the dispatch ref; that would compile main.
+    if 'ref: ${{ github.sha }}' in body: fail('workflow revision checks out the dispatch ref')
+
+
+
+def release_run_matches(run, tag, expected_sha, run_id, workflow_id):
+    if (run.get('id') != run_id or run.get('workflow_id') != workflow_id or
+            run.get('path') != '.github/workflows/release.yml' or
+            run.get('run_attempt') != 1 or
+            (run.get('status'), run.get('conclusion')) != ('completed', 'success') or
+            run.get('repository', {}).get('id') != REPO_ID or
+            run.get('head_repository', {}).get('id') != REPO_ID):
+        fail('release run identity/status mismatch')
+    event = run.get('event')
+    head_sha, head_branch = run.get('head_sha'), run.get('head_branch')
+    if event == 'push':
+        if head_sha != expected_sha or head_branch != tag:
+            fail('release run identity/status mismatch')
+        return head_sha
+    if event == 'workflow_dispatch':
+        if head_branch != 'main' or not re.fullmatch(r'[0-9a-f]{40}', head_sha or ''):
+            fail('release run identity/status mismatch')
+        return head_sha
+    fail('release run identity/status mismatch')
+
 
 def ci_run_ok(run, sha, workflow_id):
     event = run.get('event')
@@ -128,16 +166,15 @@ def verify_provenance(api, tag, expected_sha, run_id, zips):
     if (release_workflow.get('path') != '.github/workflows/release.yml' or ci_workflow.get('path') != '.github/workflows/ci.yml' or not isinstance(release_workflow.get('id'), int) or release_workflow['id'] < 1 or not isinstance(ci_workflow.get('id'), int) or ci_workflow['id'] < 1 or ci_workflow['id'] == release_workflow['id']): fail('workflow identity mismatch')
     run = api(f'{REPO}/actions/runs/{run_id}')
     if run.get('run_attempt') != 1: fail('unsupported release run attempt: only attempt 1 has sufficient artifact binding; later attempts require job-bound artifact evidence')
-    if (run.get('id') != run_id or run.get('workflow_id') != release_workflow.get('id') or
-        run.get('path') != '.github/workflows/release.yml' or run.get('event') != 'push' or
-        run.get('head_sha') != expected_sha or run.get('head_branch') != tag or
-        (run.get('status'), run.get('conclusion')) != ('completed', 'success') or
-        run.get('repository', {}).get('id') != REPO_ID or run.get('head_repository', {}).get('id') != REPO_ID):
-        fail('release run identity/status mismatch')
+    job_head_sha = release_run_matches(run, tag, expected_sha, run_id, release_workflow.get('id'))
     jobs = pages(api, f'{REPO}/actions/runs/{run_id}/attempts/1/jobs', 'jobs')
-    job_ok(jobs, 'Full suite green on release sha', run_id, expected_sha, ('Require a successful workflow_dispatch CI run on this sha',))
+    if run.get('event') == 'workflow_dispatch':
+        workflow_revision_builds_resolved_tag(source(api, '.github/workflows/release.yml', job_head_sha))
+        job_ok(jobs, 'Resolve release tag', run_id, job_head_sha,
+               ('Resolve tag to commit', 'Require version carriers to equal the tag'))
+    job_ok(jobs, 'Full suite green on release sha', run_id, job_head_sha, ('Require a successful workflow_dispatch CI run on this sha',))
     for leg in LEGS:
-        job_ok(jobs, f'Build & release ({leg.removeprefix("bundle-")})', run_id, expected_sha, ('Build Tauri app', 'Upload bundle artifacts'))
+        job_ok(jobs, f'Build & release ({leg.removeprefix("bundle-")})', run_id, job_head_sha, ('Build Tauri app', 'Upload bundle artifacts'))
     # The producer already admits manual CI or a canonical push-to-main full
     # run. Both execute these exact full roles; PR/queue/scheduled/tag pushes
     # and fast-only runs cannot stand in for them.
@@ -172,7 +209,7 @@ def verify_provenance(api, tag, expected_sha, run_id, zips):
         a = exactly([x for x in artifacts if x.get('name') == name], f'artifact {name}')
         w = a.get('workflow_run', {})
         d = a.get('digest', '')
-        if (a.get('expired') is not False or not isinstance(a.get('id'), int) or a['id'] < 1 or not re.fullmatch(r'sha256:[0-9a-f]{64}', d or '') or w.get('id') != run_id or w.get('repository_id') != REPO_ID or w.get('head_repository_id') != REPO_ID or w.get('head_sha') != expected_sha): fail(f'artifact {name} identity/digest/expiry mismatch')
+        if (a.get('expired') is not False or not isinstance(a.get('id'), int) or a['id'] < 1 or not re.fullmatch(r'sha256:[0-9a-f]{64}', d or '') or w.get('id') != run_id or w.get('repository_id') != REPO_ID or w.get('head_repository_id') != REPO_ID or w.get('head_sha') != job_head_sha): fail(f'artifact {name} identity/digest/expiry mismatch')
         path = Path(zips[name])
         if path.is_symlink() or not path.is_file() or path.stat().st_size > 2 * 1024**3: fail(f'invalid ZIP {name}')
         if not isinstance(a.get('size_in_bytes'), int) or a['size_in_bytes'] != path.stat().st_size: fail(f'artifact ZIP size mismatch: {name}')

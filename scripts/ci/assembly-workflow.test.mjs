@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -98,6 +98,80 @@ test('Linux CI upgrades source URIs from its checked-out source before the uncha
   assert.match(step.run, /Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30/);
   assert.match(step.run, /sudo apt-get "\$\{apt_opts\[@\]\}" update/);
   assert.doesNotMatch(step.run, /no-install-recommends/);
+});
+
+test('assembly dispatch resolves the numeric prepare job and peeled tag', () => {
+  const source = readFileSync(new URL('../../.github/workflows/release-assemble-dispatch.yml', import.meta.url), 'utf8');
+  const step = extractRuns(source).find(item => item.name === 'Validate the release build and CI, then dispatch assembly');
+  assert.ok(step);
+  assert.doesNotMatch(step.run, /--job "Resolve release tag"/);
+  assert.match(step.run, /attempts\/1\/jobs/);
+  const directory = mkdtempSync(join(tmpdir(), 'md-dispatch-'));
+  const bin = join(directory, 'bin');
+  mkdirSync(bin);
+  const trace = join(directory, 'trace');
+  const dispatched = join(directory, 'dispatched');
+  writeFileSync(join(bin, 'gh'), `#!/bin/sh
+printf '%s\\n' "$*" >> "$TRACE"
+case "$*" in
+  *attempts/1/jobs*) printf '%s\\n' 129575419711 ;;
+  *"--job 129575419711"*)
+    printf '%s\\n' 'print("version carriers match", want)'
+    printf '%s\\n' 'version carriers match 0.7.5'
+    ;;
+  *commits/v0.7.5*) printf '%s\\n' aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa ;;
+  *commits/v0.7.3*) printf '%s\\n' bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb ;;
+  *actions/runs/42739085824*) printf '%s\\n' '.github/workflows/release.yml workflow_dispatch success 1 main cccccccccccccccccccccccccccccccccccccccc' ;;
+  *actions/runs/99*) printf '%s\\n' '.github/workflows/release.yml push success 1 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' ;;
+  *workflows/ci.yml/runs*) printf '%s\\n' 1 ;;
+  *"workflow run"*) printf '%s\\n' "$*" > "$DISPATCHED" ;;
+  *) echo "unmocked: $*" >&2; exit 9 ;;
+esac
+`);
+  chmodSync(join(bin, 'gh'), 0o755);
+  const base = {
+    ...process.env,
+    PATH: `${bin}:${process.env.PATH}`,
+    TRACE: trace,
+    DISPATCHED: dispatched,
+    REPO: 'ashlrai/ashlr-md',
+  };
+  try {
+    const dispatchedRun = spawnSync('bash', ['-c', step.run], {
+      encoding: 'utf8',
+      env: {
+        ...base,
+        EVENT: 'workflow_dispatch',
+        HEAD_BRANCH: 'main',
+        HEAD_SHA: 'c'.repeat(40),
+        RELEASE_RUN_ID: '42739085824',
+      },
+    });
+    assert.equal(dispatchedRun.status, 0, dispatchedRun.stderr + dispatchedRun.stdout);
+    const sent = readFileSync(dispatched, 'utf8');
+    assert.match(sent, /release_tag=v0\.7\.5/);
+    assert.match(sent, /source_sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/);
+    assert.match(sent, /release_run_id=42739085824/);
+    assert.doesNotMatch(readFileSync(trace, 'utf8'), /--job Resolve/);
+    rmSync(dispatched);
+    writeFileSync(trace, '');
+    const pushed = spawnSync('bash', ['-c', step.run], {
+      encoding: 'utf8',
+      env: {
+        ...base,
+        EVENT: 'push',
+        HEAD_BRANCH: 'v0.7.3',
+        HEAD_SHA: 'b'.repeat(40),
+        RELEASE_RUN_ID: '99',
+      },
+    });
+    assert.equal(pushed.status, 0, pushed.stderr + pushed.stdout);
+    const pushSent = readFileSync(dispatched, 'utf8');
+    assert.match(pushSent, /release_tag=v0\.7\.3/);
+    assert.match(pushSent, /source_sha=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test('every setup-bun step pins an exact Bun version instead of resolving latest', () => {

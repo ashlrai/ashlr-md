@@ -283,7 +283,10 @@ def main():
             current = provenance.fetch(f'{provenance.REPO}/git/ref/tags/{args.tag}')
             if current.get('object') != evidence['tag_object']: fail('tag changed before staging completed')
             run = provenance.fetch(f'{provenance.REPO}/actions/runs/{args.run_id}')
-            if (run.get('id') != args.run_id or run.get('run_attempt') != 1 or run.get('workflow_id') != evidence['release_workflow_id'] or run.get('head_sha') != args.source_sha or (run.get('status'), run.get('conclusion')) != ('completed', 'success')): fail('release run changed before staging completed')
+            try:
+                provenance.release_run_matches(run, args.tag, args.source_sha, args.run_id, evidence['release_workflow_id'])
+            except ValueError:
+                fail('release run changed before staging completed')
             rename_no_replace(staging, args.output_name, staging_fd)
     except (ValueError, OSError, KeyError, struct.error, tarfile.TarError, zipfile.BadZipFile, subprocess.SubprocessError) as error:
         p.exit(1, f'assembly failed: {error}\n')
