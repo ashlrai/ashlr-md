@@ -25043,6 +25043,16 @@ describe("default autofix: invalid link between unchanged paragraphs", () => {
 });
 
 describe("autofix: invalid links on separate lines", () => {
+  it("fixes both lines with the default rules and preserves the surrounding document", () => {
+    const doc = "---\ntitle: Guide\n---\n\nStart [here]() today.\nNext, read [more](#) carefully.\nDone.\n";
+    const expected = "---\ntitle: Guide\n---\n\nStart [here](TODO) today.\nNext, read [more](TODO) carefully.\nDone.\n";
+    const violations = lintDocument(doc);
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target", "invalid-link-target"]);
+    expect(fixAllViolations(doc, violations)).toBe(expected);
+    expect(lintDocument(expected)).toEqual([]);
+  });
+
   it.each(["\n", "\r\n"])("preserves surrounding text with %j line endings", (nl) => {
     const rules = [ruleInvalidLinkTarget];
     const doc = `Intro.${nl}Read [guide]() for setup.${nl}Then see [details](?) before continuing.${nl}Done.${nl}`;
