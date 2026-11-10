@@ -255,6 +255,35 @@ def prove(api, tag, sha, run_id, zips, binding_zip):
     return report
 
 
+def confirm_published_latest(api, release_id, tag):
+    """The PATCH response is not enough. Re-read the release and the latest pointer."""
+    release = api(f'{provenance.REPO}/releases/{require_id(release_id)}')
+    if release.get('draft') is not False or release.get('tag_name') != tag:
+        fail('published release did not stay published for this tag')
+    if release.get('make_latest') not in ('true', True):
+        fail('published release is not marked make_latest')
+    try:
+        latest = api(f'{provenance.REPO}/releases/latest')
+    except FileNotFoundError:
+        latest = None
+    if not isinstance(latest, dict) or latest.get('tag_name') != tag or latest.get('draft') is True:
+        fail('published release is not the latest release')
+
+
+def report_tag_created_during_publish(api, tag, expected, original):
+    """A deleted tag can be recreated from main by the release POST. Never delete it."""
+    try:
+        current = provenance.peel_annotated_tag(api, tag)[0]
+    except (FileNotFoundError, ValueError):
+        return
+    if current == expected:
+        return
+    raise ValueError(
+        f'tag {tag} was created or moved during publish and now points at {current}, '
+        f'not {expected}. The tag was not deleted'
+    ) from original
+
+
 def publish_release(api, write, tag, sha, notes, files, upload):
     """Create a draft for this existing tag, upload, then publish.
 
@@ -284,9 +313,9 @@ def publish_release(api, write, tag, sha, notes, files, upload):
         })
         if release.get('tag_name') != tag or release.get('draft') is not True:
             fail('GitHub did not create a draft for the existing tag')
+        created = require_id(release.get('id'))
         if provenance.peel_annotated_tag(api, tag)[0] != sha:
             fail('tag moved during publish')
-        created = require_id(release.get('id'))
         for path in files:
             upload(tag, path)
         if provenance.peel_annotated_tag(api, tag)[0] != sha:
@@ -298,16 +327,18 @@ def publish_release(api, write, tag, sha, notes, files, upload):
         if published.get('draft') is not False or published.get('tag_name') != tag:
             fail('GitHub did not publish the draft')
         created = None
+        confirm_published_latest(api, require_id(published.get('id') or release.get('id')), tag)
         if provenance.peel_annotated_tag(api, tag)[0] != sha:
             fail('tag moved during publish')
         return published
-    except Exception:
+    except Exception as original:
         if created is not None:
             try:
                 write('DELETE', f'/repos/ashlrai/ashlr-md/releases/{created}', None)
             except Exception:
                 # The original failure still propagates. A leftover draft is refused later.
                 pass
+        report_tag_created_during_publish(api, tag, sha, original)
         raise
 
 
@@ -332,7 +363,7 @@ def gh_get(path):
 
 
 TOKEN_SHAPE = re.compile(
-    r'(?:ghp_|ghr_|github_pat_|gho_|ghu_|ghs_)[A-Za-z0-9_]+|Bearer\s+\S+',
+    r'(?:ghp_|ghr_|github_pat_|gho_|ghu_|ghs_)[A-Za-z0-9_]+|(?i:Bearer)\s+\S+',
 )
 
 
