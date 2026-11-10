@@ -20,8 +20,9 @@ gh workflow run auto-tag.yml -R ashlrai/ashlr-md              # tag current main
 gh workflow run release.yml -R ashlrai/ashlr-md -f version=X.Y.Z   # build existing tag vX.Y.Z
 ```
 
-`release.yml` stays build-only: assembling and publishing the GitHub Release
-(section 4) is still a separate maintainer step. The full-suite gate accepts a
+`release.yml` stays build-only. Assembly stays read-only. After that
+assembly succeeds, `release-publish.yml` publishes the GitHub Release from the
+verified staging (section 4). The full-suite gate accepts a
 successful `ci.yml` run on the exact tag commit from either `workflow_dispatch`
 or the post-merge push to `main`.
 It waits up to 15 minutes for that exact-SHA CI to finish, since the tag can
@@ -59,11 +60,11 @@ git push origin vX.Y.Z
 This triggers `.github/workflows/release.yml`, which fans out across the full
 build matrix and **uploads each platform's bundles as workflow artifacts**.
 
-> **The workflow does NOT create the GitHub Release.** `release.yml` is
-> build-only: it does not call the Release API or publish `latest.json`.
-> A maintainer assembles and
-> publishes the Release manually from the uploaded artifacts (see §4). Until
-> that manual step is done, **no release exists and the updater sees nothing.**
+> **`release.yml` does NOT create the GitHub Release.** It is build-only: it
+> does not call the Release API or publish `latest.json`. Assembly is also
+> read-only. `release-publish.yml` publishes the Release after that assembly
+> succeeds (see §4). Until that job publishes, **no release exists and the
+> updater sees nothing.**
 
 > A pre-release tag is not automatically marked as a pre-release by this
 > build-only workflow. Set the Release status explicitly when publishing.
@@ -187,19 +188,20 @@ without repacking, preserves the existing strict live provenance checks,
 uses the reviewed pinned inspection tools and verifies all signatures and
 platform payloads before exposing staging. A failed or skipped check uploads
 nothing. Re-running this read-only assembly never re-runs the original build
-or publishes anything.
+or publishes anything. `release-publish.yml` publishes only after this
+assembly job itself succeeds.
 
 The native installers described below still require separate byte-preserving
 staging and independent acceptance. A staging artifact is not publication.
-Download it by its exact artifact ID, recheck its recorded source/build tuple
-and every staged hash/signature, then follow the maintainer publication steps
-below. Keep the resulting public receipt separate from this assembly proof.
+The publish workflow downloads it by its exact artifact name, rechecks its
+recorded source/build tuple and every staged hash and signature, then performs
+step 6. Keep the resulting public receipt separate from this assembly proof.
 
 
-Because `release.yml` only uploads artifacts (see §2), a maintainer must
-assemble and independently validate the release before publishing. Do not publish
-if required evidence is missing. The local helper is a candidate, not yet
-qualified on four actual artifacts from one eligible run. It does not publish.
+Because `release.yml` only uploads artifacts (see §2), assembly has to succeed
+and `release-publish.yml` re-checks that evidence before publishing. Do not
+publish if required evidence is missing. The local helper is a candidate, not
+yet qualified on four actual artifacts from one eligible run. It does not publish.
 
 1. Obtain the original, unmodified ZIP for each of the four workflow artifacts
    from the completed release run. Keep them in one directory, named
@@ -282,10 +284,17 @@ qualified on four actual artifacts from one eligible run. It does not publish.
    `signature` is the **contents** of its matching `.sig` file, not a URL;
    `url` points to the exact staged updater asset. Independently validate its
    version, platform set, signatures and URLs against the staged inventory.
-6. Only with separate release authorization, create the GitHub Release for the
-   tag, explicitly set pre-release status as appropriate, add the matching
-   changelog notes, attach the validated staged assets and manifest, and publish.
-   Verify the downloaded assets and manifest after publication.
+6. `release-publish.yml` does this after the assemble job itself succeeds on
+   attempt 1. It runs the publisher from the default-branch workflow checkout
+   and treats the triggering run's artifacts as data. It reuses the annotated
+   tag peel and the prepare job's `release-binding` record (`inputs.version`,
+   tag and sha), so artifacts built for one tag cannot be published as another.
+   It refuses a tag that already has a GitHub Release, and a version that is
+   not strictly greater than the latest release. It re-checks hashes and
+   signatures, writes `latest.json`, uploads the validated assets, and publishes
+   the release for that existing tag. It does not create or move the tag. The
+   publish job runs in the existing main-only Production environment.
+   Homebrew, winget and the AUR stay manual.
 
 Updater signatures are not Apple Developer ID signing/notarization or Windows
 Authenticode. Verify those independently, along with native install, update and
@@ -398,7 +407,7 @@ git push
 
 | Secret | Used by | Required? |
 |---|---|---|
-| `GITHUB_TOKEN` | Read-only (build/artifacts); release is published manually, see §4 | Auto-provided |
+| `GITHUB_TOKEN` | Read-only for build and assembly. Only the publish job has `contents: write`, see §4 | Auto-provided |
 | `TAURI_SIGNING_PRIVATE_KEY` | Updater `.sig` files | Yes (all legs) |
 | `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | Updater `.sig` files | Yes (all legs) |
 | `APPLE_CERTIFICATE` | macOS code signing | Optional (unsigned DMG works) |
@@ -445,7 +454,7 @@ git commit -m "chore: regenerate app icons"
 - [ ] Version bump commit on `main`
 - [ ] Tag `vX.Y.Z` pushed; workflow fires
 - [ ] All four workflow legs green
-- [ ] CI artifacts downloaded and renamed, `latest.json` assembled, Release published (§4)
+- [ ] Assembly succeeded and `release-publish.yml` published the Release (§4)
 - [ ] Homebrew tap cask updated (version + sha256)
 - [ ] winget manifest PR submitted to `microsoft/winget-pkgs`
 - [ ] AUR PKGBUILD updated and pushed

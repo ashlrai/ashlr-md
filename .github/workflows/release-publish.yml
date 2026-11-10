@@ -1,0 +1,136 @@
+# Publishes the GitHub Release for one verified assembly. It never creates or
+# moves a tag. The publisher is this workflow's own revision on the default
+# branch. Assembly artifacts and run metadata are data, and this file does not
+# check out or run the triggering run.
+name: Publish verified release
+
+on:
+  workflow_run:
+    workflows: ["Assemble verified MD updater staging"]
+    types: [completed]
+
+permissions: {}
+
+jobs:
+  resolve:
+    if: >-
+      github.repository == 'ashlrai/ashlr-md' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'workflow_dispatch' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.run_attempt == 1 &&
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      github.event.workflow_run.path == '.github/workflows/release-assemble.yml'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - name: Checkout this workflow revision
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Install the pinned Python toolchain
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12.14'
+
+      - name: Download the verified assembly as data
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ASSEMBLE_RUN_ID: ${{ github.event.workflow_run.id }}
+          ASSEMBLE_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+        run: |
+          set -euo pipefail
+          case "$ASSEMBLE_RUN_ID" in
+            ''|*[!0-9]*) echo "::error::invalid run id"; exit 1 ;;
+          esac
+          test "$ASSEMBLE_ATTEMPT" = 1
+          rm -rf publish-data
+          mkdir -p publish-data/staging
+          gh run download "$ASSEMBLE_RUN_ID" --repo ashlrai/ashlr-md \
+            --name "ashlr-md-assembly-${ASSEMBLE_RUN_ID}-1" \
+            --dir publish-data/staging
+
+      - name: Resolve the bound release tag
+        id: tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          ASSEMBLE_RUN_ID: ${{ github.event.workflow_run.id }}
+          ASSEMBLE_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+        run: |
+          set -euo pipefail
+          python3 scripts/publish-verified-release.py --mode resolve
+
+  publish:
+    needs: resolve
+    if: >-
+      needs.resolve.result == 'success' &&
+      needs.resolve.outputs.tag != '' &&
+      github.repository == 'ashlrai/ashlr-md' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'workflow_dispatch' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.run_attempt == 1 &&
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      github.event.workflow_run.path == '.github/workflows/release-assemble.yml'
+    environment: Production
+    concurrency:
+      group: release-publish-${{ needs.resolve.outputs.tag }}
+      cancel-in-progress: false
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - name: Checkout this workflow revision
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Install the pinned Python toolchain
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12.14'
+
+      - name: Install the pinned Rust toolchain
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # 1.99.1
+        with:
+          toolchain: '1.99.1'
+
+      - name: Download the verified assembly as data
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ASSEMBLE_RUN_ID: ${{ github.event.workflow_run.id }}
+          ASSEMBLE_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+        run: |
+          set -euo pipefail
+          case "$ASSEMBLE_RUN_ID" in
+            ''|*[!0-9]*) echo "::error::invalid run id"; exit 1 ;;
+          esac
+          test "$ASSEMBLE_ATTEMPT" = 1
+          rm -rf publish-data
+          mkdir -p publish-data/staging
+          gh run download "$ASSEMBLE_RUN_ID" --repo ashlrai/ashlr-md \
+            --name "ashlr-md-assembly-${ASSEMBLE_RUN_ID}-1" \
+            --dir publish-data/staging
+
+      - name: Publish the verified assembly
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PUBLISH_WORKFLOW: '1'
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          ASSEMBLE_RUN_ID: ${{ github.event.workflow_run.id }}
+          ASSEMBLE_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          EXPECTED_TAG: ${{ needs.resolve.outputs.tag }}
+        run: |
+          set -euo pipefail
+          python3 scripts/publish-verified-release.py --mode publish
