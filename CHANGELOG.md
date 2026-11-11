@@ -26,10 +26,12 @@ Released 2026-06-06. [Release notes and downloads](https://github.com/ashlrai/as
 - Release assembly accepts a successful `main`-only `workflow_dispatch` of `release.yml` for an existing tag, after peeling the tag and checking out the resolved commit. Tag-push checks are unchanged.
 - Release provenance checks send the job's read-only `GH_TOKEN` to `api.github.com` when present, so a full proof no longer exhausts the anonymous API rate limit.
 - CI and release jobs pin Bun 1.3.14 instead of `latest`.
+- Applying a diff hunk with an empty `find` to an empty document now inserts the replacement text instead of failing to match.
 
 ### Changed
 - The keyboard shortcut tables in the README, `docs/SHORTCUTS.md` and the landing page list macOS modifiers in the order the app shows them (`⇧⌘L`, `⌥⌘F`), and the doc facts test now checks that order and the README's own table.
 - Rust `target/` build output is ignored and no longer committed.
+- The CI checks job is named "Typecheck, lint, unit tests, crypto policy": it runs `bun run test:unit` in place of the single punctuation test, runs `bun run check:doc-links`, and runs the Tauri bundler prefetch tests.
 
 ### Tests
 - Vitest allows 60 seconds per test and hook, so Milkdown mounts on a CPU-starved host no longer time out healthy suites.
