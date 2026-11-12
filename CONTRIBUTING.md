@@ -44,6 +44,8 @@ bun run test             # llms.txt node test, then the full Vitest suite
 bun run test:unit        # fast lane CI runs first: punctuation, CLI build setup, mdlint
 bun run check:crypto     # classical-only crypto policy
 bun run check:doc-links  # relative links in the repo's Markdown resolve
+node --test scripts/package-scripts.test.mjs  # npm scripts point at files that exist
+node --test scripts/ci/gate.test.mjs scripts/ci/release-gate.test.mjs scripts/ci/assembly-workflow.test.mjs  # CI and release gate regressions
 bun run test:freshness && bun run fresh:check  # generated release blocks
 bun run test:doclive && bun run doclive:check  # doc claims vs code + generated docs blocks
 bun run check:version    # package.json, tauri.conf.json and Cargo.toml versions agree
