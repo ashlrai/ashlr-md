@@ -17,6 +17,7 @@ Released 2026-06-06. [Release notes and downloads](https://github.com/ashlrai/as
 ### Added
 - `release-assemble-dispatch.yml` dispatches read-only release assembly on `main` once a Release build for an exact `vX.Y.Z` tag succeeds on its first attempt and the tagged commit has passed full CI. It peels the tag through an anchored `git/ref` (annotated tags included), never checks out code or reads secrets, and stops on any release lookup that is not an exact HTTP 404.
 - `release-publish.yml` publishes the GitHub Release from the default-branch workflow after assembly succeeds (`scripts/publish-verified-release.py`). It treats the assembly artifacts as data, publishes only when the peeled tag matches the prepare release binding, refuses a tag that already has a Release, creates the draft with `make_latest` false and names only the tag, then re-reads the Release to confirm it is published and latest. A tag created or moved during publishing is reported and never deleted, and error text redacts GitHub tokens.
+- The release prepare job uploads a `release-binding` artifact (`release-binding.json`: event, `inputs.version`, version, tag and sha) after checking the tag is `vX.Y.Z` and the sha is a full commit. Assembly checks it, because the Actions API returns neither dispatch inputs nor job outputs.
 - `bun run docs:fixtures` regenerates `docs/mdlint-autofix-fixture-index.md` from the declarations in `src/lib/mdlint-autofix.test.ts`.
 - `bun run test:unit` runs the fast unit lane (punctuation, CLI build setup and mdlint) that the CI checks job now runs.
 
@@ -25,6 +26,7 @@ Released 2026-06-06. [Release notes and downloads](https://github.com/ashlrai/as
 - Jumping to a source line inside a fenced code block, Mermaid diagram or diff block in Read view lands on that block: rendered code blocks now carry their source line.
 - Release assembly accepts a successful `main`-only `workflow_dispatch` of `release.yml` for an existing tag, after peeling the tag and checking out the resolved commit. Tag-push checks are unchanged.
 - Release provenance checks send the job's read-only `GH_TOKEN` to `api.github.com` when present, so a full proof no longer exhausts the anonymous API rate limit.
+- The release Tauri build passes `retryAttempts: "2"` to tauri-action and sets `TAURI_BUNDLER_DMG_IGNORE_CI` to `false`, which restores the bundler's CI detection on macOS.
 - CI and release jobs pin Bun 1.3.14 instead of `latest`.
 - Applying a diff hunk with an empty `find` to an empty document now inserts the replacement text instead of failing to match.
 
@@ -32,6 +34,9 @@ Released 2026-06-06. [Release notes and downloads](https://github.com/ashlrai/as
 - The keyboard shortcut tables in the README, `docs/SHORTCUTS.md` and the landing page list macOS modifiers in the order the app shows them (`⇧⌘L`, `⌥⌘F`), and the doc facts test now checks that order and the README's own table.
 - Rust `target/` build output is ignored and no longer committed.
 - The CI checks job is named "Typecheck, lint, unit tests, crypto policy": it runs `bun run test:unit` in place of the single punctuation test, runs `bun run check:doc-links`, runs the Tauri bundler prefetch and apt dependency plan regressions, the CI and release gate tests, and the npm script file path check. `CONTRIBUTING.md` lists the matching local commands.
+
+### Documentation
+- `docs/integration-bracket-preservation.md` shows an annotation and a citation written back to back (`[sic][1]`) keeping both fragments in order.
 
 ### Tests
 - Vitest allows 60 seconds per test and hook, so Milkdown mounts on a CPU-starved host no longer time out healthy suites.
