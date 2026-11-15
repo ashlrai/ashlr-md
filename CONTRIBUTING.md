@@ -46,6 +46,8 @@ bun run check:crypto     # classical-only crypto policy
 bun run check:doc-links  # relative links in the repo's Markdown resolve
 node --test scripts/package-scripts.test.mjs  # npm scripts point at files that exist
 node --test scripts/ci/gate.test.mjs scripts/ci/release-gate.test.mjs scripts/ci/assembly-workflow.test.mjs  # CI and release gate regressions
+bun run test:select      # affected-scope selector for the CI Linux shards (fails open to the full suite)
+bun run test:dispatch    # allowlist validation of workflow_dispatch inputs
 bun run test:freshness && bun run fresh:check  # generated release blocks
 bun run test:doclive && bun run doclive:check  # doc claims vs code + generated docs blocks
 bun run check:version    # package.json, tauri.conf.json and Cargo.toml versions agree
@@ -56,6 +58,7 @@ cargo check --workspace --manifest-path src-tauri/Cargo.toml
 cargo clippy --workspace --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 cargo test --workspace   --manifest-path src-tauri/Cargo.toml   # Rust unit tests
 bunx vite build          # production frontend build
+HOME=$(mktemp -d) bun run bench:render  # render benchmark (see bench/README.md); not part of CI
 bun audit                # known-vuln JS deps (advisory)
 cargo audit              # known-vuln Rust deps (advisory; cargo install cargo-audit)
 ```

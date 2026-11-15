@@ -36,6 +36,7 @@ Released 2026-06-06. [Release notes and downloads](https://github.com/ashlrai/as
 - The CI checks job is named "Typecheck, lint, unit tests, crypto policy": it runs `bun run test:unit` in place of the single punctuation test, runs `bun run check:doc-links`, runs the Tauri bundler prefetch and apt dependency plan regressions, the CI and release gate tests, and the npm script file path check. `CONTRIBUTING.md` lists the matching local commands.
 
 ### Documentation
+- `CONTRIBUTING.md` lists `bun run test:select`, `bun run test:dispatch` and `bun run bench:render`, the last npm scripts it did not mention.
 - `docs/integration-bracket-preservation.md` shows an annotation and a citation written back to back (`[sic][1]`) keeping both fragments in order.
 
 ### Tests
