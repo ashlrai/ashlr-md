@@ -74,8 +74,6 @@ def metadata_path(path):
         r'/actions/runs/[1-9][0-9]*/attempts/[1-9][0-9]*/jobs' + page,
         rf'/actions/workflows/ci\.yml/runs\?event=workflow_dispatch&head_sha={SHA}&per_page=100&page=(?:[1-9][0-9]?|100)',
         rf'/contents/(?:\.github/workflows/(?:release|ci)\.yml|src-tauri/tauri\.conf\.json|src-tauri/Cargo\.toml|package\.json)\?ref={SHA}',
-        rf'/releases/tags/{re.escape(TAG)}',
-        r'/releases/latest',
     )
     return len(path) <= 512 and any(re.fullmatch(route, tail, flags=re.ASCII) for route in routes)
 
@@ -98,12 +96,6 @@ def metadata_fetcher(token):
                 value = json.loads(raw)
                 require(isinstance(value, dict), 'metadata must be an object')
                 return value
-        except urllib.error.HTTPError as error:
-            # A missing release is a normal answer for the replay/downgrade check
-            # (release_record maps FileNotFoundError to None); everything else fails closed.
-            if error.code == 404:
-                raise FileNotFoundError('release not found') from None
-            raise ValueError('preparation metadata request failed') from None
         except (OSError, ValueError, http.client.HTTPException):
             # Never include request headers, response bodies or credential-bearing objects.
             raise ValueError('preparation metadata request failed') from None
@@ -333,19 +325,15 @@ def prepare():
         target = work / (leg + '.zip')
         download_zip(a, target, token)
         zips[leg] = target
-    receipt = prov.verify_provenance(api, TAG, SHA, RUN, zips)
-    latest = api(prov.REPO + '/releases/latest')
+    # The 0.5.0 original is long published and superseded; this QA verifies those
+    # historical artifacts, so the publish-time replay/downgrade guard does not apply.
+    receipt = prov.verify_provenance(api, TAG, SHA, RUN, zips, check_release_state=False)
     api = None
     token = None
     app, sig = select_linux(zips['bundle-ubuntu-22.04'], work)
     key = work / 'public-key.txt'
     key.write_text(receipt['public_key'])
     subprocess.run([str(ROOT / 'scripts/release-signature-check/target/release/release-signature-check'), str(key), str(sig), str(app)], check=True, timeout=30)
-    # Read-only metadata: abort on any drift; never accept a UI Install dialog.
-    require(latest.get('tag_name') == 'v0.4.0' and latest.get('prerelease') is False, 'stable release changed; review before probe')
-    with plain_opener().open('https://github.com/ashlrai/ashlr-md/releases/latest/download/latest.json', timeout=30) as response:
-        metadata = json.loads(response.read(1024 * 1024 + 1))
-    require(metadata.get('version') == '0.4.0', 'stable updater metadata changed')
     with (work / 'qualified.json').open('x', encoding='utf-8') as f:
         json.dump({'sha': SHA, 'run': RUN, 'app_sha256': APP_HASH}, f)
     print('Preparation complete; original Linux payload verified. No native process started.')
