@@ -4,6 +4,28 @@ $ErrorActionPreference = 'Stop'
 $phase = 'assemblies'
 $dialogReason = 'provider-error'
 $observation = @{stage='not-started'; count=0; overflow=$false; windows=@()}
+
+function Get-OwnedDialogWindows($desktopWindows, $condition, [int]$targetPid) {
+    # UIA can place an owned dialog beneath its application window rather than
+    # directly beneath the desktop. Inspect one child level of exact-PID windows
+    # only, keeping the same total cap and never traversing WebView descendants.
+    $windows = @()
+    if ($desktopWindows.Count -gt 8) { throw 'window-count' }
+    foreach ($window in $desktopWindows) {
+        if ($window.Current.ProcessId -ne $targetPid) { throw 'unexpected-owner' }
+        $windows += $window
+    }
+    foreach ($window in $desktopWindows) {
+        $children = $window.FindAll([Windows.Automation.TreeScope]::Children, $condition)
+        if ($windows.Count + $children.Count -gt 8) { throw 'window-count' }
+        foreach ($child in $children) {
+            if ($child.Current.ProcessId -ne $targetPid) { throw 'unexpected-owner' }
+            $windows += $child
+        }
+    }
+    return $windows
+}
+
 try {
     Add-Type -AssemblyName UIAutomationClient
     Add-Type -AssemblyName UIAutomationTypes
@@ -30,13 +52,12 @@ try {
     $fixedViolations = @('window-count','unexpected-owner','ambiguous-dialog')
     $dialog = $null
     while ([DateTime]::UtcNow -lt $deadline) {
-        # Immediate desktop children only; never traverse unrelated desktop subtrees.
+        # Desktop children plus one level beneath exact-owned-PID windows only.
         try {
             $observation = @{stage='query'; count=0; overflow=$false; windows=@()}
-            $windows = [Windows.Automation.AutomationElement]::RootElement.FindAll([Windows.Automation.TreeScope]::Children, $condition)
-            $observation.count = [Math]::Min(8, $windows.Count)
-            $observation.overflow = $windows.Count -gt 8
-            if ($windows.Count -gt 8) { $dialogReason='count-overflow'; throw 'window-count' }
+            $desktopWindows = [Windows.Automation.AutomationElement]::RootElement.FindAll([Windows.Automation.TreeScope]::Children, $condition)
+            $windows = @(Get-OwnedDialogWindows $desktopWindows $condition $targetPid)
+            $observation.count = $windows.Count
             $candidates = @()
             foreach ($window in $windows) {
                 $observation.stage = 'inspect'
@@ -65,6 +86,8 @@ try {
         } catch {
             # Fixed violations abort immediately; a transient provider exception retries
             # inside the same bounded deadline instead of ending the poll early.
+            if ($_.Exception.Message -ceq 'window-count') { $dialogReason='count-overflow'; $observation.count=8; $observation.overflow=$true }
+            if ($_.Exception.Message -ceq 'unexpected-owner') { $dialogReason='ownership' }
             if ($fixedViolations -contains $_.Exception.Message) { throw }
             $dialogReason='provider-error'
         }
