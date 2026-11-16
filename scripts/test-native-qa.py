@@ -19,10 +19,11 @@ class Tests(unittest.TestCase):
               f'/actions/runs/{qa.RUN}', f'/actions/runs/{qa.RUN}/artifacts?per_page=100&page=1',
               '/actions/runs/123/attempts/2/jobs?per_page=100&page=100',
               f'/actions/workflows/ci.yml/runs?event=workflow_dispatch&head_sha={qa.SHA}&per_page=100&page=1',
+              f'/actions/workflows/ci.yml/runs?event=push&head_sha={qa.SHA}&per_page=100&page=1',
               ]
         good += [f'/contents/{p}?ref={qa.SHA}' for p in qa.module().SOURCE]
         for route in good: self.assertTrue(qa.metadata_path(prefix+route),route)
-        bad=[None, 'https://api.github.com'+prefix+'/releases/latest', '//evil.invalid/x',
+        bad=[prefix+f'/actions/workflows/ci.yml/runs?event=schedule&head_sha={qa.SHA}&per_page=100&page=1', None, 'https://api.github.com'+prefix+'/releases/latest', '//evil.invalid/x',
              '/repos/other/repo/releases/latest', prefix+'-other/releases/latest',
              prefix+'/../other/releases/latest', prefix+'/%2e%2e/releases/latest',
              prefix+'/releases/latest?ref=x',prefix+'/releases/latest#fragment',

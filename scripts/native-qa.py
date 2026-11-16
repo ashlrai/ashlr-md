@@ -72,7 +72,7 @@ def metadata_path(path):
         rf'/actions/runs/{RUN}',
         rf'/actions/runs/{RUN}/artifacts' + page,
         r'/actions/runs/[1-9][0-9]*/attempts/[1-9][0-9]*/jobs' + page,
-        rf'/actions/workflows/ci\.yml/runs\?event=workflow_dispatch&head_sha={SHA}&per_page=100&page=(?:[1-9][0-9]?|100)',
+        rf'/actions/workflows/ci\.yml/runs\?event=(?:workflow_dispatch|push)&head_sha={SHA}&per_page=100&page=(?:[1-9][0-9]?|100)',
         rf'/contents/(?:\.github/workflows/(?:release|ci)\.yml|src-tauri/tauri\.conf\.json|src-tauri/Cargo\.toml|package\.json)\?ref={SHA}',
     )
     return len(path) <= 512 and any(re.fullmatch(route, tail, flags=re.ASCII) for route in routes)
