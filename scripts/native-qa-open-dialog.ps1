@@ -16,7 +16,9 @@ function Get-OwnedDialogWindows($desktopWindows, $condition, [int]$targetPid) {
         $windows += $window
     }
     foreach ($window in $desktopWindows) {
-        $children = $window.FindAll([Windows.Automation.TreeScope]::Children, $condition)
+        # Materialize into an array: an empty result can surface as $null under
+        # Windows PowerShell 5.1, and strict mode forbids reading .Count on it.
+        $children = @(foreach ($child in $window.FindAll([Windows.Automation.TreeScope]::Children, $condition)) { $child })
         if ($windows.Count + $children.Count -gt 8) { throw 'window-count' }
         foreach ($child in $children) {
             if ($child.Current.ProcessId -ne $targetPid) { throw 'unexpected-owner' }
