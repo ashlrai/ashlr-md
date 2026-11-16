@@ -1,11 +1,16 @@
 name: Original MD 0.5 Linux native probe
-# Specifically approved manual original-artifact QA; not a release/promotion workflow.
+# Original-artifact QA. Runs after merge to main, when a release is published,
+# and on manual dispatch. Not a required check and not a release promotion.
 on:
+  push:
+    branches: [main]
+  release:
+    types: [published]
   workflow_dispatch:
 permissions: {}
 concurrency:
-  group: original-md050-native-probe
-  cancel-in-progress: false
+  group: native-qa-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   linux-original:
     runs-on: ubuntu-22.04
