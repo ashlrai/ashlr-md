@@ -32,10 +32,12 @@ Released 2026-06-06. [Release notes and downloads](https://github.com/ashlrai/as
 
 ### Changed
 - The keyboard shortcut tables in the README, `docs/SHORTCUTS.md` and the landing page list macOS modifiers in the order the app shows them (`⇧⌘L`, `⌥⌘F`), and the doc facts test now checks that order and the README's own table.
+- `src-tauri/Cargo.lock` is refreshed to current dependency resolutions (Tauri 2 build and utils crates); no application code or version changed.
 - Rust `target/` build output is ignored and no longer committed.
 - The CI checks job is named "Typecheck, lint, unit tests, crypto policy": it runs `bun run test:unit` in place of the single punctuation test, runs `bun run check:doc-links`, runs the Tauri bundler prefetch and apt dependency plan regressions, the CI and release gate tests, and the npm script file path check. `CONTRIBUTING.md` lists the matching local commands.
 
 ### Documentation
+- `CONTRIBUTING.md` names `bun run fresh:sync` and `bun run doclive:sync`, the commands that rewrite the generated release and docs blocks the matching check scripts verify.
 - `CONTRIBUTING.md` lists `bun run test:select`, `bun run test:dispatch` and `bun run bench:render`, the last npm scripts it did not mention.
 - `docs/integration-bracket-preservation.md` shows an annotation and a citation written back to back (`[sic][1]`) keeping both fragments in order.
 
