@@ -48,8 +48,8 @@ node --test scripts/package-scripts.test.mjs  # npm scripts point at files that 
 node --test scripts/ci/gate.test.mjs scripts/ci/release-gate.test.mjs scripts/ci/assembly-workflow.test.mjs  # CI and release gate regressions
 bun run test:select      # affected-scope selector for the CI Linux shards (fails open to the full suite)
 bun run test:dispatch    # allowlist validation of workflow_dispatch inputs
-bun run test:freshness && bun run fresh:check  # generated release blocks
-bun run test:doclive && bun run doclive:check  # doc claims vs code + generated docs blocks
+bun run test:freshness && bun run fresh:check  # generated release blocks (`bun run fresh:sync` rewrites them)
+bun run test:doclive && bun run doclive:check  # doc claims vs code + generated docs blocks (`bun run doclive:sync` rewrites them)
 bun run check:version    # package.json, tauri.conf.json and Cargo.toml versions agree
 bun run check:workflow-bash  # bash -n every bash/sh run block in .github/workflows
 python3 scripts/check-docs.py  # docs/AGENTS.md matches tool_registry() and the CLI HELP
