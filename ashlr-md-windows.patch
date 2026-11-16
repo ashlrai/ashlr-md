@@ -1,0 +1,23 @@
+diff --git a/.github/workflows/native-qa-windows.yml b/.github/workflows/native-qa-windows.yml
+index 6a42b9cc..5e17d078 100644
+--- a/.github/workflows/native-qa-windows.yml
++++ b/.github/workflows/native-qa-windows.yml
+@@ -1,11 +1,15 @@
+ name: Original MD 0.5 Windows install and native probe
+-# Specifically approved manual original-artifact Windows QA; no release promotion.
++# Original-artifact Windows QA; no release promotion.
+ on:
++  push:
++    branches: [main]
++  release:
++    types: [published]
+   workflow_dispatch:
+ permissions: {}
+ concurrency:
+-  group: original-md050-windows-probe
+-  cancel-in-progress: false
++  group: native-qa-windows-${{ github.ref }}
++  cancel-in-progress: true
+ jobs:
+   windows-original:
+     runs-on: windows-2022
