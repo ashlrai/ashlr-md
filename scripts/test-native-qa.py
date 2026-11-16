@@ -16,7 +16,7 @@ class Tests(unittest.TestCase):
         prefix='/repos/ashlrai/ashlr-md'
         good=[f'/git/ref/tags/{qa.TAG}', '/git/tags/'+'a'*40,
               '/actions/workflows/release.yml','/actions/workflows/ci.yml',
-              f'/actions/runs/{qa.RUN}', f'/actions/runs/{qa.RUN}/artifacts?per_page=100&page=1',
+              f'/actions/runs/{qa.RUN}', '/actions/runs/43958173608', f'/actions/runs/{qa.RUN}/artifacts?per_page=100&page=1',
               '/actions/runs/123/attempts/2/jobs?per_page=100&page=100',
               f'/actions/workflows/ci.yml/runs?event=workflow_dispatch&head_sha={qa.SHA}&per_page=100&page=1',
               f'/actions/workflows/ci.yml/runs?event=push&head_sha={qa.SHA}&per_page=100&page=1',
@@ -31,6 +31,7 @@ class Tests(unittest.TestCase):
              prefix+'/releases/latest\n', prefix+'/releases/latest/extra',
              prefix+f'/contents/package.json?ref={qa.SHA}&ref=other',
              prefix+f'/contents/package.json?ref={qa.SHA}%26x=1',
+             prefix+'/actions/runs/0', prefix+'/actions/runs/123/rerun', prefix+'/actions/runs/123?x=1',
              prefix+'/actions/runs/123/attempts/1/jobs?per_page=100&page=101',
              prefix+'/actions/runs/123/attempts/1/jobs?per_page=100&page=1&page=2']
         api=qa.metadata_fetcher('synthetic-token')

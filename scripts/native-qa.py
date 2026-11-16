@@ -69,7 +69,8 @@ def metadata_path(path):
         rf'/git/ref/tags/{re.escape(TAG)}',
         r'/git/tags/[0-9a-f]{40}',
         r'/actions/workflows/(?:release|ci)\.yml',
-        rf'/actions/runs/{RUN}',
+        # Any same-repo run: provenance re-reads each candidate CI run (same_ci_attempt).
+        r'/actions/runs/[1-9][0-9]*',
         rf'/actions/runs/{RUN}/artifacts' + page,
         r'/actions/runs/[1-9][0-9]*/attempts/[1-9][0-9]*/jobs' + page,
         rf'/actions/workflows/ci\.yml/runs\?event=(?:workflow_dispatch|push)&head_sha={SHA}&per_page=100&page=(?:[1-9][0-9]?|100)',
