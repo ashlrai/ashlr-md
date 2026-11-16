@@ -274,6 +274,7 @@ class Tests(unittest.TestCase):
                 w.prepare()
                 self.assertEqual(run.call_count,1)
                 self.assertIs(prov.verify_provenance.call_args.args[0],api)
+                self.assertIs(prov.verify_provenance.call_args.kwargs['check_release_state'],False)
                 self.assertNotIn('synthetic',(root/w.STAGE/'qualified.json').read_text())
 
     def test_owned_worker_boundary_precedes_install(self):
