@@ -81,9 +81,9 @@ class ProvenanceTests(unittest.TestCase):
             if '/releases/' in path: raise FileNotFoundError(path)
             raise AssertionError(f'unexpected API path {path}')
         return copy.deepcopy(self.data[path])
-    def verify(self):
+    def verify(self, **kwargs):
         zips = {name: self.zips[name] for name in p.LEGS}
-        return p.verify_provenance(self.api, 'v0.4.0', SHA, RUN, zips, binding_zip=getattr(self, 'binding_zip', None))
+        return p.verify_provenance(self.api, 'v0.4.0', SHA, RUN, zips, binding_zip=getattr(self, 'binding_zip', None), **kwargs)
     SAFE_WORKFLOW = (
         'name: Release\n'
         'tag="v${INPUT_VERSION}"\n'
@@ -395,6 +395,8 @@ class ProvenanceTests(unittest.TestCase):
         self.data[f'{REPO}/releases/latest'] = {'tag_name': 'v0.5.0', 'draft': False}
         with self.assertRaisesRegex(ValueError, 'not strictly greater'):
             self.verify()
+        # Historical-artifact QA opts out of the publish-time guard explicitly.
+        self.assertIsNotNone(self.verify(check_release_state=False))
         self.data[f'{REPO}/releases/latest'] = {'tag_name': 'v0.3.0', 'draft': False}
         self.assertIsNotNone(self.verify())
 

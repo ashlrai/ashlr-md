@@ -19,14 +19,14 @@ class Tests(unittest.TestCase):
               f'/actions/runs/{qa.RUN}', f'/actions/runs/{qa.RUN}/artifacts?per_page=100&page=1',
               '/actions/runs/123/attempts/2/jobs?per_page=100&page=100',
               f'/actions/workflows/ci.yml/runs?event=workflow_dispatch&head_sha={qa.SHA}&per_page=100&page=1',
-              f'/releases/tags/{qa.TAG}', '/releases/latest']
+              ]
         good += [f'/contents/{p}?ref={qa.SHA}' for p in qa.module().SOURCE]
         for route in good: self.assertTrue(qa.metadata_path(prefix+route),route)
         bad=[None, 'https://api.github.com'+prefix+'/releases/latest', '//evil.invalid/x',
              '/repos/other/repo/releases/latest', prefix+'-other/releases/latest',
              prefix+'/../other/releases/latest', prefix+'/%2e%2e/releases/latest',
              prefix+'/releases/latest?ref=x',prefix+'/releases/latest#fragment',
-             prefix+'/releases/tags/v9.9.9',prefix+f'/releases/tags/{qa.TAG}/x',
+             prefix+'/releases/latest',prefix+f'/releases/tags/{qa.TAG}',
              prefix+'/releases/latest\n', prefix+'/releases/latest/extra',
              prefix+f'/contents/package.json?ref={qa.SHA}&ref=other',
              prefix+f'/contents/package.json?ref={qa.SHA}%26x=1',
@@ -45,7 +45,7 @@ class Tests(unittest.TestCase):
             status=200
         opener=MagicMock()
         api=qa.metadata_fetcher('synthetic-token')
-        route='/repos/ashlrai/ashlr-md/releases/latest'
+        route=f'/repos/ashlrai/ashlr-md/git/ref/tags/{qa.TAG}'
         opener.open.return_value=Response(b'{"tag_name":"v0.4.0"}')
         with patch.object(qa.urllib.request,'build_opener',return_value=opener) as build:
             self.assertEqual(api(route), {'tag_name':'v0.4.0'})
@@ -62,8 +62,6 @@ class Tests(unittest.TestCase):
             response=Response(b'{}'); response.status=302; opener.open.return_value=response
             with self.assertRaises(ValueError): api(route)
             opener.open.side_effect=qa.urllib.error.HTTPError('u',404,'nf',{},None)
-            with self.assertRaises(FileNotFoundError): api(route)
-            opener.open.side_effect=qa.urllib.error.HTTPError('u',500,'err',{},None)
             with self.assertRaisesRegex(ValueError,'^preparation metadata request failed$'): api(route)
             opener.open.side_effect=qa.urllib.error.URLError('synthetic-token must not appear')
             with self.assertRaisesRegex(ValueError,'^preparation metadata request failed$'): api(route)
@@ -77,16 +75,16 @@ class Tests(unittest.TestCase):
         prov.pages.return_value=[{'name':'bundle-ubuntu-22.04','expired':False,'workflow_run':{'head_sha':qa.SHA}}]
         prov.exactly.side_effect=lambda values,label: values[0]
         prov.verify_provenance.return_value={'public_key':'synthetic-key'}
-        api=MagicMock(return_value={'tag_name':'v0.4.0','prerelease':False})
-        opener=MagicMock(); opener.open.return_value=io.BytesIO(b'{"version":"0.4.0"}')
+        api=MagicMock()
         with tempfile.TemporaryDirectory() as t:
             root=Path(t); out=root/'out'; out.touch(); work=root/'md050-original-native-qa'
             def child(*args,**kwargs): self.assertNotIn('GH_TOKEN',qa.os.environ)
-            with patch.dict(qa.os.environ,{'GH_TOKEN':'synthetic-token','RUNNER_TEMP':t,'GITHUB_OUTPUT':str(out)},clear=True), patch.object(qa,'module',return_value=prov), patch.object(qa,'metadata_fetcher',return_value=api), patch.object(qa,'download_zip') as download, patch.object(qa,'select_linux',return_value=(work/qa.APP,work/'app.sig')), patch.object(qa.subprocess,'run',side_effect=child), patch.object(qa,'plain_opener',return_value=opener):
+            with patch.dict(qa.os.environ,{'GH_TOKEN':'synthetic-token','RUNNER_TEMP':t,'GITHUB_OUTPUT':str(out)},clear=True), patch.object(qa,'module',return_value=prov), patch.object(qa,'metadata_fetcher',return_value=api), patch.object(qa,'download_zip') as download, patch.object(qa,'select_linux',return_value=(work/qa.APP,work/'app.sig')), patch.object(qa.subprocess,'run',side_effect=child):
                 qa.prepare()
                 self.assertIs(prov.pages.call_args.args[0],api)
                 self.assertIs(prov.verify_provenance.call_args.args[0],api)
-                api.assert_called_once_with('/repos/ashlrai/ashlr-md/releases/latest')
+                api.assert_not_called()
+                self.assertIs(prov.verify_provenance.call_args.kwargs['check_release_state'],False)
                 prov.fetch.assert_not_called()
                 self.assertEqual(download.call_args.args[2],'synthetic-token')
                 self.assertNotIn('synthetic-token',(work/'qualified.json').read_text())
