@@ -19,13 +19,14 @@ class Tests(unittest.TestCase):
               f'/actions/runs/{qa.RUN}', f'/actions/runs/{qa.RUN}/artifacts?per_page=100&page=1',
               '/actions/runs/123/attempts/2/jobs?per_page=100&page=100',
               f'/actions/workflows/ci.yml/runs?event=workflow_dispatch&head_sha={qa.SHA}&per_page=100&page=1',
-              '/releases/latest']
+              f'/releases/tags/{qa.TAG}', '/releases/latest']
         good += [f'/contents/{p}?ref={qa.SHA}' for p in qa.module().SOURCE]
         for route in good: self.assertTrue(qa.metadata_path(prefix+route),route)
         bad=[None, 'https://api.github.com'+prefix+'/releases/latest', '//evil.invalid/x',
              '/repos/other/repo/releases/latest', prefix+'-other/releases/latest',
              prefix+'/../other/releases/latest', prefix+'/%2e%2e/releases/latest',
              prefix+'/releases/latest?ref=x',prefix+'/releases/latest#fragment',
+             prefix+'/releases/tags/v9.9.9',prefix+f'/releases/tags/{qa.TAG}/x',
              prefix+'/releases/latest\n', prefix+'/releases/latest/extra',
              prefix+f'/contents/package.json?ref={qa.SHA}&ref=other',
              prefix+f'/contents/package.json?ref={qa.SHA}%26x=1',
@@ -60,6 +61,10 @@ class Tests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError,'^preparation metadata request failed$'): api(route)
             response=Response(b'{}'); response.status=302; opener.open.return_value=response
             with self.assertRaises(ValueError): api(route)
+            opener.open.side_effect=qa.urllib.error.HTTPError('u',404,'nf',{},None)
+            with self.assertRaises(FileNotFoundError): api(route)
+            opener.open.side_effect=qa.urllib.error.HTTPError('u',500,'err',{},None)
+            with self.assertRaisesRegex(ValueError,'^preparation metadata request failed$'): api(route)
             opener.open.side_effect=qa.urllib.error.URLError('synthetic-token must not appear')
             with self.assertRaisesRegex(ValueError,'^preparation metadata request failed$'): api(route)
             opener.open.side_effect=qa.http.client.BadStatusLine('synthetic-token must not appear')
