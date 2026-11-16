@@ -122,7 +122,9 @@ button (`src/components/Welcome.tsx` at original 721b) through standard WebDrive
 Element Click. Its original `src/lib/openFile.ts` handler opens the real Tauri native
 Markdown picker. No script invokes an app API or changes the document store.
 Built-in .NET UI Automation then selects only the verified owned app PID's unique
-enabled `#32770` dialog (modality is observed, not required) among immediate desktop children, not desktop descendants.
+enabled `#32770` dialog (modality is observed, not required) among immediate desktop
+children and one child-window level beneath those exact-owned-PID windows. It never
+searches desktop descendants or descends into WebView content.
 Within that dialog it requires the unique enabled filename Edit control identified
 by automation ID 1148 (or its ComboBox parent), writable ValuePattern and exact path
 readback, followed by the unique enabled Button ID 1 and InvokePattern. These
@@ -153,7 +155,7 @@ References: [WebDriver Element Click](https://www.w3.org/TR/webdriver/#element-c
 Run 41407111469 passed UIA assembly preflight, but the real Open attempt stopped
 in the dialog-identification phase before filename or confirmation. That phase
 alone does not distinguish a missing picker from a provider exception. One bounded
-read-only diagnostic reports at most eight exact-owned-PID direct desktop windows:
+read-only diagnostic reports at most eight exact-owned-PID windows in total:
 class (64 restricted ASCII characters), enabled flag, WindowPattern availability
 and modal boolean. It never records titles, text, paths, handles or other processes.
 Fixed query/inspect/select/wait stages and provider-error/not-found/ambiguous/
@@ -180,3 +182,20 @@ covering ordinary windows, one enabled owned dialog (modality observed, not requ
 It runs under built-in Windows PowerShell before artifact preparation. This tests
 language semantics, not native UIA compatibility. The earlier pre-diagnostic picker
 failure remains unexplained; only one corrected bounded observation is justified.
+
+Run 41410805380 then observed exactly one disabled `Tauri Window`, no direct
+desktop dialog, and `not-found` at the end of the dialog deadline. This is consistent
+with an owned picker being exposed beneath its disabled owner. Microsoft documents
+that UIA providers can [assign a logical parent to a popup](https://learn.microsoft.com/en-us/windows/win32/winauto/uiauto-serversideprovider#assigning-a-new-parent),
+so requiring every dialog to be a desktop child can miss a real picker. Discovery
+now checks one child-window level beneath the verified PID's desktop windows using
+the same PID and Window conditions. The eight-window cap applies to both levels
+together; foreign ownership, overflow and multiple enabled dialogs still fail.
+The PowerShell regression reproduces the desktop-only miss and exercises the real
+discovery code with that owned-child layout, either modality flag, both ambiguity
+layouts, and ownership/count/traversal boundaries. A hosted Windows rerun is still
+needed to establish the native provider's layout and qualify the real Open scenario.
+
+The same run's always-run cleanup step succeeded. Its read-only AppData and Desktop
+messages describe recovered WinError 5 removal attempts, covered by the existing
+single-retry tests, rather than an additional cleanup failure.
