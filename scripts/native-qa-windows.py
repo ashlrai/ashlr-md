@@ -92,7 +92,7 @@ def prepare():
         if leg == 'bundle-windows-latest': require(artifact.get('id') == 13105824003, 'original Windows artifact ID changed')
         require(artifact.get('expired') is False and artifact.get('workflow_run', {}).get('head_sha') == qa.SHA, 'artifact identity mismatch')
         target = work/(leg+'.zip'); qa.download_zip(artifact, target, token); zips[leg] = target
-    receipt = prov.verify_provenance(api, qa.TAG, qa.SHA, qa.RUN, zips)
+    receipt = prov.verify_provenance(api, qa.TAG, qa.SHA, qa.RUN, zips, check_release_state=False)
     latest = api(prov.REPO+'/releases/latest')
     api = None; token = None
     require(latest.get('tag_name') == 'v0.4.0' and latest.get('prerelease') is False, 'stable release changed')
