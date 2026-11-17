@@ -178,6 +178,35 @@ public static class NativeDialogWindow {
     public static extern System.IntPtr GetAncestor(System.IntPtr hwnd, uint flags);
     [System.Runtime.InteropServices.DllImport("user32.dll", ExactSpelling = true)]
     public static extern System.IntPtr GetWindow(System.IntPtr hwnd, uint command);
+    [System.Runtime.InteropServices.DllImport("user32.dll", ExactSpelling = true)]
+    public static extern System.IntPtr GetDlgItem(System.IntPtr hwnd, int id);
+    [System.Runtime.InteropServices.DllImport("user32.dll", ExactSpelling = true, CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+    public static extern System.IntPtr FindWindowExW(System.IntPtr parent, System.IntPtr after, string cls, string title);
+    [System.Runtime.InteropServices.DllImport("user32.dll", ExactSpelling = true, CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+    public static extern System.IntPtr SendMessageW(System.IntPtr hwnd, uint msg, System.IntPtr wparam, string text);
+    [System.Runtime.InteropServices.DllImport("user32.dll", ExactSpelling = true, CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+    public static extern System.IntPtr SendMessageW(System.IntPtr hwnd, uint msg, System.IntPtr wparam, System.Text.StringBuilder text);
+    [System.Runtime.InteropServices.DllImport("user32.dll", ExactSpelling = true)]
+    [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+    public static extern bool PostMessageW(System.IntPtr hwnd, uint msg, System.IntPtr wparam, System.IntPtr lparam);
+    [System.Runtime.InteropServices.DllImport("user32.dll", ExactSpelling = true)]
+    [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+    public static extern bool IsWindowEnabled(System.IntPtr hwnd);
+    // First Edit anywhere under parent (the filename ComboBoxEx32 nests ComboBox then Edit).
+    public static System.IntPtr FindEdit(System.IntPtr parent, int depth) {
+        if (depth > 4) return System.IntPtr.Zero;
+        System.IntPtr child = System.IntPtr.Zero;
+        while ((child = FindWindowExW(parent, child, null, null)) != System.IntPtr.Zero) {
+            var name = new System.Text.StringBuilder(32);
+            GetClassNameW(child, name, 32);
+            if (name.ToString() == "Edit") return child;
+            var inner = FindEdit(child, depth + 1);
+            if (inner != System.IntPtr.Zero) return inner;
+        }
+        return System.IntPtr.Zero;
+    }
+    [System.Runtime.InteropServices.DllImport("user32.dll", ExactSpelling = true, CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+    public static extern int GetClassNameW(System.IntPtr hwnd, System.Text.StringBuilder name, int max);
 }
 '@
     if ($Mode -eq 'Preflight') {
@@ -298,12 +327,26 @@ public static class NativeDialogWindow {
         if ($candidates.Count -eq 1) { break }
         Start-Sleep -Milliseconds 200
     } while ([DateTime]::UtcNow -lt $filenameDeadline)
-    if ($candidates.Count -eq 0) { throw 'filename-none' }
-    if ($candidates.Count -gt 1) { throw 'filename-many' }
-    $value = $candidates[0].GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern)
-    if ($value.Current.IsReadOnly) { throw 'readonly' }
-    $value.SetValue($fixture)
-    if ($value.Current.Value -cne $fixture) { throw 'readback' }
+    # Win32 fallback for a picker whose UIA tree lacks the filename control (runs 44137203928 and
+    # 44147151087): the dialog is already bound to the exact owned PID above, so set the filename
+    # through its own HWND control ID 1148 (ComboBoxEx32 > ComboBox > Edit) and read it back.
+    $win32Edit = [IntPtr]::Zero
+    if ($candidates.Count -eq 0) {
+        $dialogHandle = [IntPtr]([Int64]$dialog.Current.NativeWindowHandle)
+        $combo = if ($dialogHandle -ne [IntPtr]::Zero) { [NativeDialogWindow]::GetDlgItem($dialogHandle, 1148) } else { [IntPtr]::Zero }
+        if ($combo -ne [IntPtr]::Zero) { $win32Edit = [NativeDialogWindow]::FindEdit($combo, 0) }
+        if ($win32Edit -eq [IntPtr]::Zero) { throw 'filename-none' }
+        [void][NativeDialogWindow]::SendMessageW($win32Edit, 0x000C, [IntPtr]::Zero, $fixture)  # WM_SETTEXT
+        $readback = [Text.StringBuilder]::new(1024)
+        [void][NativeDialogWindow]::SendMessageW($win32Edit, 0x000D, [IntPtr]1024, $readback)   # WM_GETTEXT
+        if ($readback.ToString() -cne $fixture) { throw 'readback' }
+    } else {
+        if ($candidates.Count -gt 1) { throw 'filename-many' }
+        $value = $candidates[0].GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern)
+        if ($value.Current.IsReadOnly) { throw 'readonly' }
+        $value.SetValue($fixture)
+        if ($value.Current.Value -cne $fixture) { throw 'readback' }
+    }
     $phase = 'confirm'
     # The confirm button can lag the filename edit, so wait (bounded) for exactly one enabled match.
     $buttonDeadline = [DateTime]::UtcNow.AddSeconds(10)
@@ -312,12 +355,21 @@ public static class NativeDialogWindow {
         if ($buttons.Count -eq 1 -and $buttons[0].Current.IsEnabled) { break }
         Start-Sleep -Milliseconds 200
     } while ([DateTime]::UtcNow -lt $buttonDeadline)
-    if ($buttons.Count -ne 1 -or -not $buttons[0].Current.IsEnabled -or $buttons[0].Current.ProcessId -ne $targetPid) { throw 'ambiguous-open' }
-    # Open may be a Button or SplitButton; prefer Invoke, else a split button's default action
-    # (ExpandCollapse would only open its menu, so it is never used).
-    $invoke = $null
-    if (-not $buttons[0].TryGetCurrentPattern([Windows.Automation.InvokePattern]::Pattern, [ref]$invoke)) { throw 'ambiguous-open' }
-    $invoke.Invoke()
+    if ($buttons.Count -gt 1) { throw 'ambiguous-open' }  # Several UIA Open buttons stay ambiguous.
+    $invoked = $false
+    if ($buttons.Count -eq 1 -and $buttons[0].Current.IsEnabled -and $buttons[0].Current.ProcessId -eq $targetPid) {
+        # Open may be a Button or SplitButton; prefer Invoke, else a split button's default action
+        # (ExpandCollapse would only open its menu, so it is never used).
+        $invoke = $null
+        if ($buttons[0].TryGetCurrentPattern([Windows.Automation.InvokePattern]::Pattern, [ref]$invoke)) { $invoke.Invoke(); $invoked = $true }
+    }
+    if (-not $invoked) {
+        # Win32 fallback (same gap as the filename edit): IDOK (control ID 1) of the bound dialog.
+        $dialogHandle = [IntPtr]([Int64]$dialog.Current.NativeWindowHandle)
+        $ok = if ($dialogHandle -ne [IntPtr]::Zero) { [NativeDialogWindow]::GetDlgItem($dialogHandle, 1) } else { [IntPtr]::Zero }
+        if ($ok -eq [IntPtr]::Zero -or -not [NativeDialogWindow]::IsWindowEnabled($ok)) { throw 'ambiguous-open' }
+        if (-not [NativeDialogWindow]::PostMessageW($ok, 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero)) { throw 'ambiguous-open' }  # BM_CLICK
+    }
     [Console]::WriteLine('qa-uia-open-invoked')
 } catch {
     # Fixed phase and allowlisted throw reasons only, never provider errors, dialog text, paths or process data.
