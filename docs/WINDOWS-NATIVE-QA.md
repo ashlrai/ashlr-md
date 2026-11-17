@@ -1,6 +1,6 @@
 # Original MD 0.5 Windows qualification
 
-The owner approved this bounded manual Windows install, synthetic document probe, and uninstall job on 2026-11-02. It is not a release promotion, update, notarization, or Windows trust certification.
+The owner approved this bounded Windows install, synthetic document probe, and uninstall job on 2026-11-02. It started as a manual job; `native-qa-windows.yml` now also runs on every push to `main` and when a release is published, besides `workflow_dispatch`. It is not a release promotion, update, notarization, or Windows trust certification.
 
 ## Fixed inputs and evidence
 
