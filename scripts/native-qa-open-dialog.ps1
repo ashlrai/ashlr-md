@@ -90,6 +90,16 @@ try {
                 # class and enabled state plus the single-candidate rule keep selection exact.
                 if ($window.Current.ClassName -ceq '#32770' -and $window.Current.IsEnabled) { $candidates += $window }
             }
+            if ($candidates.Count -gt 1) {
+                # A Common Item Dialog can expose an inner enabled #32770 beneath the real dialog.
+                # Drop only candidates that are direct children of another candidate (outermost wins);
+                # independent sibling dialogs still fail closed as ambiguous.
+                $nested = @{}
+                foreach ($outer in $candidates) {
+                    foreach ($inner in $outer.FindAll([Windows.Automation.TreeScope]::Children, $condition)) { $nested[(@($inner.GetRuntimeId()) -join '.')] = $true }
+                }
+                $candidates = @($candidates | Where-Object { -not $nested.ContainsKey((@($_.GetRuntimeId()) -join '.')) })
+            }
             if ($candidates.Count -gt 1) { $dialogReason='ambiguous'; throw 'ambiguous-dialog' }
             if ($candidates.Count -eq 1) { $dialog = $candidates[0]; break }
             $observation.stage = 'wait'
