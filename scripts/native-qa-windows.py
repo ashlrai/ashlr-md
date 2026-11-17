@@ -98,9 +98,13 @@ def prepare():
     # release unauthenticated instead (no credential ever reaches this request).
     with qa.plain_opener().open('https://api.github.com'+prov.REPO+'/releases/latest', timeout=30) as r:
         latest = json.loads(r.read(1024*1024+1))
-    require(latest.get('tag_name') == 'v0.4.0' and latest.get('prerelease') is False, 'stable release changed')
+    # Do not pin a literal stable version: stable legitimately advances (it was v0.4.0 when this
+    # was written, v0.7.5 later). The invariant is that the probed original (qa.TAG) was never
+    # promoted to stable, and that the updater feed agrees with the stable release.
+    tag = latest.get('tag_name')
+    require(isinstance(tag, str) and tag.startswith('v') and latest.get('prerelease') is False and tag != qa.TAG, 'stable release changed')
     with qa.plain_opener().open('https://github.com/ashlrai/ashlr-md/releases/latest/download/latest.json', timeout=30) as r:
-        require(json.loads(r.read(1024*1024+1)).get('version') == '0.4.0', 'stable updater feed changed')
+        require(json.loads(r.read(1024*1024+1)).get('version') == tag[1:], 'stable updater feed changed')
     select_installer(zips['bundle-windows-latest'], work)
     key = work/'public-key.txt'; key.write_text(receipt['public_key'])
     verifier = ROOT/'scripts/release-signature-check/target/release/release-signature-check.exe'
