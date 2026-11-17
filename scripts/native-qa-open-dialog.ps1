@@ -35,6 +35,42 @@ function Get-DialogOwnerKey($window) {
     return 'hwnd:' + $owner.ToInt64()
 }
 
+function Get-FilenameEdits($dialog, [int]$targetPid) {
+    # Enabled filename Edit controls (automation ID 1148, or its ComboBox parent) inside one
+    # dialog, collapsed by RuntimeId so a control UIA reports twice counts once.
+    $editCondition = [Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::ControlTypeProperty, [Windows.Automation.ControlType]::Edit)
+    $edits = @(foreach ($e in $dialog.FindAll([Windows.Automation.TreeScope]::Descendants, $editCondition)) { $e })
+    if ($edits.Count -gt 16) { throw 'edit-count' }
+    $found = @()
+    $seenEdits = @{}
+    foreach ($edit in $edits) {
+        $parent = [Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($edit)
+        $isFilename = $edit.Current.AutomationId -ceq '1148'
+        if ($null -ne $parent -and $parent.Current.ControlType -eq [Windows.Automation.ControlType]::ComboBox -and $parent.Current.AutomationId -ceq '1148') { $isFilename = $true }
+        if ($isFilename -and $edit.Current.ProcessId -eq $targetPid -and $edit.Current.IsEnabled) {
+            $editKey = (@($edit.GetRuntimeId()) -join '.')
+            if (-not $seenEdits.ContainsKey($editKey)) { $seenEdits[$editKey] = $true; $found += $edit }
+        }
+    }
+    return $found
+}
+
+function Select-FilenameDialogs($candidates, [int]$targetPid) {
+    # Several enabled exact-PID #32770 windows can survive ancestry collapsing (run 44059630934
+    # still reported ambiguous-dialog). Only the real file picker carries the filename edit,
+    # so narrow to candidates with exactly one, polling briefly while controls populate.
+    # Any provider failure returns the candidates unchanged so ambiguity still fails closed.
+    try {
+        $until = [DateTime]::UtcNow.AddSeconds(5)
+        do {
+            $withEdit = @($candidates | Where-Object { @(Get-FilenameEdits $_ $targetPid).Count -eq 1 })
+            if ($withEdit.Count -ge 1) { return $withEdit }
+            Start-Sleep -Milliseconds 200
+        } while ([DateTime]::UtcNow -lt $until)
+    } catch { }
+    return @($candidates)
+}
+
 function Get-OwnedDialogWindows($desktopWindows, $condition, [int]$targetPid) {
     # UIA can place an owned dialog beneath its application window rather than
     # directly beneath the desktop. Inspect one child level of exact-PID windows
@@ -161,6 +197,7 @@ public static class NativeDialogWindow {
                 }
                 $candidates = @($candidates | Where-Object { -not $nested.ContainsKey((Get-DialogWindowKey $_)) })
             }
+            if ($candidates.Count -gt 1) { $candidates = @(Select-FilenameDialogs $candidates $targetPid) }
             if ($candidates.Count -gt 1) { $dialogReason='ambiguous'; throw 'ambiguous-dialog' }
             if ($candidates.Count -eq 1) { $dialog = $candidates[0]; break }
             $observation.stage = 'wait'
@@ -178,25 +215,11 @@ public static class NativeDialogWindow {
     if ($null -eq $dialog) { throw 'dialog-unavailable' }
     if ($dialog.Current.ProcessId -ne $targetPid) { $dialogReason='ownership'; throw 'dialog-unavailable' }
     $phase = 'filename'
-    $editCondition = [Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::ControlTypeProperty, [Windows.Automation.ControlType]::Edit)
     # A just-opened Common Item Dialog populates its controls asynchronously, so poll the
     # filename edit inside a bounded deadline instead of failing on the first empty read.
-    # Candidates are collapsed by RuntimeId so a control UIA reports twice is not ambiguous.
     $filenameDeadline = [DateTime]::UtcNow.AddSeconds(10)
     do {
-        $edits = @(foreach ($e in $dialog.FindAll([Windows.Automation.TreeScope]::Descendants, $editCondition)) { $e })
-        if ($edits.Count -gt 16) { throw 'edit-count' }
-        $candidates = @()
-        $seenEdits = @{}
-        foreach ($edit in $edits) {
-            $parent = [Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($edit)
-            $isFilename = $edit.Current.AutomationId -ceq '1148'
-            if ($null -ne $parent -and $parent.Current.ControlType -eq [Windows.Automation.ControlType]::ComboBox -and $parent.Current.AutomationId -ceq '1148') { $isFilename = $true }
-            if ($isFilename -and $edit.Current.ProcessId -eq $targetPid -and $edit.Current.IsEnabled) {
-                $editKey = (@($edit.GetRuntimeId()) -join '.')
-                if (-not $seenEdits.ContainsKey($editKey)) { $seenEdits[$editKey] = $true; $candidates += $edit }
-            }
-        }
+        $candidates = @(Get-FilenameEdits $dialog $targetPid)
         if ($candidates.Count -eq 1) { break }
         Start-Sleep -Milliseconds 200
     } while ([DateTime]::UtcNow -lt $filenameDeadline)
