@@ -70,6 +70,37 @@ mdopen samples/agent-plan.md
 
 More commands, including Windows: [docs/EXAMPLES.md](./docs/EXAMPLES.md). Every tool, in order: [docs/AGENTS.md](./docs/AGENTS.md).
 
+## Commands and flags
+
+Each command prints its full list with `--help`.
+
+**`mdopen`** opens a file in the app.
+
+| Flag | What it does |
+|---|---|
+| `file.md` | Open the file in read mode |
+| `--edit`, `-e` | Open in edit mode |
+| `--read`, `-r` | Open in read mode. This is the default. Do not combine it with `--edit` |
+| `-` | Read Markdown from stdin and open it |
+| `--` | Stop reading flags. Put it before a file whose name starts with a dash |
+| `--hook` | Claude Code hook. Reads the hook's JSON from stdin, not a file |
+| `--help`, `-h` | Print help |
+| `--version`, `-V` | Print the version |
+
+**`mdopener-mcp`** is the MCP server. Your MCP client starts it, so you rarely run it by hand.
+
+| Command | What it does |
+|---|---|
+| `mdopener-mcp` | Serve MCP over stdin and stdout |
+| `doctor [--json]` | Check the local AI server. It talks only to this machine and sends no key |
+| `doctor --fix [--apply] [--json]` | Preview repairs to `~/.mdopener`. Add `--apply` to make them |
+| `setup --local [--json]` | Find local model servers and print the commands to finish. Downloads and writes nothing |
+| `--ashlr-handshake [--json]` | Print the companion handshake |
+| `--export-tool-schema` | Print the tool names and input schemas as JSON |
+| `--help`, `--version` | Print help or the version |
+
+Other arguments to `mdopener-mcp` are ignored, with a warning on stderr.
+
 ## 30-second start
 
 For the desktop app, without a terminal.
@@ -197,6 +228,8 @@ Chat can use Apple Foundation Models, Ollama, or a key you add in Preferences. U
 ```bash
 mdopener-mcp doctor --fix --json
 ```
+
+That command only previews the repairs. Add `--apply` to make them.
 
 ## Develop
 

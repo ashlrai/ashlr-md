@@ -7,6 +7,8 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+# A long flag such as --json; not a dash inside a word, and not a bare `--` separator.
+FLAG = re.compile(r'(?<![\w-])--[a-z][a-z-]*')
 
 
 def tool_names(source):
@@ -55,6 +57,21 @@ class DocumentationContracts(unittest.TestCase):
         section = self.guide.split('## The `mdopener-mcp` CLI', 1)[1].split('### Frontend', 1)[0]
         documented = re.findall(r'^(mdopener-mcp .+)$', section, re.M)
         self.assertCountEqual(documented, commands)
+
+    def test_readme_flags_match_help(self):
+        # Long flags from both CLIs' HELP text must equal the flags in the README's
+        # "Commands and flags" section: no undocumented flag, no flag that does not exist.
+        # The register example after HELP's "Register it" line is not a flag of ours.
+        flags = set()
+        for path in ('src-tauri/bins/mdopen/src/main.rs', 'src-tauri/bins/mdopener-mcp/src/main.rs'):
+            source = (ROOT / path).read_text(encoding="utf-8")
+            help_text = source.split('const HELP: &str = "', 1)[1].split('";\n', 1)[0]
+            help_text = re.split(r'\nRegister it with', help_text, maxsplit=1)[0]
+            flags.update(FLAG.findall(help_text))
+        readme = (ROOT / 'README.md').read_text(encoding="utf-8")
+        section = readme.split('## Commands and flags', 1)[1].split('\n## ', 1)[0]
+        self.assertGreaterEqual(len(flags), 10)
+        self.assertEqual(set(FLAG.findall(section)), flags)
 
     def test_frontend_event_inventory(self):
         actual = []
