@@ -207,6 +207,12 @@ class Tests(unittest.TestCase):
         self.assertIn('qa-uia-detail:',script)
         self.assertIn('Select-FilenameDialogs $candidates $targetPid',script)
         self.assertIn('Get-ConfirmButtons $dialog',script)
+        # Run 44137203928 (filename-none): an ID 1148 match typed neither Edit nor ComboBox was dropped.
+        # Every ID/Name match now resolves through one helper that accepts Edit, ComboBox (inner Edit)
+        # or any other control exposing ValuePattern.
+        self.assertIn('function Resolve-FilenameHolder',script)
+        self.assertEqual(script.count('Resolve-FilenameHolder $m'),1); self.assertEqual(script.count('Resolve-FilenameHolder $e'),1)
+        self.assertIn('TryGetCurrentPattern([Windows.Automation.ValuePattern]::Pattern',script)
         self.assertIn('$fixedViolations -contains $_.Exception.Message',script)
         emitted=set(re.findall(r"'([a-z-]+)'",re.search(r'\$detailReasons = @\(([^)]*)\)',script).group(1)))
         self.assertEqual(emitted,w.UIA_DETAIL_KINDS)
