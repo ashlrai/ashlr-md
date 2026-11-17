@@ -38,16 +38,25 @@ function Get-DialogOwnerKey($window) {
 function Get-FilenameEdits($dialog, [int]$targetPid) {
     # Enabled filename Edit controls (automation ID 1148, or its ComboBox parent) inside one
     # dialog, collapsed by RuntimeId so a control UIA reports twice counts once.
+    # Query by automation ID 1148 on the provider side. A modern file picker exposes many unrelated
+    # Edit controls (address band, search box, ...), so counting every Edit under the dialog made
+    # the old 16-edit cap fail with edit-count on a healthy picker. Only 1148 matches are bounded.
+    $idCondition = [Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::AutomationIdProperty, '1148')
     $editCondition = [Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::ControlTypeProperty, [Windows.Automation.ControlType]::Edit)
-    $edits = @(foreach ($e in $dialog.FindAll([Windows.Automation.TreeScope]::Descendants, $editCondition)) { $e })
-    if ($edits.Count -gt 16) { throw 'edit-count' }
+    $idMatches = @(foreach ($e in $dialog.FindAll([Windows.Automation.TreeScope]::Descendants, $idCondition)) { $e })
+    if ($idMatches.Count -gt 16) { throw 'edit-count' }
+    $edits = @()
+    foreach ($m in $idMatches) {
+        if ($m.Current.ControlType -eq [Windows.Automation.ControlType]::Edit) { $edits += $m }
+        elseif ($m.Current.ControlType -eq [Windows.Automation.ControlType]::ComboBox) {
+            # The filename ComboBox hosts its Edit as a descendant.
+            foreach ($inner in $m.FindAll([Windows.Automation.TreeScope]::Descendants, $editCondition)) { $edits += $inner }
+        }
+    }
     $found = @()
     $seenEdits = @{}
     foreach ($edit in $edits) {
-        $parent = [Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($edit)
-        $isFilename = $edit.Current.AutomationId -ceq '1148'
-        if ($null -ne $parent -and $parent.Current.ControlType -eq [Windows.Automation.ControlType]::ComboBox -and $parent.Current.AutomationId -ceq '1148') { $isFilename = $true }
-        if ($isFilename -and $edit.Current.ProcessId -eq $targetPid -and $edit.Current.IsEnabled) {
+        if ($edit.Current.ProcessId -eq $targetPid -and $edit.Current.IsEnabled) {
             $editKey = (@($edit.GetRuntimeId()) -join '.')
             if (-not $seenEdits.ContainsKey($editKey)) { $seenEdits[$editKey] = $true; $found += $edit }
         }
