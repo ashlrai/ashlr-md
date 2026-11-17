@@ -486,11 +486,13 @@ describe("doc facts: uninstalling", () => {
 
 describe("doc facts: README quick start", () => {
   it("says how mdopen gets on PATH before telling you to run it", () => {
-    const start = readme.split("## Start\n")[1]?.split("\n## ")[0] ?? "";
-    const command = start.indexOf("\nmdopen samples/agent-plan.md\n");
+    const start = readme.split("## Get started\n")[1]?.split("\n## ")[0] ?? "";
+    // Step 4 indents its code block under the numbered item, so match the line whatever its indent.
+    const found = /\n[ \t]*mdopen samples\/agent-plan\.md\n/.exec(start);
+    const command = found?.index ?? -1;
     expect(
       command,
-      "README Start must retain its actual mdopen command",
+      "README Get started must retain its actual mdopen command",
     ).toBeGreaterThan(0);
     const beforeCommand = start.slice(0, command);
     expect(beforeCommand).toContain("SKIP_APP_BUILD=1 bash scripts/install.sh");
