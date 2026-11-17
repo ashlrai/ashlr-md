@@ -70,6 +70,11 @@ $ancestry = $ast.Find({param($node) $node -is [Management.Automation.Language.Fu
 if ($null -ne $ancestry) { . ([scriptblock]::Create($ancestry.Extent.Text)) }
 $ownerQuery = $ast.Find({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Get-DialogOwnerKey'}, $false)
 if ($null -ne $ownerQuery) { . ([scriptblock]::Create($ownerQuery.Extent.Text)) }
+foreach ($helperName in @('Get-FilenameEdits','Select-FilenameDialogs')) {
+    $helper = $ast.Find({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $helperName}, $false)
+    if ($null -eq $helper) { throw "$helperName not found" }
+    . ([scriptblock]::Create($helper.Extent.Text))
+}
 $discovery = $ast.Find({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Get-OwnedDialogWindows'}, $false)
 if ($null -eq $discovery) { throw 'owned dialog discovery function not found' }
 . ([scriptblock]::Create($discovery.Extent.Text))
@@ -245,4 +250,20 @@ foreach ($ownerHandle in @(921,999)) {
     } elseif (-not $rejected -or $null -ne $dialog) { throw 'popup owned by a non-candidate accepted' }
 }
 [NativeDialogWindow]::Owners.Clear()
+# Independent enabled #32770 windows that survive ancestry collapsing are narrowed to the
+# one carrying exactly one filename edit (run 44059630934). Stub the UIA edit query; the
+# real Select-FilenameDialogs logic runs. Zero or several picker candidates stay ambiguous.
+function Get-FilenameEdits($dialog, [int]$targetPid) { if ($script:EditOwners -contains $dialog) { return @(1) } return @() }
+$picker = New-TestWindow '#32770' $true -nativeWindowHandle 931
+$other = New-TestWindow '#32770' $true -nativeWindowHandle 932
+foreach ($case in @(@{Edits=@($picker);Accept=$picker},@{Edits=@($picker,$other);Accept=$null},@{Edits=@();Accept=$null})) {
+    $script:EditOwners = $case.Edits
+    $windows = @($other,$picker)
+    $dialog=$null; $observation=@{stage='inspect';count=2;overflow=$false;windows=@()}
+    $rejected=$false
+    try { . $probe } catch { if ($_.Exception.Message -ceq 'ambiguous-dialog') {$rejected=$true} else {throw} }
+    if ($null -ne $case.Accept) {
+        if ($rejected -or -not [object]::ReferenceEquals($dialog,$case.Accept)) { throw 'dialog with the filename edit not selected' }
+    } elseif (-not $rejected -or $null -ne $dialog) { throw 'candidates without a unique filename edit accepted' }
+}
 [Console]::WriteLine('PASS: actual PowerShell discovery and selection cover owned child dialogs, desktop dialogs, native handle aliases and ancestry (7 new cases), modality, bounded traversal, ownership, count caps, regex collision, disabled and ambiguous candidates.')

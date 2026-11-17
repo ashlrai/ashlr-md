@@ -150,6 +150,10 @@ calls. See [native parent versus owner ancestry](https://learn.microsoft.com/en-
 Ambiguity diagnostics include at most eight fixed ancestry labels (`root`,
 `nested`, `owned`, `outside`, `handleless`, `query-failed`), without handles or titles, so a
 future failure distinguishes independent windows from provider nesting.
+If several enabled exact-PID `#32770` candidates still remain, the helper narrows to the one
+containing exactly one filename Edit (polled for up to 5 seconds while controls populate;
+run 44059630934 still reported `ambiguous-dialog`). Zero or several such candidates, or any
+provider failure, stay ambiguous.
 Within that dialog it requires the unique enabled filename Edit control identified
 by automation ID 1148 (or its ComboBox parent), writable ValuePattern and exact path
 readback, followed by the unique enabled Button ID 1 and InvokePattern. These
