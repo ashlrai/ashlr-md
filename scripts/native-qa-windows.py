@@ -671,6 +671,65 @@ def dialog_observation(stderr):
     return value
 
 
+DIALOG_CLASS='#32770'
+
+
+def enum_top_windows():
+    """Every visible top-level window as dicts (hwnd, pid, cls, title, enabled, owner)."""
+    from ctypes import wintypes
+    user=ctypes.WinDLL('user32',use_last_error=True)
+    proc=ctypes.WINFUNCTYPE(wintypes.BOOL,wintypes.HWND,wintypes.LPARAM)
+    user.EnumWindows.argtypes=[proc,wintypes.LPARAM]; user.EnumWindows.restype=wintypes.BOOL
+    user.IsWindowVisible.argtypes=[wintypes.HWND]; user.IsWindowVisible.restype=wintypes.BOOL
+    user.IsWindowEnabled.argtypes=[wintypes.HWND]; user.IsWindowEnabled.restype=wintypes.BOOL
+    user.GetWindow.argtypes=[wintypes.HWND,wintypes.UINT]; user.GetWindow.restype=wintypes.HWND
+    user.GetWindowThreadProcessId.argtypes=[wintypes.HWND,ctypes.POINTER(wintypes.DWORD)]; user.GetWindowThreadProcessId.restype=wintypes.DWORD
+    user.GetClassNameW.argtypes=[wintypes.HWND,wintypes.LPWSTR,ctypes.c_int]; user.GetClassNameW.restype=ctypes.c_int
+    user.GetWindowTextW.argtypes=[wintypes.HWND,wintypes.LPWSTR,ctypes.c_int]; user.GetWindowTextW.restype=ctypes.c_int
+    rows=[]
+    def visit(hwnd,_):
+        if not user.IsWindowVisible(hwnd): return True
+        pid=wintypes.DWORD(); user.GetWindowThreadProcessId(hwnd,ctypes.byref(pid))
+        cls=ctypes.create_unicode_buffer(256); user.GetClassNameW(hwnd,cls,256)
+        title=ctypes.create_unicode_buffer(256); user.GetWindowTextW(hwnd,title,256)
+        rows.append({'hwnd':int(hwnd or 0),'pid':int(pid.value),'cls':cls.value,'title':title.value,
+                     'enabled':bool(user.IsWindowEnabled(hwnd)),'owner':int(user.GetWindow(hwnd,4) or 0)})
+        return True
+    require(user.EnumWindows(proc(visit),0),'window enumeration failed')
+    return rows
+
+
+def select_owned_dialog(windows, pid, baseline):
+    """Pick the one Open dialog: a visible #32770 of the app pid that did not exist before the click.
+
+    A Common Item Dialog can expose an inner #32770 owned by the picker; that inner window
+    collapses into its owner. Returns (chosen window or None, candidate pool) so a caller can
+    tell "not yet" (empty pool) from "ambiguous" (several roots) and print every candidate."""
+    pool=[w for w in windows if w['pid']==pid and w['cls']==DIALOG_CLASS and w['hwnd'] not in baseline]
+    handles={w['hwnd'] for w in pool}
+    roots=[w for w in pool if w['owner'] not in handles and w['enabled']]
+    return (roots[0] if len(roots)==1 else None), pool
+
+
+def describe_windows(windows):
+    return '; '.join(f"pid={w['pid']} class={w['cls']} title={w['title']!r} hwnd={w['hwnd']} owner={w['owner']} enabled={w['enabled']}" for w in windows) or 'none'
+
+
+def wait_owned_dialog(pid, baseline, seconds=25, enumerate_windows=None, sleep=time.sleep, clock=time.monotonic):
+    """Bounded poll until exactly one owned dialog is stable across two polls; else print all candidates."""
+    enumerate_windows=enumerate_windows or enum_top_windows
+    until=clock()+seconds; last=None; pool=[]
+    while clock()<until:
+        windows=enumerate_windows()
+        chosen,pool=select_owned_dialog(windows,pid,baseline)
+        if chosen is not None and chosen['hwnd']==last: return chosen
+        last=chosen['hwnd'] if chosen is not None else None
+        sleep(.2)
+    print('Open dialog candidates for pid',pid,'(new #32770 windows):',describe_windows(pool))
+    print('All visible windows of pid',pid,':',describe_windows([w for w in enumerate_windows() if w['pid']==pid]))
+    raise ValueError('native Open dialog '+('ambiguous' if len(pool)>1 else 'not found'))
+
+
 def real_open_file(session, app, fixture, work):
     require(fixture==work/'native-smoke.md' and fixture.is_file(),'unexpected UI fixture')
     safe_path(fixture)
@@ -679,17 +738,20 @@ def real_open_file(session, app, fixture, work):
     require(isinstance(elements,list) and len(elements)==1 and isinstance(elements[0],dict),'ambiguous Open button')
     element=elements[0].get(ELEMENT_KEY); require(ui_element_id(element),'invalid Open element')
     ready=work/'uia-ready'; require(not ready.exists(),'UIA ready collision')
-    env=uia_environment(); env.update(QA_UIA_PID=str(rows[0]),QA_UIA_APP=str(app),QA_UIA_FIXTURE=str(fixture),QA_UIA_READY=str(ready))
     started=time.monotonic()
+    # Bind to this launch: windows that exist before the click can never be the Open dialog.
+    baseline={w['hwnd'] for w in enum_top_windows() if w['pid']==rows[0]}
+    require(rows==owned_app_processes(app),'UI app identity changed')
+    ui_webdriver(session,element)  # Normal user-facing WebDriver click, never JS/IPC.
+    dialog=wait_owned_dialog(rows[0],baseline)
+    env=uia_environment(); env.update(QA_UIA_PID=str(rows[0]),QA_UIA_APP=str(app),QA_UIA_FIXTURE=str(fixture),QA_UIA_READY=str(ready),QA_UIA_HWND=str(dialog['hwnd']))
     proc=subprocess.Popen(uia_command('Open'),env=env,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
     try:
         while not ready.exists():
             require(proc.poll() is None,'UIA helper exited before ready')
-            require(time.monotonic()-started<30,'UIA helper readiness timeout'); time.sleep(.1)
+            require(time.monotonic()-started<90,'UIA helper readiness timeout'); time.sleep(.1)
         safe_path(ready); require(ready.is_file() and ready.stat().st_size==0,'invalid UIA readiness marker')
-        require(rows==owned_app_processes(app),'UI app identity changed')
-        ui_webdriver(session,element)  # Normal user-facing WebDriver click, never JS/IPC.
-        out,err=proc.communicate(timeout=max(.1,60-(time.monotonic()-started)))
+        out,err=proc.communicate(timeout=max(.1,90-(time.monotonic()-started)))
         require(len(out)<=8192 and len(err)<=8192,'UIA helper output exceeded limit')
         if proc.returncode!=0:
             phase,detail=uia_failure(err)
