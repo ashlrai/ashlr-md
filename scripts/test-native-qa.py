@@ -64,11 +64,29 @@ class Tests(unittest.TestCase):
             response=Response(b'{}'); response.status=302; opener.open.return_value=response
             with self.assertRaises(ValueError): api(route)
             opener.open.side_effect=qa.urllib.error.HTTPError('u',404,'nf',{},None)
+            opener.open.reset_mock()
             with self.assertRaisesRegex(ValueError,'^preparation metadata request failed$'): api(route)
-            opener.open.side_effect=qa.urllib.error.URLError('synthetic-token must not appear')
-            with self.assertRaisesRegex(ValueError,'^preparation metadata request failed$'): api(route)
-            opener.open.side_effect=qa.http.client.BadStatusLine('synthetic-token must not appear')
-            with self.assertRaisesRegex(ValueError,'^preparation metadata request failed$'): api(route)
+            self.assertEqual(opener.open.call_count,1)  # definitive answers are not retried
+            with patch.object(qa.time,'sleep') as sleep:
+                for err in (qa.urllib.error.URLError('synthetic-token must not appear'),
+                            qa.http.client.BadStatusLine('synthetic-token must not appear'),
+                            qa.urllib.error.HTTPError('u',502,'bad gateway',{},None)):
+                    opener.open.reset_mock(); sleep.reset_mock(); opener.open.side_effect=err
+                    with self.assertRaisesRegex(ValueError,'^preparation metadata request failed$'): api(route)
+                    self.assertEqual(opener.open.call_count,qa.METADATA_ATTEMPTS)
+                    self.assertEqual(sleep.call_count,qa.METADATA_ATTEMPTS-1)
+
+    def test_metadata_retries_transient_failure_then_succeeds(self):
+        from unittest.mock import MagicMock
+        import io
+        class Response(io.BytesIO):
+            status=200
+        opener=MagicMock()
+        opener.open.side_effect=[qa.urllib.error.HTTPError('u',503,'unavail',{},None), TimeoutError('t'), Response(b'{"ok":1}')]
+        api=qa.metadata_fetcher('synthetic-token')
+        with patch.object(qa.urllib.request,'build_opener',return_value=opener), patch.object(qa.time,'sleep'):
+            self.assertEqual(api(f'/repos/ashlrai/ashlr-md/git/ref/tags/{qa.TAG}'),{'ok':1})
+        self.assertEqual(opener.open.call_count,3)
 
     def test_prepare_uses_scoped_api_without_token_in_subprocess_or_receipt(self):
         from unittest.mock import MagicMock

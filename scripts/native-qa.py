@@ -23,6 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SHA = '721b976149ad402cac56205f28bf253603f76535'
 RUN = 41362219024
 TAG = 'v0.5.0'
+METADATA_ATTEMPTS = 4
 APP = 'Ashlr_MD_0.5.0_amd64.AppImage'
 ZIP_APP = 'release/bundle/appimage/Ashlr MD_0.5.0_amd64.AppImage'
 APP_HASH = 'f4ebaa941f596877937df68713be3646783c8f00d05ac7af692a170484f17c9f'
@@ -89,7 +90,7 @@ def metadata_fetcher(token):
         req = urllib.request.Request('https://api.github.com' + path,
             headers={'Authorization': f'Bearer {token}', 'Accept': 'application/vnd.github+json',
                      'User-Agent': 'ashlr-native-qa', 'X-GitHub-Api-Version': '2022-11-28'})
-        try:
+        def attempt():
             with urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect).open(req, timeout=30) as response:
                 require(response.status == 200, 'unexpected metadata status')
                 raw = response.read(16 * 1024 * 1024 + 1)
@@ -97,9 +98,22 @@ def metadata_fetcher(token):
                 value = json.loads(raw)
                 require(isinstance(value, dict), 'metadata must be an object')
                 return value
-        except (OSError, ValueError, http.client.HTTPException):
-            # Never include request headers, response bodies or credential-bearing objects.
-            raise ValueError('preparation metadata request failed') from None
+        # GitHub API 5xx, rate limits and network blips are transient on the daily runner;
+        # retry those a bounded number of times. Definitive answers (404 etc.) fail at once.
+        for n in range(METADATA_ATTEMPTS):
+            try:
+                return attempt()
+            except urllib.error.HTTPError as err:
+                transient = err.code in (429, 500, 502, 503, 504)
+            except (OSError, http.client.HTTPException):
+                transient = True
+            except ValueError:
+                transient = False
+            if not transient or n == METADATA_ATTEMPTS - 1:
+                break
+            time.sleep(2 ** (n + 1))
+        # Never include request headers, response bodies or credential-bearing objects.
+        raise ValueError('preparation metadata request failed') from None
     return fetch
 
 
