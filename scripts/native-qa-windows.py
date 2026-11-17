@@ -662,7 +662,7 @@ def dialog_observation(stderr):
     if 'ancestry' in value:
         ancestry=value['ancestry']
         require(isinstance(ancestry,list) and len(ancestry)<=value['count'],'invalid observation ancestry')
-        require(all(isinstance(kind,str) and kind in ('root','nested','outside','handleless','query-failed') for kind in ancestry),'invalid ancestry kind')
+        require(all(isinstance(kind,str) and kind in ('root','nested','owned','outside','handleless','query-failed') for kind in ancestry),'invalid ancestry kind')
     require(isinstance(value['windows'],list) and len(value['windows'])<=value['count'],'invalid observation windows')
     for window in value['windows']:
         require(isinstance(window,dict) and set(window)=={'class','pattern','modal','enabled'},'invalid window fields')
