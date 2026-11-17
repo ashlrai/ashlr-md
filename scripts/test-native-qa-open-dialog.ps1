@@ -113,4 +113,11 @@ if ($windows.Count -ne 2) { throw 'duplicate dialog not collapsed' }
 $dialog=$null; $observation=@{stage='inspect';count=2;overflow=$false;windows=@()}
 . $probe
 if ($null -eq $dialog -or -not [object]::ReferenceEquals($dialog,$picker)) { throw 'duplicate dialog not selected' }
+# An inner #32770 beneath the real dialog is not a second candidate; the outermost dialog wins.
+$inner = New-TestWindow '#32770' $false
+$picker = New-TestWindow '#32770' $true $true 123 @($inner)
+$windows = @($picker,$inner)
+$dialog=$null; $observation=@{stage='inspect';count=3;overflow=$false;windows=@()}
+. $probe
+if ($null -eq $dialog -or -not [object]::ReferenceEquals($dialog,$picker)) { throw 'nested dialog not collapsed to outermost' }
 [Console]::WriteLine('PASS: actual PowerShell discovery and selection cover owned child dialogs, desktop dialogs, modality, bounded traversal, ownership, count caps, regex collision, disabled and ambiguous candidates.')
