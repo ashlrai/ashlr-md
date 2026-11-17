@@ -71,6 +71,16 @@ returns. The pinned driver's own full verification and its bound are unchanged.
 
 ## Failure diagnostics
 
+A failed phase also prints one hosted-runner `::error` annotation, so the reason is
+readable from the run page and the check-run annotations API without the job log
+(run 43991582185 showed only "Process completed with exit code 1"). The annotation
+carries the phase and either a literal reason written in the harness scripts
+(`require()`, `fail()` or a direct raise in `native-qa-windows.py`, `native-qa.py`
+and `release-provenance.py`) or, for any other exception, its class name alone:
+subprocess, OS and provider errors can hold paths, argv or captured output. A
+failed CLI startup scenario and a failed UIA helper phase each add one `::warning`
+with the same fixed vocabulary. Annotations change no verdict.
+
 A failed exact-content check now additionally reports only bounded synthetic
 window state: title (128 characters), location origin/path (256, no query or
 fragment), ready state, Tauri-presence and root booleans, body text (512), and
