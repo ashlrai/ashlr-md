@@ -154,7 +154,7 @@ If several enabled exact-PID `#32770` candidates still remain, the helper narrow
 containing exactly one filename Edit (polled for up to 5 seconds while controls populate;
 runs 44059630934 and 44063864477 still reported `ambiguous-dialog`). Zero or several such candidates, or any
 provider failure, stay ambiguous. If nested candidates all report the same Edit
-(identical RuntimeId), the one exposing exactly one confirm Button ID 1 is the picker.
+(identical RuntimeId), the one exposing exactly one confirm Button ID 1 is the picker; candidates sharing that same button are one picker, distinct buttons stay ambiguous.
 Within that dialog it requires the unique enabled filename Edit control identified
 by automation ID 1148 (or its ComboBox parent), writable ValuePattern and exact path
 readback, followed by the unique enabled Button ID 1 and InvokePattern. These

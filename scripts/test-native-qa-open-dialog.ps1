@@ -256,24 +256,28 @@ foreach ($ownerHandle in @(921,999)) {
 # stay ambiguous. When nested dialogs report the SAME edit (run 44063864477), the one
 # candidate with exactly one confirm button is the picker; otherwise it stays ambiguous.
 function Get-FilenameEdits($dialog, [int]$targetPid) { if ($script:EditMap.ContainsKey($dialog.RuntimeId[1])) { return @($script:EditMap[$dialog.RuntimeId[1]]) } return @() }
-function Get-ConfirmButtons($dialog) { if ($script:ButtonOwners -contains $dialog) { return @(1) } return @() }
+function Get-ConfirmButtons($dialog) { if ($script:ButtonMap.ContainsKey($dialog.RuntimeId[1])) { return @($script:ButtonMap[$dialog.RuntimeId[1]]) } return @() }
 $picker = New-TestWindow '#32770' $true -nativeWindowHandle 931
 $other = New-TestWindow '#32770' $true -nativeWindowHandle 932
 $editA = New-TestWindow 'Edit' $true
 $editB = New-TestWindow 'Edit' $true
+$buttonA = New-TestWindow 'Button' $true
+$buttonB = New-TestWindow 'Button' $true
 $cases = @(
-    @{Edits=@{};Buttons=@();Accept=$null}
-    @{Edits=@{$picker=$editA};Buttons=@();Accept=$picker}
-    @{Edits=@{$picker=$editA;$other=$editB};Buttons=@($picker);Accept=$null}
-    @{Edits=@{$picker=$editA;$other=$editA};Buttons=@($picker);Accept=$picker}
-    @{Edits=@{$picker=$editA;$other=$editA};Buttons=@($other);Accept=$other}
-    @{Edits=@{$picker=$editA;$other=$editA};Buttons=@($picker,$other);Accept=$null}
-    @{Edits=@{$picker=$editA;$other=$editA};Buttons=@();Accept=$null}
+    @{Edits=@{};Buttons=@{};Accept=$null}
+    @{Edits=@{$picker=$editA};Buttons=@{};Accept=$picker}
+    @{Edits=@{$picker=$editA;$other=$editB};Buttons=@{$picker=$buttonA};Accept=$null}
+    @{Edits=@{$picker=$editA;$other=$editA};Buttons=@{$picker=$buttonA};Accept=$picker}
+    @{Edits=@{$picker=$editA;$other=$editA};Buttons=@{$other=$buttonA};Accept=$other}
+    @{Edits=@{$picker=$editA;$other=$editA};Buttons=@{$picker=$buttonA;$other=$buttonA};Accept=$other}
+    @{Edits=@{$picker=$editA;$other=$editA};Buttons=@{$picker=$buttonA;$other=$buttonB};Accept=$null}
+    @{Edits=@{$picker=$editA;$other=$editA};Buttons=@{};Accept=$null}
 )
 foreach ($case in $cases) {
     $script:EditMap = @{}
     foreach ($key in $case.Edits.Keys) { $script:EditMap[$key.RuntimeId[1]] = $case.Edits[$key] }
-    $script:ButtonOwners = $case.Buttons
+    $script:ButtonMap = @{}
+    foreach ($key in $case.Buttons.Keys) { $script:ButtonMap[$key.RuntimeId[1]] = $case.Buttons[$key] }
     $windows = @($other,$picker)
     $dialog=$null; $observation=@{stage='inspect';count=2;overflow=$false;windows=@()}
     $rejected=$false
