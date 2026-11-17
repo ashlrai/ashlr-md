@@ -24,6 +24,28 @@ def tool_rows(guide):
     return re.findall(r'^\| `([a-z_]+)` \|', section, re.M)
 
 
+def help_command_keys(help_text):
+    """Command keys from the mdopener-mcp HELP usage lines.
+
+    "mdopener-mcp doctor --fix [--apply]" becomes "doctor --fix", the bare
+    "mdopener-mcp" line (serve on stdio) becomes "serve".
+    """
+    keys = []
+    for line in help_text.splitlines():
+        if not line.startswith('    mdopener-mcp'):
+            continue
+        command = re.split(r' {2,}', line.strip())[0]
+        keys.append(command_key(command))
+    return keys
+
+
+def command_key(command):
+    command = command.replace('`', '').strip()
+    command = re.sub(r'^mdopener-mcp\s*', '', command)
+    command = command.split('[', 1)[0].strip()
+    return command or 'serve'
+
+
 class DocumentationContracts(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -72,6 +94,51 @@ class DocumentationContracts(unittest.TestCase):
         section = readme.split('## Commands and flags', 1)[1].split('\n## ', 1)[0]
         self.assertGreaterEqual(len(flags), 10)
         self.assertEqual(set(FLAG.findall(section)), flags)
+
+    def test_readme_lists_every_cli_command(self):
+        # Every mdopener-mcp command in HELP must have a row in the README's
+        # "Commands and flags" table, and the table must not list one HELP lacks.
+        main = (ROOT / 'src-tauri/bins/mdopener-mcp/src/main.rs').read_text(encoding="utf-8")
+        help_text = main.split('const HELP: &str = "', 1)[1].split('\n";', 1)[0]
+        source = help_command_keys(help_text)
+        self.assertIn('serve', source)
+        self.assertIn('doctor --fix', source)
+        readme = (ROOT / 'README.md').read_text(encoding="utf-8")
+        section = readme.split('## Commands and flags', 1)[1].split('\n## ', 1)[0]
+        table = section.split('**`mdopener-mcp`**', 1)[1].split('Other arguments', 1)[0]
+        rows = re.findall(r'^\| (`[^|]+?) \|', table, re.M)
+        documented = []
+        for cell in rows:
+            for span in re.findall(r'`([^`]+)`', cell):
+                for part in span.split(', '):
+                    documented.append(command_key(part))
+        self.assertCountEqual(documented, source)
+
+    def test_readme_lists_every_mcp_tool(self):
+        # Each tool in tool_registry() must appear in the README's "MCP tools"
+        # table in the same order, and the table must not name a removed tool.
+        names = tool_names(self.server)
+        readme = (ROOT / 'README.md').read_text(encoding="utf-8")
+        section = readme.split('## MCP tools', 1)[1].split('\n## ', 1)[0]
+        self.assertEqual(re.findall(r'^\| `([a-z_]+)` \|', section, re.M), names)
+
+    def test_drift_check_detects_missing_and_extra_entries(self):
+        names = tool_names(self.server)
+        readme = (ROOT / 'README.md').read_text(encoding="utf-8")
+        section = readme.split('## MCP tools', 1)[1].split('\n## ', 1)[0]
+        rows = re.findall(r'^\| `[a-z_]+` \|.*$', section, re.M)
+        for changed in (rows[:-1], rows + ['| `obsolete_tool` | Gone |']):
+            with self.subTest(rows=len(changed)):
+                found = re.findall(r'^\| `([a-z_]+)` \|', '\n'.join(changed), re.M)
+                self.assertNotEqual(found, names)
+
+    def test_get_started_has_five_steps_or_fewer(self):
+        readme = (ROOT / 'README.md').read_text(encoding="utf-8")
+        section = readme.split('## Get started', 1)[1].split('\n## ', 1)[0]
+        steps = re.findall(r'^\d+\. \*\*', section, re.M)
+        self.assertGreaterEqual(len(steps), 1)
+        self.assertLessEqual(len(steps), 5)
+        self.assertIn('You should see', section)
 
     def test_frontend_event_inventory(self):
         actual = []

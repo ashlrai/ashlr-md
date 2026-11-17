@@ -29,46 +29,51 @@ People get a rendered page instead of raw syntax. Agents get `mdopen`, `mdopener
 
 </div>
 
-## Start
+## Get started
 
-From a checkout, on macOS or Linux. One command builds the CLI and the MCP server, links both onto `PATH`, and registers Claude Code when `claude` is already installed.
+Five steps. Each one says what you should see.
 
-```bash
-SKIP_APP_BUILD=1 bash scripts/install.sh
-```
+1. **Install.** From a checkout, on macOS or Linux. This builds `mdopen` and `mdopener-mcp` and links both onto `PATH`:
 
-No checkout yet? The script clones the repository into `~/ashlr-md` (or updates an existing clone there). Git, curl, Rust, Cargo, and Bun are required.
+   ```bash
+   SKIP_APP_BUILD=1 bash scripts/install.sh
+   ```
 
-```bash
-SKIP_APP_BUILD=1 bash <(curl -fsSL https://raw.githubusercontent.com/ashlrai/ashlr-md/main/scripts/install.sh)
-```
+   You should see `Installation complete.` and a short "Next steps" list. No checkout yet? The same script clones the repository into `~/ashlr-md`:
 
-If the linker used `~/.local/bin` and your shell cannot find the commands yet: `export PATH="$HOME/.local/bin:$PATH"`.
+   ```bash
+   SKIP_APP_BUILD=1 bash <(curl -fsSL https://raw.githubusercontent.com/ashlrai/ashlr-md/main/scripts/install.sh)
+   ```
 
-JSON, from the same machine. These commands exit on their own. They do not download a model and they do not write config.
+   Git, curl, Rust, Cargo, and Bun are required. If your shell cannot find the commands afterwards, run `export PATH="$HOME/.local/bin:$PATH"`.
 
-```bash
-mdopener-mcp doctor --json
-mdopener-mcp setup --local --json
-mdopener-mcp --ashlr-handshake --json
-mdopener-mcp --export-tool-schema
-```
+2. **Check.** This looks only at this machine. It downloads nothing and writes no config:
 
-Connect the server. Each command uses the `mdopener-mcp` that is on `PATH`. The Cursor command requires a checkout of this repository.
+   ```bash
+   mdopener-mcp doctor --json
+   ```
 
-```bash
-claude mcp add --scope user ashlr-md "$(command -v mdopener-mcp)"
-codex mcp add ashlr-md -- "$(command -v mdopener-mcp)"
-python3 scripts/connect-cursor.py
-```
+   You should see JSON with a `checks` list. The command exits `0`.
 
-Open a file in the desktop app, after the app itself is installed:
+3. **Connect your agent.** The installer registers Claude Code when `claude` is installed. To add it yourself:
 
-```bash
-mdopen samples/agent-plan.md
-```
+   ```bash
+   claude mcp add --scope user ashlr-md "$(command -v mdopener-mcp)"
+   ```
 
-More commands, including Windows: [docs/EXAMPLES.md](./docs/EXAMPLES.md). Every tool, in order: [docs/AGENTS.md](./docs/AGENTS.md).
+   You should see `ashlr-md` in `claude mcp list`. For Codex, run `codex mcp add ashlr-md -- "$(command -v mdopener-mcp)"`. For Cursor, run `python3 scripts/connect-cursor.py` from this checkout.
+
+4. **Open a file.** Do this after the app itself is installed ([Download](#download)):
+
+   ```bash
+   mdopen samples/agent-plan.md
+   ```
+
+   You should see the plan rendered in an Ashlr MD window. If you see `Ashlr MD is not running`, start the app and run the command again.
+
+5. **Ask for review.** Your agent calls `request_review` on a document. The document stays open for you, and your verdict goes back to the agent as JSON.
+
+Next: [Commands and flags](#commands-and-flags) lists every command, [MCP tools](#mcp-tools) lists every tool, and [docs/AGENTS.md](./docs/AGENTS.md) is the full guide. Windows examples: [docs/EXAMPLES.md](./docs/EXAMPLES.md).
 
 ## Commands and flags
 
@@ -101,7 +106,34 @@ Each command prints its full list with `--help`.
 
 Other arguments to `mdopener-mcp` are ignored, with a warning on stderr.
 
-## 30-second start
+## MCP tools
+
+The server exposes these 20 tools, in the order the server lists them. Input schemas: `mdopener-mcp --export-tool-schema`. Parameters and return values: [docs/AGENTS.md](./docs/AGENTS.md#mcp-tool-reference).
+
+| Tool | What it does |
+|---|---|
+| `open_file` | Open a file in the app. Pass `"mode": "edit"` to edit |
+| `get_current_content` | Get the path and full Markdown of the open document |
+| `list_recent` | List recently opened files, newest first |
+| `request_review` | Ask a person to approve or request changes. Blocks until they decide |
+| `get_user_annotations` | Read the latest verdict, comments, and task checkboxes |
+| `edit_document` | Replace one exact, unique match in the open document |
+| `search_vault` | Search the watched folder and recent files |
+| `present_document` | Switch the app to a distraction-free reading view |
+| `list_ai_actions` | List the editor's AI actions, such as explain or summarize |
+| `get_conversation_context` | Read the latest messages in the AI sidebar |
+| `save_conversation_message` | Save a message to the AI sidebar conversation |
+| `diff_documents` | Show a unified diff of two Markdown files on disk |
+| `stream_edit` | Preview a find and replace as a diff. Changes nothing |
+| `stream_edit_apply` | Apply a previewed `stream_edit`, chosen by occurrence |
+| `export_text` | Get the plain text of a Markdown file, with syntax removed |
+| `export_metadata` | Get the headings and other structure of a Markdown file |
+| `edit_canvas` | Apply typed edits to a `.canvas` file, all or nothing |
+| `export` | Export the open document in one of the app's formats |
+| `replace_document` | Replace the entire content of the open document |
+| `set_content` | Replace the entire content of the open document. Same as `replace_document` |
+
+## Desktop app without a terminal
 
 For the desktop app, without a terminal.
 
@@ -195,13 +227,13 @@ If an agent on your machine should open Markdown in a real window, star the repo
 
 ## One-click agent setup
 
-Open the app, then Preferences, then AI agents (MCP). Click **Connect to Claude Code**, **Connect to Cursor**, or **Connect to Codex**. Each button registers this app's `mdopener-mcp`. The terminal commands that do the same job are in [Start](#start).
+Open the app, then Preferences, then AI agents (MCP). Click **Connect to Claude Code**, **Connect to Cursor**, or **Connect to Codex**. Each button registers this app's `mdopener-mcp`. The terminal commands that do the same job are in [Get started](#get-started).
 
 Discovery metadata: [docs/mcp-registry.md](./docs/mcp-registry.md).
 
 ## Download
 
-Release builds are on the [latest release](https://github.com/ashlrai/ashlr-md/releases/latest). Per-OS steps are in [docs/INSTALL.md](./docs/INSTALL.md). The app includes an updater. The installers do not put `mdopen` on `PATH`. Use Preferences, Command-line tool, Install mdopen, or the [install script](#start) on macOS and Linux.
+Release builds are on the [latest release](https://github.com/ashlrai/ashlr-md/releases/latest). Per-OS steps are in [docs/INSTALL.md](./docs/INSTALL.md). The app includes an updater. The installers do not put `mdopen` on `PATH`. Use Preferences, Command-line tool, Install mdopen, or the [install script](#get-started) on macOS and Linux.
 
 ## How Ashlr MD plugs into Phantom
 
