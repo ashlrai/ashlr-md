@@ -639,7 +639,7 @@ def check_uia():
 
 UIA_PHASES=re.compile(r'(?m)^qa-uia-failed:(assemblies|inputs|dialog|filename|confirm)$')
 UIA_DETAIL=re.compile(r'(?m)^qa-uia-detail:([a-z][a-z-]{0,31})$')
-UIA_DETAIL_KINDS={'pid','fixture','ready','image','window-count','unexpected-owner','ambiguous-dialog','dialog-unavailable','edit-count','ambiguous-filename','readonly','readback','ambiguous-open'}
+UIA_DETAIL_KINDS={'pid','fixture','ready','image','window-count','unexpected-owner','ambiguous-dialog','dialog-unavailable','edit-count','filename-none','filename-many','readonly','readback','ambiguous-open'}
 
 
 def uia_failure(stderr):

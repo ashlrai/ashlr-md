@@ -50,8 +50,18 @@ function Get-FilenameEdits($dialog, [int]$targetPid) {
         if ($m.Current.ControlType -eq [Windows.Automation.ControlType]::Edit) { $edits += $m }
         elseif ($m.Current.ControlType -eq [Windows.Automation.ControlType]::ComboBox) {
             # The filename ComboBox hosts its Edit as a descendant.
-            foreach ($inner in $m.FindAll([Windows.Automation.TreeScope]::Descendants, $editCondition)) { $edits += $inner }
+            $inners = @(foreach ($inner in $m.FindAll([Windows.Automation.TreeScope]::Descendants, $editCondition)) { $inner })
+            if ($inners.Count -gt 0) { $edits += $inners } else { $edits += $m }  # Some providers expose the combo itself as the value holder.
         }
+    }
+    if ($edits.Count -eq 0) {
+        # Some picker builds do not publish automation ID 1148 at all (run 44113712735: filename
+        # phase failed with zero edits on a healthy picker). Fall back to the Edit the dialog labels
+        # "File name:", read by exact Name only for matching; unrelated edits (address band, search)
+        # carry other names, and the single-match rule below still fails closed on ambiguity.
+        $named = @(foreach ($e in $dialog.FindAll([Windows.Automation.TreeScope]::Descendants, $editCondition)) { $e })
+        if ($named.Count -gt 64) { throw 'edit-count' }
+        foreach ($e in $named) { if ($e.Current.Name -cmatch '^File name:?$') { $edits += $e } }
     }
     $found = @()
     $seenEdits = @{}
@@ -268,7 +278,8 @@ public static class NativeDialogWindow {
         if ($candidates.Count -eq 1) { break }
         Start-Sleep -Milliseconds 200
     } while ([DateTime]::UtcNow -lt $filenameDeadline)
-    if ($candidates.Count -ne 1) { throw 'ambiguous-filename' }
+    if ($candidates.Count -eq 0) { throw 'filename-none' }
+    if ($candidates.Count -gt 1) { throw 'filename-many' }
     $value = $candidates[0].GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern)
     if ($value.Current.IsReadOnly) { throw 'readonly' }
     $value.SetValue($fixture)
@@ -288,7 +299,7 @@ public static class NativeDialogWindow {
 } catch {
     # Fixed phase and allowlisted throw reasons only, never provider errors, dialog text, paths or process data.
     if ($phase -eq 'dialog') { $observation['reason']=$dialogReason; [Console]::Error.WriteLine('qa-uia-windows:' + ($observation | ConvertTo-Json -Compress -Depth 4)) }
-    $detailReasons = @('pid','fixture','ready','image','window-count','unexpected-owner','ambiguous-dialog','dialog-unavailable','edit-count','ambiguous-filename','readonly','readback','ambiguous-open')
+    $detailReasons = @('pid','fixture','ready','image','window-count','unexpected-owner','ambiguous-dialog','dialog-unavailable','edit-count','filename-none','filename-many','readonly','readback','ambiguous-open')
     if ($detailReasons -contains $_.Exception.Message) { [Console]::Error.WriteLine('qa-uia-detail:' + $_.Exception.Message) }
     [Console]::Error.WriteLine('qa-uia-failed:' + $phase)
     exit 1
