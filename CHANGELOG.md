@@ -21,6 +21,8 @@ Released 2026-06-06. [Release notes and downloads](https://github.com/ashlrai/as
 - `bun run docs:fixtures` regenerates `docs/mdlint-autofix-fixture-index.md` from the declarations in `src/lib/mdlint-autofix.test.ts`.
 - `bun run test:unit` runs the fast unit lane (punctuation, CLI build setup and mdlint) that the CI checks job now runs.
 
+- The Windows native QA harness (`scripts/native-qa-windows.py`) prints one hosted-runner `::error` annotation naming the failed phase and a fixed-vocabulary reason (any other exception is reported by class name alone), and a failed CLI startup scenario or UIA helper phase adds one `::warning`. Annotations change no verdict.
+
 ### Fixed
 - Release builds prefetch WiX, NSIS and AppImage tools with retries, and skip Finder AppleScript when creating macOS DMGs on CI, so a GitHub 504 or a hung Finder session no longer fails the Tauri bundle step.
 - Jumping to a source line inside a fenced code block, Mermaid diagram or diff block in Read view lands on that block: rendered code blocks now carry their source line.
@@ -32,11 +34,14 @@ Released 2026-06-06. [Release notes and downloads](https://github.com/ashlrai/as
 
 ### Changed
 - The keyboard shortcut tables in the README, `docs/SHORTCUTS.md` and the landing page list macOS modifiers in the order the app shows them (`⇧⌘L`, `⌥⌘F`), and the doc facts test now checks that order and the README's own table.
+- `native-qa-windows.yml` also triggers on pushes to `main` and published releases, with `permissions: {}` at workflow level and job-only `contents: read` and `actions: read`.
 - `src-tauri/Cargo.lock` is refreshed to current dependency resolutions (Tauri 2 build and utils crates); no application code or version changed.
 - Rust `target/` build output is ignored and no longer committed.
 - The CI checks job is named "Typecheck, lint, unit tests, crypto policy": it runs `bun run test:unit` in place of the single punctuation test, runs `bun run check:doc-links`, runs the Tauri bundler prefetch and apt dependency plan regressions, the CI and release gate tests, and the npm script file path check. `CONTRIBUTING.md` lists the matching local commands.
 
 ### Documentation
+- `docs/WINDOWS-NATIVE-QA.md` states that `native-qa-windows.yml` runs on pushes to `main` and published releases as well as `workflow_dispatch`, and documents the failure annotations.
+- `docs/proposals/windows-probe-ci.md` proposes stopping the Windows original-artifact probe from re-running on every merge; it is listed in `docs/README.md`.
 - `CONTRIBUTING.md` names `bun run fresh:sync` and `bun run doclive:sync`, the commands that rewrite the generated release and docs blocks the matching check scripts verify.
 - `CONTRIBUTING.md` lists `bun run test:select`, `bun run test:dispatch` and `bun run bench:render`, the last npm scripts it did not mention.
 - `docs/integration-bracket-preservation.md` shows an annotation and a citation written back to back (`[sic][1]`) keeping both fragments in order.
