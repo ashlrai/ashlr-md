@@ -133,8 +133,21 @@ Element Click. Its original `src/lib/openFile.ts` handler opens the real Tauri n
 Markdown picker. No script invokes an app API or changes the document store.
 Built-in .NET UI Automation then selects only the verified owned app PID's unique
 enabled `#32770` dialog (modality is observed, not required) among immediate desktop
-children and one child-window level beneath those exact-owned-PID windows. It never
-searches desktop descendants or descends into WebView content.
+children and one child-window level beneath those exact-owned-PID windows. Entries
+are deduplicated by nonzero HWND, with RuntimeId used for handle-less elements.
+Distinct HWNDs use `GetAncestor(GA_ROOT)` to identify a nested native dialog even
+when UIA exposes it as a sibling or beneath an intermediate provider element.
+Only another enabled, exact-PID `#32770` candidate can be the accepted root;
+independent dialogs and unknown roots remain ambiguous. `GA_ROOTOWNER` is never
+used because independent popups may share an owner. Failed ancestry queries retry
+within the existing dialog deadline. Handle-less elements retain the direct UIA
+child fallback. Discovery never searches desktop descendants or WebView content.
+The actual-source regression runs with `pwsh -NoProfile -File
+scripts/test-native-qa-open-dialog.ps1` on any OS, using synthetic provider/native
+calls. See [native parent versus owner ancestry](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getancestor).
+Ambiguity diagnostics include at most eight fixed ancestry labels (`root`,
+`nested`, `outside`, `handleless`, `query-failed`), without handles or titles, so a
+future failure distinguishes independent windows from provider nesting.
 Within that dialog it requires the unique enabled filename Edit control identified
 by automation ID 1148 (or its ComboBox parent), writable ValuePattern and exact path
 readback, followed by the unique enabled Button ID 1 and InvokePattern. These

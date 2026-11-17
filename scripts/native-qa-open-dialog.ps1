@@ -13,6 +13,16 @@ function Get-DialogWindowKey($window) {
     return 'runtime:' + (@($window.GetRuntimeId()) -join '.')
 }
 
+function Get-DialogRootKey($window) {
+    $handle = $window.Current.NativeWindowHandle
+    if ($handle -eq 0) { return $null }
+    # GA_ROOT follows native parents, not popup owners (GA_ROOTOWNER would
+    # incorrectly merge independent dialogs owned by the same application).
+    $root = [NativeDialogWindow]::GetAncestor([IntPtr]$handle, 2)
+    if ($root -eq [IntPtr]::Zero) { throw 'dialog-root-unavailable' }
+    return 'hwnd:' + $root.ToInt64()
+}
+
 function Get-OwnedDialogWindows($desktopWindows, $condition, [int]$targetPid) {
     # UIA can place an owned dialog beneath its application window rather than
     # directly beneath the desktop. Inspect one child level of exact-PID windows
@@ -48,6 +58,12 @@ function Get-OwnedDialogWindows($desktopWindows, $condition, [int]$targetPid) {
 try {
     Add-Type -AssemblyName UIAutomationClient
     Add-Type -AssemblyName UIAutomationTypes
+    Add-Type -TypeDefinition @'
+public static class NativeDialogWindow {
+    [System.Runtime.InteropServices.DllImport("user32.dll", ExactSpelling = true)]
+    public static extern System.IntPtr GetAncestor(System.IntPtr hwnd, uint flags);
+}
+'@
     if ($Mode -eq 'Preflight') {
         [Console]::WriteLine('qa-uia-available')
         exit 0
@@ -99,13 +115,28 @@ try {
                 if ($window.Current.ClassName -ceq '#32770' -and $window.Current.IsEnabled) { $candidates += $window }
             }
             if ($candidates.Count -gt 1) {
-                # A Common Item Dialog can expose an inner enabled #32770 beneath the real dialog.
-                # Drop only candidates that are direct children of another candidate (outermost wins);
-                # independent sibling dialogs still fail closed as ambiguous.
+                # UIA provider parenting need not match HWND parenting. A picker
+                # and its embedded #32770 may appear as siblings with distinct
+                # handles; neither deduplication nor direct UIA children prove
+                # independence. Collapse only to another exact owned candidate.
                 $nested = @{}
+                $candidateKeys = @{}
+                $observation['ancestry'] = @() # Fixed labels only; never HWNDs or titles.
+                foreach ($candidate in $candidates) { $candidateKeys[(Get-DialogWindowKey $candidate)] = $true }
                 foreach ($outer in $candidates) {
                     $outerKey = Get-DialogWindowKey $outer
+                    try { $rootKey = Get-DialogRootKey $outer } catch { $observation.ancestry += 'query-failed'; throw }
+                    if ($null -ne $rootKey) {
+                        if ($rootKey -ceq $outerKey) { $observation.ancestry += 'root' }
+                        elseif ($candidateKeys.ContainsKey($rootKey)) { $nested[$outerKey] = $true; $observation.ancestry += 'nested' }
+                        else { $observation.ancestry += 'outside' }
+                        continue
+                    }
+                    $observation.ancestry += 'handleless'
+                    # Handle-less provider elements retain the bounded UIA fallback.
                     foreach ($inner in $outer.FindAll([Windows.Automation.TreeScope]::Children, $condition)) {
+                        if ($inner.Current.ProcessId -ne $targetPid) { throw 'unexpected-owner' }
+                        if ($inner.Current.NativeWindowHandle -ne 0) { continue }
                         $innerKey = Get-DialogWindowKey $inner
                         if ($innerKey -cne $outerKey) { $nested[$innerKey] = $true }
                     }
