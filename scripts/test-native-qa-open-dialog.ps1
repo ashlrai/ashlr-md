@@ -11,8 +11,12 @@ $probe = [scriptblock]::Create('while ($true) {' + $block.Value + '; break }')
 if (-not ('Windows.Automation.WindowPattern' -as [type])) {
     Add-Type -TypeDefinition 'namespace Windows.Automation { public class WindowPattern { public static object Pattern = new object(); } public enum TreeScope { Children = 2 } }'
 }
+$script:nextRuntimeId = 0
 function New-TestWindow([string]$className, [bool]$modal, [bool]$enabled=$true, [int]$ownerPid=123, [array]$children=@()) {
     $window = [pscustomobject]@{Current=[pscustomobject]@{ProcessId=$ownerPid;ClassName=$className;IsEnabled=$enabled};Modal=$modal;Children=$children;Queries=0}
+    $script:nextRuntimeId++
+    $window | Add-Member -MemberType NoteProperty -Name RuntimeId -Value @(42, $script:nextRuntimeId)
+    $window | Add-Member -MemberType ScriptMethod -Name GetRuntimeId -Value { return $this.RuntimeId }
     $window | Add-Member -MemberType ScriptMethod -Name GetCurrentPattern -Value { param($pattern) return [pscustomobject]@{Current=[pscustomobject]@{IsModal=$this.Modal}} }
     $window | Add-Member -MemberType ScriptMethod -Name TryGetCurrentPattern -Value { param($pattern,[ref]$value) $value.Value=$this.GetCurrentPattern($pattern); return $true }
     $window | Add-Member -MemberType ScriptMethod -Name FindAll -Value {
@@ -101,4 +105,12 @@ $windows=@(Get-OwnedDialogWindows @((New-TestWindow '#32770' $true),$owner) $con
 $rejected=$false
 try { . $probe } catch { if ($_.Exception.Message -ceq 'ambiguous-dialog') {$rejected=$true} else {throw} }
 if (-not $rejected) { throw 'ambiguous dialogs accepted' }
+# The same dialog reported at desktop level and beneath its owner is one candidate, not ambiguous.
+$picker = New-TestWindow '#32770' $true
+$owner = New-TestWindow 'Tauri Window' $false $false 123 @($picker)
+$windows = @(Get-OwnedDialogWindows @($picker,$owner) $condition $targetPid)
+if ($windows.Count -ne 2) { throw 'duplicate dialog not collapsed' }
+$dialog=$null; $observation=@{stage='inspect';count=2;overflow=$false;windows=@()}
+. $probe
+if ($null -eq $dialog -or -not [object]::ReferenceEquals($dialog,$picker)) { throw 'duplicate dialog not selected' }
 [Console]::WriteLine('PASS: actual PowerShell discovery and selection cover owned child dialogs, desktop dialogs, modality, bounded traversal, ownership, count caps, regex collision, disabled and ambiguous candidates.')

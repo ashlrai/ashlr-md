@@ -9,10 +9,16 @@ function Get-OwnedDialogWindows($desktopWindows, $condition, [int]$targetPid) {
     # UIA can place an owned dialog beneath its application window rather than
     # directly beneath the desktop. Inspect one child level of exact-PID windows
     # only, keeping the same total cap and never traversing WebView descendants.
+    # UIA may report the same owned dialog both at desktop level and beneath its owner
+    # window; collapse by RuntimeId so one real dialog is never counted as two candidates.
     $windows = @()
+    $seen = @{}
     if ($desktopWindows.Count -gt 8) { throw 'window-count' }
     foreach ($window in $desktopWindows) {
         if ($window.Current.ProcessId -ne $targetPid) { throw 'unexpected-owner' }
+        $key = (@($window.GetRuntimeId()) -join '.')
+        if ($seen.ContainsKey($key)) { continue }
+        $seen[$key] = $true
         $windows += $window
     }
     foreach ($window in $desktopWindows) {
@@ -22,6 +28,9 @@ function Get-OwnedDialogWindows($desktopWindows, $condition, [int]$targetPid) {
         if ($windows.Count + $children.Count -gt 8) { throw 'window-count' }
         foreach ($child in $children) {
             if ($child.Current.ProcessId -ne $targetPid) { throw 'unexpected-owner' }
+            $key = (@($child.GetRuntimeId()) -join '.')
+            if ($seen.ContainsKey($key)) { continue }
+            $seen[$key] = $true
             $windows += $child
         }
     }
