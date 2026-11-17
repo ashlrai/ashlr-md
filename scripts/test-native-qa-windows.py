@@ -158,6 +158,15 @@ class Tests(unittest.TestCase):
         self.assertNotIn('$window.Current.Name',script)
         self.assertNotIn('$window.Current.AutomationId',script)
 
+    def test_dialog_ancestry_diagnostic_is_bounded_and_never_discloses_handles(self):
+        value={'stage':'select','reason':'ambiguous','count':5,'overflow':False,'windows':[],
+               'ancestry':['root','nested','outside','handleless','query-failed']}
+        encode=lambda item: 'qa-uia-windows:'+json.dumps(item)
+        self.assertEqual(w.dialog_observation(encode(value)),value)
+        for invalid in [['root']*6,[901],['hwnd:901'],['private-title'],[{}],['ROOT'],'root',None]:
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                w.dialog_observation(encode({**value,'ancestry':invalid}))
+
     def test_ui_script_is_scoped_and_uses_only_real_control_patterns(self):
         script=(SCRIPT.parent/'native-qa-open-dialog.ps1').read_text()
         self.assertIn('RootElement.FindAll([Windows.Automation.TreeScope]::Children, $condition)',script)

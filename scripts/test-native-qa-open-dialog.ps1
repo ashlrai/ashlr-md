@@ -11,6 +11,18 @@ $probe = [scriptblock]::Create('while ($true) {' + $block.Value + '; break }')
 if (-not ('Windows.Automation.WindowPattern' -as [type])) {
     Add-Type -TypeDefinition 'namespace Windows.Automation { public class WindowPattern { public static object Pattern = new object(); } public enum TreeScope { Children = 2 } }'
 }
+# Stand in for user32 while executing the real selection/ancestry logic
+# on every OS, with no desktop, installer, network, or polling delays.
+Add-Type -TypeDefinition @'
+public static class NativeDialogWindow {
+    public static System.Collections.Generic.Dictionary<long, long> Roots = new System.Collections.Generic.Dictionary<long, long>();
+    public static System.IntPtr GetAncestor(System.IntPtr hwnd, uint flags) {
+        if (flags != 2) throw new System.Exception("must follow parents, never owners");
+        long handle = hwnd.ToInt64();
+        return new System.IntPtr(Roots.ContainsKey(handle) ? Roots[handle] : handle);
+    }
+}
+'@
 $script:nextRuntimeId = 0
 function New-TestWindow([string]$className, [bool]$modal, [bool]$enabled=$true, [int]$ownerPid=123, [array]$children=@(), [int]$nativeWindowHandle=0) {
     $window = [pscustomobject]@{Current=[pscustomobject]@{ProcessId=$ownerPid;ClassName=$className;IsEnabled=$enabled;NativeWindowHandle=$nativeWindowHandle};Modal=$modal;Children=$children;Queries=0}
@@ -48,6 +60,8 @@ foreach ($enabled in @($true,$false)) {
 $ast = [Management.Automation.Language.Parser]::ParseInput($source, [ref]$null, [ref]$null)
 $identity = $ast.Find({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Get-DialogWindowKey'}, $false)
 if ($null -ne $identity) { . ([scriptblock]::Create($identity.Extent.Text)) }
+$ancestry = $ast.Find({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Get-DialogRootKey'}, $false)
+if ($null -ne $ancestry) { . ([scriptblock]::Create($ancestry.Extent.Text)) }
 $discovery = $ast.Find({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Get-OwnedDialogWindows'}, $false)
 if ($null -eq $discovery) { throw 'owned dialog discovery function not found' }
 . ([scriptblock]::Create($discovery.Extent.Text))
@@ -164,8 +178,46 @@ if ($null -eq $dialog -or -not [object]::ReferenceEquals($dialog,$picker)) { thr
 $inner = New-TestWindow '#32770' $true -nativeWindowHandle 902
 $alias = New-TestWindow '#32770' $true -nativeWindowHandle 902
 $picker = New-TestWindow '#32770' $true -children @($alias) -nativeWindowHandle 901
+[NativeDialogWindow]::Roots[902] = 901
 $windows=@($picker,$inner)
 $dialog=$null; $observation=@{stage='inspect';count=2;overflow=$false;windows=@()}
 . $probe
 if ($null -eq $dialog -or -not [object]::ReferenceEquals($dialog,$picker)) { throw 'nested native dialog alias not collapsed to outermost' }
-[Console]::WriteLine('PASS: actual PowerShell discovery and selection cover owned child dialogs, desktop dialogs, native handle aliases, modality, bounded traversal, ownership, count caps, regex collision, disabled and ambiguous candidates.')
+[NativeDialogWindow]::Roots.Clear()
+# UIA may reparent independent owned popups. Native roots must override that
+# relationship, and two independent roots must still fail closed.
+$inner = New-TestWindow '#32770' $true -nativeWindowHandle 902
+$picker = New-TestWindow '#32770' $true -children @($inner) -nativeWindowHandle 901
+foreach ($root in @(902,999)) {
+    [NativeDialogWindow]::Roots[902] = $root
+    $windows=@($picker,$inner)
+    $dialog=$null; $observation=@{stage='inspect';count=2;overflow=$false;windows=@()}
+    $rejected=$false
+    try { . $probe } catch { if ($_.Exception.Message -ceq 'ambiguous-dialog') {$rejected=$true} else {throw} }
+    if (-not $rejected -or $null -ne $dialog) { throw 'independent or unobserved native root accepted' }
+}
+# A failed native query cannot fall back to a guessed UIA relationship.
+[NativeDialogWindow]::Roots[902] = 0
+$rejected=$false
+try { . $probe } catch { if ($_.Exception.Message -ceq 'dialog-root-unavailable') {$rejected=$true} else {throw} }
+if (-not $rejected -or $null -ne $dialog) { throw 'failed native ancestry query accepted' }
+[NativeDialogWindow]::Roots.Clear()
+# Reproduce the unresolved ambiguity: two different HWNDs in one native picker,
+# exposed as UIA siblings (or separated by a provider-only intermediate element).
+# RuntimeId/HWND dedup and direct UIA child filtering cannot collapse this pair.
+foreach ($reverse in @($true,$false)) {
+    $picker = New-TestWindow '#32770' $true -nativeWindowHandle 911
+    $inner = New-TestWindow '#32770' $true -nativeWindowHandle 912
+    [NativeDialogWindow]::Roots[912] = 911
+    $owner = New-TestWindow 'Tauri Window' $false $false 123 @($picker,$inner)
+    $entries = if ($reverse) { @($inner,$picker) } else { @($picker,$inner) }
+    foreach ($roots in @(,@($owner),$entries)) {
+        $windows = @(Get-OwnedDialogWindows $roots $condition $targetPid)
+        $dialog=$null; $observation=@{stage='inspect';count=$windows.Count;overflow=$false;windows=@()}
+        . $probe
+        if (-not [object]::ReferenceEquals($dialog,$picker)) { throw 'native nested dialog reported as ambiguous' }
+        if (($observation.ancestry | Sort-Object) -join ',' -cne 'nested,root') { throw 'native ancestry diagnostic lost the relationship' }
+    }
+}
+[NativeDialogWindow]::Roots.Clear()
+[Console]::WriteLine('PASS: actual PowerShell discovery and selection cover owned child dialogs, desktop dialogs, native handle aliases and ancestry (7 new cases), modality, bounded traversal, ownership, count caps, regex collision, disabled and ambiguous candidates.')

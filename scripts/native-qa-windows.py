@@ -654,10 +654,15 @@ def dialog_observation(stderr):
     lines=[line[len('qa-uia-windows:'):] for line in stderr.splitlines() if line.startswith('qa-uia-windows:')]
     require(len(lines)==1 and len(lines[0])<=4096,'UIA observation unavailable')
     value=json.loads(lines[0])
-    require(isinstance(value,dict) and set(value)=={'stage','reason','count','overflow','windows'},'invalid observation fields')
+    fields={'stage','reason','count','overflow','windows'}
+    require(isinstance(value,dict) and set(value) in (fields,fields|{'ancestry'}),'invalid observation fields')
     require(value['reason'] in ('provider-error','count-overflow','ownership','ambiguous','not-found'),'invalid observation reason')
     require(value['stage'] in ('not-started','query','inspect','select','wait'),'invalid observation stage')
     require(type(value['count']) is int and 0<=value['count']<=8 and type(value['overflow']) is bool,'invalid observation count')
+    if 'ancestry' in value:
+        ancestry=value['ancestry']
+        require(isinstance(ancestry,list) and len(ancestry)<=value['count'],'invalid observation ancestry')
+        require(all(isinstance(kind,str) and kind in ('root','nested','outside','handleless','query-failed') for kind in ancestry),'invalid ancestry kind')
     require(isinstance(value['windows'],list) and len(value['windows'])<=value['count'],'invalid observation windows')
     for window in value['windows']:
         require(isinstance(window,dict) and set(window)=={'class','pattern','modal','enabled'},'invalid window fields')
