@@ -241,6 +241,31 @@ describe("two invalid links on one line", () => {
 });
 
 describe("invalid link beside a valid link", () => {
+  it.each([true, false])(
+    "preserves a touching valid link with the same label (valid first: %s)",
+    (validFirst) => {
+      const valid =
+        '[guide](https://example.com/caf%c3%a9?next=%2fdocs&view=full#start "Guide & notes")';
+      const invalid = "[guide](?)";
+      const links = (link: string) =>
+        validFirst ? `${valid}${link}` : `${link}${valid}`;
+      const doc = `See ${links(invalid)}.\r\n`;
+      const expected = `See ${links("[guide](TODO)")}.\r\n`;
+      const rules = [ruleInvalidLinkTarget];
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+        "invalid-link-target",
+      ]);
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      expect(fixed.replace("[guide](TODO)", invalid)).toBe(doc);
+      expect(fixAllViolations(doc, violations)).toBe(expected);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+    },
+  );
+
   it.each(["", "#", "?"].flatMap((href) => [true, false].map((validFirst) => [href, validFirst] as const)))(
     "fixes destination %j with valid link first: %s",
     (href, validFirst) => {
