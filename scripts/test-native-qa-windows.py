@@ -196,7 +196,7 @@ class Tests(unittest.TestCase):
         script=(SCRIPT.parent/'native-qa-open-dialog.ps1').read_text()
         self.assertIn('RootElement.FindAll([Windows.Automation.TreeScope]::Children, $condition)',script)
         self.assertNotIn('RootElement.FindAll([Windows.Automation.TreeScope]::Descendants',script)
-        for guard in ['$candidates.Count -eq 0','$candidates.Count -gt 1',"-cmatch '^File name:?$'",'$buttons.Count -ne 1',"-cmatch '^&?Open$'",'$value.Current.IsReadOnly','$value.Current.Value -cne $fixture',"ClassName -ceq '#32770'",'$dialog.Current.ProcessId -ne $targetPid']:
+        for guard in ['$candidates.Count -eq 0','$candidates.Count -gt 1',"-cmatch '^File name:?$'",'$buttons.Count -ne 1',"-cmatch '^&?Open$'",'TryGetCurrentPattern([Windows.Automation.InvokePattern]::Pattern','$value.Current.IsReadOnly','$value.Current.Value -cne $fixture',"ClassName -ceq '#32770'",'$dialog.Current.ProcessId -ne $targetPid']:
             self.assertIn(guard,script)
         self.assertNotIn('$window.GetCurrentPattern',script)
         self.assertNotIn('$pattern.Current.IsModal',script)

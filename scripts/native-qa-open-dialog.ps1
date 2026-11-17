@@ -83,9 +83,11 @@ function Get-ConfirmButtons($dialog) {
     if ($found.Count -eq 0) {
         # Some picker builds do not publish automation ID 1 (same gap as the filename edit ID).
         # Fall back to the Button named exactly "Open"; the single-match rule still fails closed.
-        $anyButton = [Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::ControlTypeProperty, [Windows.Automation.ControlType]::Button)
-        $all = @(foreach ($b in $dialog.FindAll([Windows.Automation.TreeScope]::Descendants, $anyButton)) { $b })
-        if ($all.Count -gt 64) { throw 'edit-count' }
+        $buttonTypes = [Windows.Automation.OrCondition]::new(
+            [Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::ControlTypeProperty, [Windows.Automation.ControlType]::Button),
+            [Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::ControlTypeProperty, [Windows.Automation.ControlType]::SplitButton))
+        $all = @(foreach ($b in $dialog.FindAll([Windows.Automation.TreeScope]::Descendants, $buttonTypes)) { $b })
+        if ($all.Count -gt 64) { throw 'button-count' }
         foreach ($b in $all) { if ($b.Current.Name -cmatch '^&?Open$') { $found += $b } }
     }
     return $found
@@ -302,13 +304,16 @@ public static class NativeDialogWindow {
         Start-Sleep -Milliseconds 200
     } while ([DateTime]::UtcNow -lt $buttonDeadline)
     if ($buttons.Count -ne 1 -or -not $buttons[0].Current.IsEnabled -or $buttons[0].Current.ProcessId -ne $targetPid) { throw 'ambiguous-open' }
-    $invoke = $buttons[0].GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern)
+    # Open may be a Button or SplitButton; prefer Invoke, else a split button's default action
+    # (ExpandCollapse would only open its menu, so it is never used).
+    $invoke = $null
+    if (-not $buttons[0].TryGetCurrentPattern([Windows.Automation.InvokePattern]::Pattern, [ref]$invoke)) { throw 'ambiguous-open' }
     $invoke.Invoke()
     [Console]::WriteLine('qa-uia-open-invoked')
 } catch {
     # Fixed phase and allowlisted throw reasons only, never provider errors, dialog text, paths or process data.
     if ($phase -eq 'dialog') { $observation['reason']=$dialogReason; [Console]::Error.WriteLine('qa-uia-windows:' + ($observation | ConvertTo-Json -Compress -Depth 4)) }
-    $detailReasons = @('pid','fixture','ready','image','window-count','unexpected-owner','ambiguous-dialog','dialog-unavailable','edit-count','filename-none','filename-many','readonly','readback','ambiguous-open')
+    $detailReasons = @('pid','fixture','ready','image','window-count','unexpected-owner','ambiguous-dialog','dialog-unavailable','edit-count','button-count','filename-none','filename-many','readonly','readback','ambiguous-open')
     if ($detailReasons -contains $_.Exception.Message) { [Console]::Error.WriteLine('qa-uia-detail:' + $_.Exception.Message) }
     [Console]::Error.WriteLine('qa-uia-failed:' + $phase)
     exit 1
