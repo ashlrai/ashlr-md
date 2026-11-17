@@ -181,6 +181,7 @@ class Tests(unittest.TestCase):
             self.assertNotIn(forbidden,script)
         self.assertIn('qa-uia-detail:',script)
         self.assertIn('Select-FilenameDialogs $candidates $targetPid',script)
+        self.assertIn('Get-ConfirmButtons $dialog',script)
         self.assertIn('$fixedViolations -contains $_.Exception.Message',script)
         emitted=set(re.findall(r"'([a-z-]+)'",re.search(r'\$detailReasons = @\(([^)]*)\)',script).group(1)))
         self.assertEqual(emitted,w.UIA_DETAIL_KINDS)

@@ -55,16 +55,36 @@ function Get-FilenameEdits($dialog, [int]$targetPid) {
     return $found
 }
 
+function Get-ConfirmButtons($dialog) {
+    # Buttons with automation ID 1 (Open) anywhere under one dialog.
+    $buttonCondition = [Windows.Automation.AndCondition]::new(
+        [Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::ControlTypeProperty, [Windows.Automation.ControlType]::Button),
+        [Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::AutomationIdProperty, '1'))
+    return @(foreach ($b in $dialog.FindAll([Windows.Automation.TreeScope]::Descendants, $buttonCondition)) { $b })
+}
+
 function Select-FilenameDialogs($candidates, [int]$targetPid) {
-    # Several enabled exact-PID #32770 windows can survive ancestry collapsing (run 44059630934
-    # still reported ambiguous-dialog). Only the real file picker carries the filename edit,
-    # so narrow to candidates with exactly one, polling briefly while controls populate.
-    # Any provider failure returns the candidates unchanged so ambiguity still fails closed.
+    # Several enabled exact-PID #32770 windows can survive ancestry collapsing (runs 44059630934
+    # and 44063864477 still reported ambiguous-dialog). Only the real file picker carries the
+    # filename edit, so narrow to candidates with exactly one, polling briefly while controls
+    # populate. When UIA nests the picker and its inner #32770, every such candidate reports
+    # the same underlying edit (same RuntimeId); that is one picker, so keep the candidate that
+    # also exposes exactly one confirm button. Different edits, or no unique candidate, stay
+    # ambiguous. Any provider failure returns the candidates unchanged so ambiguity fails closed.
     try {
         $until = [DateTime]::UtcNow.AddSeconds(5)
         do {
-            $withEdit = @($candidates | Where-Object { @(Get-FilenameEdits $_ $targetPid).Count -eq 1 })
-            if ($withEdit.Count -ge 1) { return $withEdit }
+            $withEdit = @()
+            $editKeys = @{}
+            foreach ($candidate in $candidates) {
+                $edits = @(Get-FilenameEdits $candidate $targetPid)
+                if ($edits.Count -eq 1) { $withEdit += $candidate; $editKeys[(@($edits[0].GetRuntimeId()) -join '.')] = $true }
+            }
+            if ($withEdit.Count -eq 1) { return $withEdit }
+            if ($withEdit.Count -gt 1 -and $editKeys.Count -eq 1) {
+                $withButton = @($withEdit | Where-Object { @(Get-ConfirmButtons $_).Count -eq 1 })
+                if ($withButton.Count -eq 1) { return $withButton }
+            }
             Start-Sleep -Milliseconds 200
         } while ([DateTime]::UtcNow -lt $until)
     } catch { }
@@ -229,13 +249,10 @@ public static class NativeDialogWindow {
     $value.SetValue($fixture)
     if ($value.Current.Value -cne $fixture) { throw 'readback' }
     $phase = 'confirm'
-    $buttonCondition = [Windows.Automation.AndCondition]::new(
-        [Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::ControlTypeProperty, [Windows.Automation.ControlType]::Button),
-        [Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::AutomationIdProperty, '1'))
     # The confirm button can lag the filename edit, so wait (bounded) for exactly one enabled match.
     $buttonDeadline = [DateTime]::UtcNow.AddSeconds(10)
     do {
-        $buttons = @(foreach ($b in $dialog.FindAll([Windows.Automation.TreeScope]::Descendants, $buttonCondition)) { $b })
+        $buttons = @(Get-ConfirmButtons $dialog)
         if ($buttons.Count -eq 1 -and $buttons[0].Current.IsEnabled) { break }
         Start-Sleep -Milliseconds 200
     } while ([DateTime]::UtcNow -lt $buttonDeadline)
