@@ -70,6 +70,27 @@ describe("uiStore", () => {
     expect(useUiStore.getState().findOpen).toBe(false);
   });
 
+  it("toggling find twice restores its original value without changing other UI state", () => {
+    useUiStore.setState({
+      exportOpen: true,
+      exportFormat: "pdf",
+      settingsOpen: true,
+      shortcutsOpen: true,
+      commandPaletteOpen: true,
+      activityOpen: true,
+      zenMode: true,
+      otDebugOpen: true,
+      currentDocType: "PLAN",
+    });
+    const before = { ...useUiStore.getState() };
+
+    useUiStore.getState().toggleFind();
+    expect(useUiStore.getState()).toEqual({ ...before, findOpen: !before.findOpen });
+
+    useUiStore.getState().toggleFind();
+    expect(useUiStore.getState()).toEqual(before);
+  });
+
   // ── Activity / Outline / Search mutual exclusion ────────────────────────
 
   it("openActivity closes outline and search", () => {
