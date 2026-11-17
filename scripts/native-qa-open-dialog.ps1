@@ -118,15 +118,27 @@ try {
     if ($dialog.Current.ProcessId -ne $targetPid) { $dialogReason='ownership'; throw 'dialog-unavailable' }
     $phase = 'filename'
     $editCondition = [Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::ControlTypeProperty, [Windows.Automation.ControlType]::Edit)
-    $edits = $dialog.FindAll([Windows.Automation.TreeScope]::Descendants, $editCondition)
-    if ($edits.Count -gt 16) { throw 'edit-count' }
-    $candidates = @()
-    foreach ($edit in $edits) {
-        $parent = [Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($edit)
-        $isFilename = $edit.Current.AutomationId -ceq '1148'
-        if ($null -ne $parent -and $parent.Current.ControlType -eq [Windows.Automation.ControlType]::ComboBox -and $parent.Current.AutomationId -ceq '1148') { $isFilename = $true }
-        if ($isFilename -and $edit.Current.ProcessId -eq $targetPid -and $edit.Current.IsEnabled) { $candidates += $edit }
-    }
+    # A just-opened Common Item Dialog populates its controls asynchronously, so poll the
+    # filename edit inside a bounded deadline instead of failing on the first empty read.
+    # Candidates are collapsed by RuntimeId so a control UIA reports twice is not ambiguous.
+    $filenameDeadline = [DateTime]::UtcNow.AddSeconds(10)
+    do {
+        $edits = @(foreach ($e in $dialog.FindAll([Windows.Automation.TreeScope]::Descendants, $editCondition)) { $e })
+        if ($edits.Count -gt 16) { throw 'edit-count' }
+        $candidates = @()
+        $seenEdits = @{}
+        foreach ($edit in $edits) {
+            $parent = [Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($edit)
+            $isFilename = $edit.Current.AutomationId -ceq '1148'
+            if ($null -ne $parent -and $parent.Current.ControlType -eq [Windows.Automation.ControlType]::ComboBox -and $parent.Current.AutomationId -ceq '1148') { $isFilename = $true }
+            if ($isFilename -and $edit.Current.ProcessId -eq $targetPid -and $edit.Current.IsEnabled) {
+                $editKey = (@($edit.GetRuntimeId()) -join '.')
+                if (-not $seenEdits.ContainsKey($editKey)) { $seenEdits[$editKey] = $true; $candidates += $edit }
+            }
+        }
+        if ($candidates.Count -eq 1) { break }
+        Start-Sleep -Milliseconds 200
+    } while ([DateTime]::UtcNow -lt $filenameDeadline)
     if ($candidates.Count -ne 1) { throw 'ambiguous-filename' }
     $value = $candidates[0].GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern)
     if ($value.Current.IsReadOnly) { throw 'readonly' }
@@ -136,7 +148,13 @@ try {
     $buttonCondition = [Windows.Automation.AndCondition]::new(
         [Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::ControlTypeProperty, [Windows.Automation.ControlType]::Button),
         [Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::AutomationIdProperty, '1'))
-    $buttons = $dialog.FindAll([Windows.Automation.TreeScope]::Descendants, $buttonCondition)
+    # The confirm button can lag the filename edit, so wait (bounded) for exactly one enabled match.
+    $buttonDeadline = [DateTime]::UtcNow.AddSeconds(10)
+    do {
+        $buttons = @(foreach ($b in $dialog.FindAll([Windows.Automation.TreeScope]::Descendants, $buttonCondition)) { $b })
+        if ($buttons.Count -eq 1 -and $buttons[0].Current.IsEnabled) { break }
+        Start-Sleep -Milliseconds 200
+    } while ([DateTime]::UtcNow -lt $buttonDeadline)
     if ($buttons.Count -ne 1 -or -not $buttons[0].Current.IsEnabled -or $buttons[0].Current.ProcessId -ne $targetPid) { throw 'ambiguous-open' }
     $invoke = $buttons[0].GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern)
     $invoke.Invoke()
