@@ -70,7 +70,7 @@ $ancestry = $ast.Find({param($node) $node -is [Management.Automation.Language.Fu
 if ($null -ne $ancestry) { . ([scriptblock]::Create($ancestry.Extent.Text)) }
 $ownerQuery = $ast.Find({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Get-DialogOwnerKey'}, $false)
 if ($null -ne $ownerQuery) { . ([scriptblock]::Create($ownerQuery.Extent.Text)) }
-foreach ($helperName in @('Get-FilenameEdits','Select-FilenameDialogs')) {
+foreach ($helperName in @('Get-FilenameEdits','Get-ConfirmButtons','Select-FilenameDialogs')) {
     $helper = $ast.Find({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $helperName}, $false)
     if ($null -eq $helper) { throw "$helperName not found" }
     . ([scriptblock]::Create($helper.Extent.Text))
@@ -251,13 +251,29 @@ foreach ($ownerHandle in @(921,999)) {
 }
 [NativeDialogWindow]::Owners.Clear()
 # Independent enabled #32770 windows that survive ancestry collapsing are narrowed to the
-# one carrying exactly one filename edit (run 44059630934). Stub the UIA edit query; the
-# real Select-FilenameDialogs logic runs. Zero or several picker candidates stay ambiguous.
-function Get-FilenameEdits($dialog, [int]$targetPid) { if ($script:EditOwners -contains $dialog) { return @(1) } return @() }
+# one carrying exactly one filename edit (run 44059630934). Stub the UIA edit and button
+# queries; the real Select-FilenameDialogs logic runs. Zero or several picker candidates
+# stay ambiguous. When nested dialogs report the SAME edit (run 44063864477), the one
+# candidate with exactly one confirm button is the picker; otherwise it stays ambiguous.
+function Get-FilenameEdits($dialog, [int]$targetPid) { if ($script:EditMap.ContainsKey($dialog.RuntimeId[1])) { return @($script:EditMap[$dialog.RuntimeId[1]]) } return @() }
+function Get-ConfirmButtons($dialog) { if ($script:ButtonOwners -contains $dialog) { return @(1) } return @() }
 $picker = New-TestWindow '#32770' $true -nativeWindowHandle 931
 $other = New-TestWindow '#32770' $true -nativeWindowHandle 932
-foreach ($case in @(@{Edits=@($picker);Accept=$picker},@{Edits=@($picker,$other);Accept=$null},@{Edits=@();Accept=$null})) {
-    $script:EditOwners = $case.Edits
+$editA = New-TestWindow 'Edit' $true
+$editB = New-TestWindow 'Edit' $true
+$cases = @(
+    @{Edits=@{};Buttons=@();Accept=$null}
+    @{Edits=@{$picker=$editA};Buttons=@();Accept=$picker}
+    @{Edits=@{$picker=$editA;$other=$editB};Buttons=@($picker);Accept=$null}
+    @{Edits=@{$picker=$editA;$other=$editA};Buttons=@($picker);Accept=$picker}
+    @{Edits=@{$picker=$editA;$other=$editA};Buttons=@($other);Accept=$other}
+    @{Edits=@{$picker=$editA;$other=$editA};Buttons=@($picker,$other);Accept=$null}
+    @{Edits=@{$picker=$editA;$other=$editA};Buttons=@();Accept=$null}
+)
+foreach ($case in $cases) {
+    $script:EditMap = @{}
+    foreach ($key in $case.Edits.Keys) { $script:EditMap[$key.RuntimeId[1]] = $case.Edits[$key] }
+    $script:ButtonOwners = $case.Buttons
     $windows = @($other,$picker)
     $dialog=$null; $observation=@{stage='inspect';count=2;overflow=$false;windows=@()}
     $rejected=$false
