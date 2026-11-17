@@ -1,18 +1,18 @@
-# Windows native QA findings
+# Notes: Windows native Open dialog CI
 
-Run: https://github.com/ashlrai/ashlr-md/actions/runs/41410805380
-
-Evidence and validation results will be recorded here.
-
-- Run 41410805380, job 125163185669: UIA observation was one disabled `Tauri Window`, `reason=not-found`, `stage=wait`; filename/confirmation were never reached.
-- Cleanup succeeded, including one retry after WinError 5 for readonly Start Menu folders and Desktop. Existing tests exercise the complete readonly chain and reject reparse/escape cases.
-- Microsoft documents popup reparenting: https://learn.microsoft.com/en-us/windows/win32/winauto/uiauto-serversideprovider#assigning-a-new-parent
-- Fix: discover one child-window level under exact-PID desktop windows, capped at eight windows total. Existing dialog/control selection and bounded process lifetime stay intact.
-- Existing open PRs were inspected through the GitHub connector; none covers the native Windows harness.
-- Requested handoff directory cannot be read or created: filesystem reports Operation not permitted for /Users/masonwyatt/.ashlr-runs. The earlier RQ-CI-ECO-MD-NATIVE-QA patch cannot be verified from this environment.
-- gh fallback cannot read its config (Operation not permitted); GitHub read-only evidence was obtained through the connected tool instead.
-- Dependencies installed with frozen lockfile and temporary HOME. Typecheck passed. Lint passed with 13 existing warnings. Native DOM oracle tests: 3 passed. Python Windows harness: 58 passed, 3 existing platform skips, 0 failed.
-- PowerShell 7.6.9 was downloaded from the official PowerShell release into /tmp only. The actual-source discovery/selection suite passes. A disposable mutation restoring desktop-only discovery is rejected with `owned child dialog missed`, confirming regression sensitivity.
-- Shared Linux harness: initial run had 3 failures and 3 errors because macOS temporary paths contained a symlink; rerun with canonical TMPDIR inside temporary HOME passed all 26 tests. Runtime path validation was not changed.
-- Documentation tests: 22 passed, 1 failed due to loopback EPERM. Standalone repository scan: 340 links, 0 broken. No link-checker code changed.
-- Separate scheduling patch applies and preserves the entire jobs section byte-for-byte; main push, published release, manual dispatch and cancellation are verified. The real workflow is unmodified in the worktree.
+- Failed run: https://github.com/ashlrai/ashlr-md/actions/runs/44036511886
+- Worktree HEAD: 00565c11, immediately after failing revision 2feb3849.
+- Native picker helper already polls dialog discovery, filename controls, and confirm button.
+- Existing PowerShell regression harness executes discovery and selection from the real helper source with synthetic windows.
+- Changes must remain uncommitted. BRIDGE_NOTES.md is the requested handoff.
+- Retrieved complete job 133880570666 logs through the GitHub connector. Failure is `dialog (ambiguous-dialog)`; the observation is a disabled Tauri Window plus two enabled, modal #32770 entries. Filename and confirmation were never reached.
+- Prior PR 1929 explicitly inferred a filename/confirmation race without retrieving the log; that inference does not explain this failure.
+- Current open PRs do not cover the native probe. Remote main matches local HEAD 00565c11.
+- RuntimeId-only discovery does not collapse separate provider entries that refer to one HWND. A new actual-source PowerShell regression fails on the original implementation (`native dialog aliases not collapsed`).
+- Fix uses nonzero native window handles for identity, with RuntimeId fallback for handle-less elements. The nested-dialog filter uses the same identity function. Foreign ownership and independent-dialog rejection remain mandatory.
+- The failed run's sanitized observation omits handles, so aliasing is an inference. Native Windows qualification remains required; local PowerShell only proves language and selection behavior.
+- Microsoft NativeWindowHandle reference: https://learn.microsoft.com/en-us/dotnet/api/system.windows.automation.automationelement.automationelementinformation.nativewindowhandle
+- Dependencies installed with `bun install --frozen-lockfile`; portable PowerShell 7.6.9 is available under /private/tmp for the standalone regression. An additional official archive was downloaded and SHA256 verified without system installation.
+- Final coverage includes both enumeration orders across desktop, owned-child, and cross-level layouts (six cases), foreign ownership, independent native windows, self-alias ambiguity, and nested aliases with fresh RuntimeIds. Existing zero-handle RuntimeId, cap, modality, and traversal cases remain.
+- Verification: PowerShell suite passes; Windows Python harness 62 passed / 0 failed / 3 existing Windows-only skips; shared Python harness 26 passed after canonicalizing TMPDIR; Vitest native DOM and no-dash suites 14 passed; typecheck passes; lint passes with 13 existing warnings.
+- Initial shared Python run had 3 failures and 3 errors from macOS temporary-directory symlinks; only test environment paths were corrected, with no production path-check changes.

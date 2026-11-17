@@ -12,8 +12,8 @@ if (-not ('Windows.Automation.WindowPattern' -as [type])) {
     Add-Type -TypeDefinition 'namespace Windows.Automation { public class WindowPattern { public static object Pattern = new object(); } public enum TreeScope { Children = 2 } }'
 }
 $script:nextRuntimeId = 0
-function New-TestWindow([string]$className, [bool]$modal, [bool]$enabled=$true, [int]$ownerPid=123, [array]$children=@()) {
-    $window = [pscustomobject]@{Current=[pscustomobject]@{ProcessId=$ownerPid;ClassName=$className;IsEnabled=$enabled};Modal=$modal;Children=$children;Queries=0}
+function New-TestWindow([string]$className, [bool]$modal, [bool]$enabled=$true, [int]$ownerPid=123, [array]$children=@(), [int]$nativeWindowHandle=0) {
+    $window = [pscustomobject]@{Current=[pscustomobject]@{ProcessId=$ownerPid;ClassName=$className;IsEnabled=$enabled;NativeWindowHandle=$nativeWindowHandle};Modal=$modal;Children=$children;Queries=0}
     $script:nextRuntimeId++
     $window | Add-Member -MemberType NoteProperty -Name RuntimeId -Value @(42, $script:nextRuntimeId)
     $window | Add-Member -MemberType ScriptMethod -Name GetRuntimeId -Value { return $this.RuntimeId }
@@ -46,6 +46,8 @@ foreach ($enabled in @($true,$false)) {
 # and a Common Item Dialog exposed as its child. The old desktop-only query
 # misses this dialog entirely. No unrelated desktop tree or grandchildren may be read.
 $ast = [Management.Automation.Language.Parser]::ParseInput($source, [ref]$null, [ref]$null)
+$identity = $ast.Find({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Get-DialogWindowKey'}, $false)
+if ($null -ne $identity) { . ([scriptblock]::Create($identity.Extent.Text)) }
 $discovery = $ast.Find({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Get-OwnedDialogWindows'}, $false)
 if ($null -eq $discovery) { throw 'owned dialog discovery function not found' }
 . ([scriptblock]::Create($discovery.Extent.Text))
@@ -113,6 +115,43 @@ if ($windows.Count -ne 2) { throw 'duplicate dialog not collapsed' }
 $dialog=$null; $observation=@{stage='inspect';count=2;overflow=$false;windows=@()}
 . $probe
 if ($null -eq $dialog -or -not [object]::ReferenceEquals($dialog,$picker)) { throw 'duplicate dialog not selected' }
+# Two UIA provider entries with different RuntimeIds can refer to the same native
+# dialog HWND. Exercise both enumeration orders and all discovery layouts.
+foreach ($layout in @('desktop','owned','both')) {
+    foreach ($reverse in @($true,$false)) {
+        $picker = New-TestWindow '#32770' $true -nativeWindowHandle 901
+        $alias = New-TestWindow '#32770' $true -nativeWindowHandle 901
+        $entries = if ($reverse) { @($alias,$picker) } else { @($picker,$alias) }
+        $children = @(switch ($layout) { 'desktop' { @() } 'owned' { $entries } 'both' { @($entries[1]) } })
+        $owner = New-TestWindow 'Tauri Window' $false $false 123 $children
+        $roots = @(switch ($layout) { 'desktop' { @($owner) + $entries } 'owned' { @($owner) } 'both' { @($owner,$entries[0]) } })
+        $windows = @(Get-OwnedDialogWindows $roots $condition $targetPid)
+        if ($windows.Count -ne 2) { throw 'native dialog aliases not collapsed' }
+        $dialog=$null; $observation=@{stage='inspect';count=2;overflow=$false;windows=@()}
+        . $probe
+        if ($null -eq $dialog -or $dialog.Current.NativeWindowHandle -ne 901) { throw 'native dialog alias not selected' }
+    }
+}
+# A matching HWND must never let a foreign-PID entry bypass the ownership check.
+$alias.Current.ProcessId=456
+$rejected=$false
+try { Get-OwnedDialogWindows @($picker,$alias) $condition $targetPid | Out-Null } catch { if ($_.Exception.Message -ceq 'unexpected-owner') {$rejected=$true} else {throw} }
+if (-not $rejected) { throw 'foreign native dialog alias accepted' }
+# Different nonzero HWNDs remain ambiguous, just like the zero-HWND cases above.
+$windows=@((New-TestWindow '#32770' $true -nativeWindowHandle 901),(New-TestWindow '#32770' $true -nativeWindowHandle 902))
+$dialog=$null; $observation=@{stage='inspect';count=2;overflow=$false;windows=@()}
+$rejected=$false
+try { . $probe } catch { if ($_.Exception.Message -ceq 'ambiguous-dialog') {$rejected=$true} else {throw} }
+if (-not $rejected) { throw 'distinct native dialogs accepted' }
+# A provider alias beneath its own window does not make that window nested in
+# itself. It must not hide one of two genuinely independent dialogs.
+$selfAlias = New-TestWindow '#32770' $true -nativeWindowHandle 901
+$picker = New-TestWindow '#32770' $true -children @($selfAlias) -nativeWindowHandle 901
+$windows=@($picker,(New-TestWindow '#32770' $true -nativeWindowHandle 902))
+$dialog=$null; $observation=@{stage='inspect';count=2;overflow=$false;windows=@()}
+$rejected=$false
+try { . $probe } catch { if ($_.Exception.Message -ceq 'ambiguous-dialog') {$rejected=$true} else {throw} }
+if (-not $rejected) { throw 'self alias hid independent dialog ambiguity' }
 # An inner #32770 beneath the real dialog is not a second candidate; the outermost dialog wins.
 $inner = New-TestWindow '#32770' $false
 $picker = New-TestWindow '#32770' $true $true 123 @($inner)
@@ -120,4 +159,13 @@ $windows = @($picker,$inner)
 $dialog=$null; $observation=@{stage='inspect';count=3;overflow=$false;windows=@()}
 . $probe
 if ($null -eq $dialog -or -not [object]::ReferenceEquals($dialog,$picker)) { throw 'nested dialog not collapsed to outermost' }
-[Console]::WriteLine('PASS: actual PowerShell discovery and selection cover owned child dialogs, desktop dialogs, modality, bounded traversal, ownership, count caps, regex collision, disabled and ambiguous candidates.')
+# Nested filtering uses native identity too, even when a fresh child provider
+# entry has a different RuntimeId from the entry discovered at desktop level.
+$inner = New-TestWindow '#32770' $true -nativeWindowHandle 902
+$alias = New-TestWindow '#32770' $true -nativeWindowHandle 902
+$picker = New-TestWindow '#32770' $true -children @($alias) -nativeWindowHandle 901
+$windows=@($picker,$inner)
+$dialog=$null; $observation=@{stage='inspect';count=2;overflow=$false;windows=@()}
+. $probe
+if ($null -eq $dialog -or -not [object]::ReferenceEquals($dialog,$picker)) { throw 'nested native dialog alias not collapsed to outermost' }
+[Console]::WriteLine('PASS: actual PowerShell discovery and selection cover owned child dialogs, desktop dialogs, native handle aliases, modality, bounded traversal, ownership, count caps, regex collision, disabled and ambiguous candidates.')

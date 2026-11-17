@@ -5,18 +5,26 @@ $phase = 'assemblies'
 $dialogReason = 'provider-error'
 $observation = @{stage='not-started'; count=0; overflow=$false; windows=@()}
 
+function Get-DialogWindowKey($window) {
+    # Provider entries for one native window can have different RuntimeIds.
+    # Never merge unrelated elements whose provider has no native handle (zero).
+    $handle = $window.Current.NativeWindowHandle
+    if ($handle -ne 0) { return 'hwnd:' + $handle }
+    return 'runtime:' + (@($window.GetRuntimeId()) -join '.')
+}
+
 function Get-OwnedDialogWindows($desktopWindows, $condition, [int]$targetPid) {
     # UIA can place an owned dialog beneath its application window rather than
     # directly beneath the desktop. Inspect one child level of exact-PID windows
     # only, keeping the same total cap and never traversing WebView descendants.
     # UIA may report the same owned dialog both at desktop level and beneath its owner
-    # window; collapse by RuntimeId so one real dialog is never counted as two candidates.
+    # window; collapse by native window identity so it is never counted twice.
     $windows = @()
     $seen = @{}
     if ($desktopWindows.Count -gt 8) { throw 'window-count' }
     foreach ($window in $desktopWindows) {
         if ($window.Current.ProcessId -ne $targetPid) { throw 'unexpected-owner' }
-        $key = (@($window.GetRuntimeId()) -join '.')
+        $key = Get-DialogWindowKey $window
         if ($seen.ContainsKey($key)) { continue }
         $seen[$key] = $true
         $windows += $window
@@ -28,7 +36,7 @@ function Get-OwnedDialogWindows($desktopWindows, $condition, [int]$targetPid) {
         if ($windows.Count + $children.Count -gt 8) { throw 'window-count' }
         foreach ($child in $children) {
             if ($child.Current.ProcessId -ne $targetPid) { throw 'unexpected-owner' }
-            $key = (@($child.GetRuntimeId()) -join '.')
+            $key = Get-DialogWindowKey $child
             if ($seen.ContainsKey($key)) { continue }
             $seen[$key] = $true
             $windows += $child
@@ -96,9 +104,13 @@ try {
                 # independent sibling dialogs still fail closed as ambiguous.
                 $nested = @{}
                 foreach ($outer in $candidates) {
-                    foreach ($inner in $outer.FindAll([Windows.Automation.TreeScope]::Children, $condition)) { $nested[(@($inner.GetRuntimeId()) -join '.')] = $true }
+                    $outerKey = Get-DialogWindowKey $outer
+                    foreach ($inner in $outer.FindAll([Windows.Automation.TreeScope]::Children, $condition)) {
+                        $innerKey = Get-DialogWindowKey $inner
+                        if ($innerKey -cne $outerKey) { $nested[$innerKey] = $true }
+                    }
                 }
-                $candidates = @($candidates | Where-Object { -not $nested.ContainsKey((@($_.GetRuntimeId()) -join '.')) })
+                $candidates = @($candidates | Where-Object { -not $nested.ContainsKey((Get-DialogWindowKey $_)) })
             }
             if ($candidates.Count -gt 1) { $dialogReason='ambiguous'; throw 'ambiguous-dialog' }
             if ($candidates.Count -eq 1) { $dialog = $candidates[0]; break }

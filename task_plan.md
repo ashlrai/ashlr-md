@@ -1,24 +1,22 @@
-# Windows native QA repair
+# Task Plan: Windows native Open dialog CI
 
 ## Goal
-Fix the Windows native dialog and owned-cleanup failures, validate the changes, and leave an uncommitted bridge handoff plus a separate workflow trigger patch.
+Find and fix the Windows native probe failure, verify it, and leave changes uncommitted with bridge notes.
 
 ## Phases
-- [x] Establish scope and honor the final no-publish instruction.
-- [x] Inspect the failed run and reproduce its failure paths with synthetic provider fixtures.
-- [x] Fix app or harness code with regression coverage.
-- [x] Run typecheck, lint, and touched tests with temporary HOME.
-- [x] Write workflow patch and BRIDGE_NOTES.md with counts and net LOC.
+- [x] Read repository instructions and inspect probe entry points.
+- [x] Read failed-run diagnostics and check for overlapping PRs.
+- [x] Add a focused regression test and the smallest correct fix.
+- [x] Run touched tests, typecheck, lint, and write BRIDGE_NOTES.md.
 
-## Decisions
-- Leave changes uncommitted; do not publish or merge because the final task rule forbids it.
+## Decisions Made
+- Follow the final user rule: do not commit, push, or publish.
+- Keep workflow and security controls unchanged.
 
-## Errors
-- Requested external handoff path is denied by the filesystem. Preserve the patch in the worktree as a fallback.
-- Local gh configuration is unreadable; used GitHub connector for run logs and open PR inspection.
-- Expanded PowerShell regression initially accessed Count on an empty pipeline under StrictMode; corrected to an explicit array.
-- Documentation checker suite has one existing loopback EPERM failure (22 passed, 1 failed); repository relative-link scan passed.
-- Shared Linux harness initially failed 6 cases with noncanonical macOS temporary paths; canonical TMPDIR resolved this without changing code or security checks (26 passed).
+## Errors Encountered
+- New native-handle alias regression fails on the original helper as expected.
+- Shared Linux harness: 3 failures and 3 errors from noncanonical macOS TMPDIR; resolved by rerunning with a canonical test-owned temp directory (26 passed).
+- Added self-alias ambiguity guard regression to ensure native identity cannot make a window count as its own child. It fails before the guard fix, as expected.
 
 ## Status
-Local implementation and handoff complete. No commits, pushes, PRs, queue merges or workflow dispatches were made. Actual hosted Windows qualification remains unverified on this macOS host. Requested external patch location is blocked by filesystem permissions; the patch is retained under the worktree's handoff directory.
+Local fix, regression coverage, and BRIDGE_NOTES.md complete. Typecheck, lint, Windows Python harness, shared Python harness (canonical TMPDIR), native DOM, and no-dash tests pass. Changes remain uncommitted. Hosted Windows qualification and confirmation of the observed pair's HWND identity remain outstanding.
