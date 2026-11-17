@@ -93,8 +93,11 @@ def prepare():
         require(artifact.get('expired') is False and artifact.get('workflow_run', {}).get('head_sha') == qa.SHA, 'artifact identity mismatch')
         target = work/(leg+'.zip'); qa.download_zip(artifact, target, token); zips[leg] = target
     receipt = prov.verify_provenance(api, qa.TAG, qa.SHA, qa.RUN, zips, check_release_state=False)
-    latest = api(prov.REPO+'/releases/latest')
     api = None; token = None
+    # The token-scoped fetcher deliberately has no /releases/latest route; read the public
+    # release unauthenticated instead (no credential ever reaches this request).
+    with qa.plain_opener().open('https://api.github.com'+prov.REPO+'/releases/latest', timeout=30) as r:
+        latest = json.loads(r.read(1024*1024+1))
     require(latest.get('tag_name') == 'v0.4.0' and latest.get('prerelease') is False, 'stable release changed')
     with qa.plain_opener().open('https://github.com/ashlrai/ashlr-md/releases/latest/download/latest.json', timeout=30) as r:
         require(json.loads(r.read(1024*1024+1)).get('version') == '0.4.0', 'stable updater feed changed')
