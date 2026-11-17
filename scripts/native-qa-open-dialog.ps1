@@ -69,8 +69,8 @@ function Select-FilenameDialogs($candidates, [int]$targetPid) {
     # filename edit, so narrow to candidates with exactly one, polling briefly while controls
     # populate. When UIA nests the picker and its inner #32770, every such candidate reports
     # the same underlying edit (same RuntimeId); that is one picker, so keep the candidate that
-    # also exposes exactly one confirm button. Different edits, or no unique candidate, stay
-    # ambiguous. Any provider failure returns the candidates unchanged so ambiguity fails closed.
+    # also exposes exactly one confirm button (candidates sharing that same button are still one
+    # picker). Different edits or different buttons stay ambiguous. Any provider failure returns the candidates unchanged so ambiguity fails closed.
     try {
         $until = [DateTime]::UtcNow.AddSeconds(5)
         do {
@@ -82,8 +82,15 @@ function Select-FilenameDialogs($candidates, [int]$targetPid) {
             }
             if ($withEdit.Count -eq 1) { return $withEdit }
             if ($withEdit.Count -gt 1 -and $editKeys.Count -eq 1) {
-                $withButton = @($withEdit | Where-Object { @(Get-ConfirmButtons $_).Count -eq 1 })
-                if ($withButton.Count -eq 1) { return $withButton }
+                # Nested candidates overlap, so they may all expose the same single button;
+                # that is still one picker. Only distinct buttons stay ambiguous.
+                $withButton = @()
+                $buttonKeys = @{}
+                foreach ($candidate in $withEdit) {
+                    $buttons = @(Get-ConfirmButtons $candidate)
+                    if ($buttons.Count -eq 1) { $withButton += $candidate; $buttonKeys[(@($buttons[0].GetRuntimeId()) -join '.')] = $true }
+                }
+                if ($withButton.Count -ge 1 -and $buttonKeys.Count -eq 1) { return @($withButton[0]) }
             }
             Start-Sleep -Milliseconds 200
         } while ([DateTime]::UtcNow -lt $until)
