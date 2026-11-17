@@ -163,7 +163,16 @@ public static class NativeDialogWindow {
     $condition = [Windows.Automation.AndCondition]::new($pidCondition, $windowCondition)
     $fixedViolations = @('window-count','unexpected-owner','ambiguous-dialog')
     $dialog = $null
-    while ([DateTime]::UtcNow -lt $deadline) {
+    # The harness binds the picker deterministically: it snapshots top-level windows before the
+    # click and passes the one new owned #32770 handle. Verify it, then skip the heuristic search.
+    $boundHandle = 0L
+    if ([Int64]::TryParse([string]$env:QA_UIA_HWND, [ref]$boundHandle) -and $boundHandle -gt 0) {
+        $bound = [Windows.Automation.AutomationElement]::FromHandle([IntPtr]$boundHandle)
+        if ($bound.Current.ProcessId -ne $targetPid) { $dialogReason='ownership'; throw 'unexpected-owner' }
+        if ($bound.Current.ClassName -cne '#32770') { $dialogReason='not-found'; throw 'dialog-unavailable' }
+        $dialog = $bound
+    }
+    while ($null -eq $dialog -and [DateTime]::UtcNow -lt $deadline) {
         # Desktop children plus one level beneath exact-owned-PID windows only.
         try {
             $observation = @{stage='query'; count=0; overflow=$false; windows=@()}

@@ -102,6 +102,31 @@ class Tests(unittest.TestCase):
         workflow=(SCRIPT.parents[1]/'.github/workflows/native-qa-windows.yml').read_text()
         self.assertLess(workflow.index('--check-uia'),workflow.index('Prepare and verify original artifacts'))
 
+    def test_dialog_selection_binds_to_owned_pid_and_new_window(self):
+        def win(hwnd,pid=123,cls='#32770',owner=0,enabled=True,title='Open'): return {'hwnd':hwnd,'pid':pid,'cls':cls,'title':title,'enabled':enabled,'owner':owner}
+        # Two candidate dialogs: a foreign-pid picker and the owned one. The owned one wins.
+        chosen,pool=w.select_owned_dialog([win(1,pid=999),win(2)],123,set())
+        self.assertEqual(chosen['hwnd'],2); self.assertEqual([c['hwnd'] for c in pool],[2])
+        # A dialog that existed before the click never wins.
+        chosen,_=w.select_owned_dialog([win(1),win(2)],123,{1}); self.assertEqual(chosen['hwnd'],2)
+        # An inner #32770 owned by the picker collapses into the picker.
+        chosen,_=w.select_owned_dialog([win(2),win(3,owner=2)],123,set()); self.assertEqual(chosen['hwnd'],2)
+        # Two independent owned roots stay ambiguous; nothing is guessed.
+        chosen,pool=w.select_owned_dialog([win(2),win(3)],123,set()); self.assertIsNone(chosen); self.assertEqual(len(pool),2)
+        # Non-dialog classes and none-yet are not selected.
+        chosen,pool=w.select_owned_dialog([win(2,cls='TauriWindow')],123,set()); self.assertIsNone(chosen); self.assertEqual(pool,[])
+
+    def test_wait_owned_dialog_polls_then_prints_every_candidate_on_ambiguity(self):
+        def win(hwnd,pid=123): return {'hwnd':hwnd,'pid':pid,'cls':'#32770','title':'Open','enabled':True,'owner':0}
+        polls=iter([[],[win(5)],[win(5)]])
+        self.assertEqual(w.wait_owned_dialog(123,set(),enumerate_windows=lambda: next(polls),sleep=lambda s:None)['hwnd'],5)
+        clock=iter(range(0,100)); out=io.StringIO()
+        with patch('sys.stdout',out), self.assertRaisesRegex(ValueError,'ambiguous'):
+            w.wait_owned_dialog(123,set(),seconds=3,enumerate_windows=lambda:[win(5),win(6)],sleep=lambda s:None,clock=lambda: next(clock))
+        self.assertIn('hwnd=5',out.getvalue()); self.assertIn('hwnd=6',out.getvalue()); self.assertIn('pid=123',out.getvalue())
+        with self.assertRaisesRegex(ValueError,'not found'):
+            clock=iter(range(0,100)); w.wait_owned_dialog(123,set(),seconds=3,enumerate_windows=lambda:[],sleep=lambda s:None,clock=lambda: next(clock))
+
     def test_real_open_requires_unique_owned_app_and_button_before_spawn(self):
         with canonical_tempdir() as t:
             work=Path(t); fixture=work/'native-smoke.md'; fixture.touch()
@@ -116,16 +141,16 @@ class Tests(unittest.TestCase):
             for changed in [False,True]:
                 proc=MagicMock(); proc.poll.return_value=None; proc.returncode=0; proc.communicate.return_value=('qa-uia-open-invoked\n','')
                 def spawn(*args,**kwargs):
-                    self.assertNotIn('GH_TOKEN',kwargs['env']); self.assertEqual(kwargs['env']['QA_UIA_FIXTURE'],str(fixture))
+                    self.assertNotIn('GH_TOKEN',kwargs['env']); self.assertEqual(kwargs['env']['QA_UIA_FIXTURE'],str(fixture)); self.assertEqual(kwargs['env']['QA_UIA_HWND'],'777')
                     (work/'uia-ready').touch(); return proc
-                with patch.object(w,'owned_app_processes',side_effect=[[123],[] if changed else [123]]), patch.object(w,'ui_webdriver',return_value=[{w.ELEMENT_KEY:'one'}]) as wd, patch.object(w,'uia_environment',return_value={}), patch.object(w,'uia_command',return_value=['fixed']), patch.object(w.subprocess,'Popen',side_effect=spawn):
+                with patch.object(w,'owned_app_processes',side_effect=[[123],[] if changed else [123]]), patch.object(w,'ui_webdriver',return_value=[{w.ELEMENT_KEY:'one'}]) as wd, patch.object(w,'enum_top_windows',return_value=[]), patch.object(w,'wait_owned_dialog',return_value={'hwnd':777}), patch.object(w,'uia_environment',return_value={}), patch.object(w,'uia_command',return_value=['fixed']), patch.object(w.subprocess,'Popen',side_effect=spawn):
                     if changed:
                         with self.assertRaises(ValueError): w.real_open_file('session',app,fixture,work)
-                        self.assertEqual(wd.call_count,1)
+                        self.assertEqual(wd.call_count,1); proc.kill.assert_not_called()  # identity check precedes click and spawn
                     else:
                         w.real_open_file('session',app,fixture,work); self.assertEqual(wd.call_args.args,('session','one'))
-                    proc.kill.assert_called_once(); self.assertGreaterEqual(proc.communicate.call_count,1)
-                (work/'uia-ready').unlink()
+                        proc.kill.assert_called_once(); self.assertGreaterEqual(proc.communicate.call_count,1)
+                (work/'uia-ready').unlink(missing_ok=True)
 
     def test_real_open_timeout_kills_helper_without_disclosing_output(self):
         with canonical_tempdir() as t:
@@ -133,7 +158,7 @@ class Tests(unittest.TestCase):
             proc=MagicMock(); proc.poll.return_value=None
             proc.communicate.side_effect=[subprocess.TimeoutExpired('secret-command',60,output='secret-output'),('','')]
             def spawn(*args,**kwargs): (work/'uia-ready').touch(); return proc
-            with patch.object(w,'owned_app_processes',return_value=[123]), patch.object(w,'ui_webdriver',return_value=[{w.ELEMENT_KEY:'one'}]), patch.object(w,'uia_environment',return_value={}), patch.object(w,'uia_command',return_value=['fixed']), patch.object(w.subprocess,'Popen',side_effect=spawn):
+            with patch.object(w,'owned_app_processes',return_value=[123]), patch.object(w,'ui_webdriver',return_value=[{w.ELEMENT_KEY:'one'}]), patch.object(w,'enum_top_windows',return_value=[]), patch.object(w,'wait_owned_dialog',return_value={'hwnd':777}), patch.object(w,'uia_environment',return_value={}), patch.object(w,'uia_command',return_value=['fixed']), patch.object(w.subprocess,'Popen',side_effect=spawn):
                 with self.assertRaisesRegex(ValueError,'native Open dialog timeout'): w.real_open_file('session',work/'app',fixture,work)
                 proc.kill.assert_called_once(); self.assertEqual(proc.communicate.call_count,2)
 
