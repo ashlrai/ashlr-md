@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Original Windows NSIS qualification on a disposable standard hosted runner."""
+import ast
 import ctypes
 import io
 import urllib.request
@@ -29,6 +30,37 @@ STAGE = 'md050-original-windows-qa'
 UNINSTALL_KEY = r'Software\Microsoft\Windows\CurrentVersion\Uninstall\Ashlr MD'
 RUNTIME_KEY = r'SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'
 _JOB = None
+
+
+REASON_SOURCES = (Path(__file__).resolve(), ROOT/'scripts/native-qa.py', ROOT/'scripts/release-provenance.py')
+
+
+def fixed_reasons():
+    # Every literal failure reason in the harness scripts: the second argument of
+    # require() and the argument of fail() or a direct ValueError/RuntimeError raise.
+    reasons=set()
+    for source in REASON_SOURCES:
+        for node in ast.walk(ast.parse(source.read_text(encoding='utf-8'))):
+            name=getattr(node.func,'id',getattr(node.func,'attr',None)) if isinstance(node,ast.Call) else None
+            index={'require':1,'fail':0,'ValueError':0,'RuntimeError':0}.get(name)
+            if index is not None and len(node.args)>index and isinstance(node.args[index],ast.Constant) and isinstance(node.args[index].value,str):
+                reasons.add(node.args[index].value)
+    return reasons
+
+
+def annotate(level, text):
+    # A hosted-runner annotation is readable without the job log, so a red run names
+    # its own cause. Callers pass fixed-vocabulary text only; anything else is dropped.
+    if re.fullmatch(r'[A-Za-z0-9 ,;:.()/#=_-]{1,240}',text) and '::' not in text and level in ('error','warning'):
+        print(f'::{level} title=Windows native QA::{text}',flush=True)
+
+
+def annotate_failure(mode, error):
+    # Only a literal reason written in this harness is printed. Any other exception
+    # (subprocess, OS, JSON, provider text) may carry paths, argv or captured output,
+    # so it is reported by class name alone.
+    reason=str(error) if type(error) in (ValueError,RuntimeError) and str(error) in fixed_reasons() else type(error).__name__
+    annotate('error',f'{mode.lstrip("-")} failed; {reason}')
 
 
 def safe_path(path):
@@ -657,6 +689,7 @@ def real_open_file(session, app, fixture, work):
         if proc.returncode!=0:
             phase,detail=uia_failure(err)
             print('UIA dialog unavailable phase:',(phase or 'unknown')+(f' ({detail})' if detail else ''))
+            annotate('warning','real Open UI scenario; UIA helper failed in phase '+(phase or 'unknown')+(f' ({detail})' if detail else ''))
             if phase=='dialog':
                 try: print('Owned UIA window observation:',json.dumps(dialog_observation(err)))
                 except (ValueError,TypeError): print('Owned UIA window observation unavailable')
@@ -706,6 +739,7 @@ def worker():
                 report_app_argv(app,fixture)
                 cli_pass=wait_native_document(session)
                 print('CLI startup fixture result:', 'PASS' if cli_pass else 'FAIL (welcome/document mismatch; argv delivery unproven)')
+                if not cli_pass: annotate('warning','CLI startup scenario failed; the original app did not show the startup fixture within 60s')
                 print('Native scenario results:',json.dumps({'cli_startup':'pass' if cli_pass else 'fail','real_open_ui':'not_run' if cli_pass else 'pending'}))
                 if not cli_pass:
                     real_open_file(session,app,fixture,work)
@@ -754,14 +788,18 @@ def main():
     require(os.name=='nt','Windows runner required')
     require(len(sys.argv)==2,'expected one fixed phase')
     mode=sys.argv[1]
-    if mode=='--check-driver': driver_path(provision=True)
-    elif mode=='--check-process-query': check_process_query()
-    elif mode=='--check-uia': check_uia()
-    elif mode=='--prepare': prepare()
-    elif mode=='--probe': run_worker('--worker',300)
-    elif mode=='--worker': worker()
-    elif mode=='--uninstall-worker': enter_owned_job(); uninstall(prepared())
-    elif mode=='--cleanup': cleanup()
-    else: raise ValueError('unsupported phase')
+    try:
+        if mode=='--check-driver': driver_path(provision=True)
+        elif mode=='--check-process-query': check_process_query()
+        elif mode=='--check-uia': check_uia()
+        elif mode=='--prepare': prepare()
+        elif mode=='--probe': run_worker('--worker',300)
+        elif mode=='--worker': worker()
+        elif mode=='--uninstall-worker': enter_owned_job(); uninstall(prepared())
+        elif mode=='--cleanup': cleanup()
+        else: raise ValueError('unsupported phase')
+    except Exception as error:
+        annotate_failure(mode if re.fullmatch(r'--[a-z-]{1,24}',mode) else 'phase',error)
+        raise
 
 if __name__=='__main__': main()

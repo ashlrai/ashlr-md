@@ -773,4 +773,56 @@ class Tests(unittest.TestCase):
                 if proc.poll() is None: proc.kill(); proc.wait(timeout=5)
                 for handle in handles: kernel.CloseHandle(handle)
 
+    def run_phase(self, mode, target, failure):
+        output=io.StringIO()
+        with patch.object(w.os,'name','nt'), patch.object(w.sys,'argv',['native-qa-windows.py',mode]), patch.object(w,target,side_effect=failure), patch('sys.stdout',output):
+            with self.assertRaises(type(failure)): w.main()
+        return output.getvalue()
+
+    def test_failed_phase_names_its_fixed_reason_in_an_annotation(self):
+        # Hosted run 43991582185 failed its probe step with the lone annotation
+        # "Process completed with exit code 1"; the reason existed only in the job log.
+        self.assertEqual(self.run_phase('--worker','worker',ValueError('native Open dialog failed')),
+            '::error title=Windows native QA::worker failed; native Open dialog failed\n')
+        self.assertEqual(self.run_phase('--prepare','prepare',ValueError('stable release changed')),
+            '::error title=Windows native QA::prepare failed; stable release changed\n')
+        self.assertEqual(self.run_phase('--check-driver','driver_path',RuntimeError('driver signature verification did not complete successfully')),
+            '::error title=Windows native QA::check-driver failed; driver signature verification did not complete successfully\n')
+
+    def test_failure_annotation_never_carries_unlisted_text(self):
+        # Windows paths, argv and captured child output reach exceptions on a real runner.
+        private=r'C:\Users\runneradmin\synthetic-private\token.txt'
+        crlf='native Open dialog failed\r\n::error::synthetic-private-injected'
+        for failure,name in [(ValueError(private),'ValueError'),(ValueError(crlf),'ValueError'),
+                (json.JSONDecodeError('native Open dialog failed',private,0),'JSONDecodeError'),
+                (w.ProcessQueryUnavailable('native Open dialog failed'),'ProcessQueryUnavailable'),
+                (subprocess.CalledProcessError(1,[private,'--worker'],output=private,stderr=private),'CalledProcessError'),
+                (subprocess.TimeoutExpired([private],300,output=private),'TimeoutExpired'),
+                (FileNotFoundError(2,'missing',private),'FileNotFoundError')]:
+            with self.subTest(name=name,text=str(failure)[:24]):
+                self.assertEqual(self.run_phase('--probe','run_worker',failure),f'::error title=Windows native QA::probe failed; {name}\n')
+
+    def test_annotation_vocabulary_is_fixed_and_single_line(self):
+        reasons=w.fixed_reasons()
+        self.assertGreater(len(reasons),150)
+        for expected in ['native Open dialog failed','native UI-open DOM fixture mismatch','UIA helper exited before ready','stable release changed','installer changed']:
+            self.assertIn(expected,reasons)
+        output=io.StringIO()
+        with patch('sys.stdout',output):
+            for reason in sorted(reasons): w.annotate_failure('--worker',ValueError(reason))
+            for text in ['a\nb','a\r\nb','a::b','C:\\x','50%','a"b','']: w.annotate('error',text)
+            w.annotate('notice','ok'); w.annotate('error','x'*241)
+        lines=output.getvalue().splitlines()
+        self.assertEqual(lines,[f'::error title=Windows native QA::worker failed; {reason}' for reason in sorted(reasons)])
+
+    def test_scenario_failures_are_annotated_without_changing_the_verdict(self):
+        source=SCRIPT.read_text()
+        self.assertIn("annotate('warning','CLI startup scenario failed; the original app did not show the startup fixture within 60s')",source)
+        for phase in ['assemblies','inputs','dialog','filename','confirm','unknown']:
+            for detail in ['']+sorted(w.UIA_DETAIL_KINDS):
+                output=io.StringIO()
+                with patch('sys.stdout',output):
+                    w.annotate('warning','real Open UI scenario; UIA helper failed in phase '+phase+(f' ({detail})' if detail else ''))
+                self.assertTrue(output.getvalue().startswith('::warning title=Windows native QA::real Open UI scenario; UIA helper failed in phase '+phase))
+
 if __name__=='__main__': unittest.main()
