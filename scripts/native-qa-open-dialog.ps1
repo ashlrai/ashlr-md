@@ -79,7 +79,16 @@ function Get-ConfirmButtons($dialog) {
     $buttonCondition = [Windows.Automation.AndCondition]::new(
         [Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::ControlTypeProperty, [Windows.Automation.ControlType]::Button),
         [Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::AutomationIdProperty, '1'))
-    return @(foreach ($b in $dialog.FindAll([Windows.Automation.TreeScope]::Descendants, $buttonCondition)) { $b })
+    $found = @(foreach ($b in $dialog.FindAll([Windows.Automation.TreeScope]::Descendants, $buttonCondition)) { $b })
+    if ($found.Count -eq 0) {
+        # Some picker builds do not publish automation ID 1 (same gap as the filename edit ID).
+        # Fall back to the Button named exactly "Open"; the single-match rule still fails closed.
+        $anyButton = [Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::ControlTypeProperty, [Windows.Automation.ControlType]::Button)
+        $all = @(foreach ($b in $dialog.FindAll([Windows.Automation.TreeScope]::Descendants, $anyButton)) { $b })
+        if ($all.Count -gt 64) { throw 'edit-count' }
+        foreach ($b in $all) { if ($b.Current.Name -cmatch '^&?Open$') { $found += $b } }
+    }
+    return $found
 }
 
 function Select-FilenameDialogs($candidates, [int]$targetPid) {
