@@ -196,7 +196,7 @@ class Tests(unittest.TestCase):
         script=(SCRIPT.parent/'native-qa-open-dialog.ps1').read_text()
         self.assertIn('RootElement.FindAll([Windows.Automation.TreeScope]::Children, $condition)',script)
         self.assertNotIn('RootElement.FindAll([Windows.Automation.TreeScope]::Descendants',script)
-        for guard in ['$candidates.Count -eq 0','$candidates.Count -gt 1',"-cmatch '^File name:?$'",'$buttons.Count -ne 1',"-cmatch '^&?Open$'",'TryGetCurrentPattern([Windows.Automation.InvokePattern]::Pattern','$value.Current.IsReadOnly','$value.Current.Value -cne $fixture',"ClassName -ceq '#32770'",'$dialog.Current.ProcessId -ne $targetPid']:
+        for guard in ['$candidates.Count -eq 0','$candidates.Count -gt 1',"-cmatch '^File name:?$'",'$buttons.Count -gt 1',"-cmatch '^&?Open$'",'TryGetCurrentPattern([Windows.Automation.InvokePattern]::Pattern','$value.Current.IsReadOnly','$value.Current.Value -cne $fixture',"ClassName -ceq '#32770'",'$dialog.Current.ProcessId -ne $targetPid']:
             self.assertIn(guard,script)
         self.assertNotIn('$window.GetCurrentPattern',script)
         self.assertNotIn('$pattern.Current.IsModal',script)
@@ -213,6 +213,11 @@ class Tests(unittest.TestCase):
         self.assertIn('function Resolve-FilenameHolder',script)
         self.assertEqual(script.count('Resolve-FilenameHolder $m'),1); self.assertEqual(script.count('Resolve-FilenameHolder $e'),1)
         self.assertIn('TryGetCurrentPattern([Windows.Automation.ValuePattern]::Pattern',script)
+        # Run 44147151087: UIA exposed no usable filename/Open control; the bound dialog's own Win32
+        # controls (ID 1148 Edit, IDOK) are the fallback, and several UIA Open buttons stay ambiguous.
+        self.assertIn('GetDlgItem($dialogHandle, 1148)',script); self.assertIn('GetDlgItem($dialogHandle, 1)',script)
+        self.assertIn('0x000C',script); self.assertIn('0x00F5',script)
+        self.assertIn("if ($buttons.Count -gt 1) { throw 'ambiguous-open' }",script)
         self.assertIn('$fixedViolations -contains $_.Exception.Message',script)
         emitted=set(re.findall(r"'([a-z-]+)'",re.search(r'\$detailReasons = @\(([^)]*)\)',script).group(1)))
         self.assertEqual(emitted,w.UIA_DETAIL_KINDS)
