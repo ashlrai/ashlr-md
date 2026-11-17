@@ -23,6 +23,18 @@ function Get-DialogRootKey($window) {
     return 'hwnd:' + $root.ToInt64()
 }
 
+function Get-DialogOwnerKey($window) {
+    # GW_OWNER (4): the popup owner one level up, or $null for none. A Common Item
+    # Dialog can expose an inner #32770 as a top-level popup owned by the picker;
+    # GA_ROOT alone sees two roots. Only an owner that is itself an exact owned
+    # candidate collapses it, so independent dialogs sharing the app owner stay ambiguous.
+    $handle = $window.Current.NativeWindowHandle
+    if ($handle -eq 0) { return $null }
+    $owner = [NativeDialogWindow]::GetWindow([IntPtr]$handle, 4)
+    if ($owner -eq [IntPtr]::Zero) { return $null }
+    return 'hwnd:' + $owner.ToInt64()
+}
+
 function Get-OwnedDialogWindows($desktopWindows, $condition, [int]$targetPid) {
     # UIA can place an owned dialog beneath its application window rather than
     # directly beneath the desktop. Inspect one child level of exact-PID windows
@@ -62,6 +74,8 @@ try {
 public static class NativeDialogWindow {
     [System.Runtime.InteropServices.DllImport("user32.dll", ExactSpelling = true)]
     public static extern System.IntPtr GetAncestor(System.IntPtr hwnd, uint flags);
+    [System.Runtime.InteropServices.DllImport("user32.dll", ExactSpelling = true)]
+    public static extern System.IntPtr GetWindow(System.IntPtr hwnd, uint command);
 }
 '@
     if ($Mode -eq 'Preflight') {
@@ -127,7 +141,11 @@ public static class NativeDialogWindow {
                     $outerKey = Get-DialogWindowKey $outer
                     try { $rootKey = Get-DialogRootKey $outer } catch { $observation.ancestry += 'query-failed'; throw }
                     if ($null -ne $rootKey) {
-                        if ($rootKey -ceq $outerKey) { $observation.ancestry += 'root' }
+                        if ($rootKey -ceq $outerKey) {
+                            try { $ownerKey = Get-DialogOwnerKey $outer } catch { $observation.ancestry += 'query-failed'; throw }
+                            if ($null -ne $ownerKey -and $ownerKey -cne $outerKey -and $candidateKeys.ContainsKey($ownerKey)) { $nested[$outerKey] = $true; $observation.ancestry += 'owned' }
+                            else { $observation.ancestry += 'root' }
+                        }
                         elseif ($candidateKeys.ContainsKey($rootKey)) { $nested[$outerKey] = $true; $observation.ancestry += 'nested' }
                         else { $observation.ancestry += 'outside' }
                         continue

@@ -16,6 +16,12 @@ if (-not ('Windows.Automation.WindowPattern' -as [type])) {
 Add-Type -TypeDefinition @'
 public static class NativeDialogWindow {
     public static System.Collections.Generic.Dictionary<long, long> Roots = new System.Collections.Generic.Dictionary<long, long>();
+    public static System.Collections.Generic.Dictionary<long, long> Owners = new System.Collections.Generic.Dictionary<long, long>();
+    public static System.IntPtr GetWindow(System.IntPtr hwnd, uint command) {
+        if (command != 4) throw new System.Exception("must query the popup owner (GW_OWNER)");
+        long handle = hwnd.ToInt64();
+        return new System.IntPtr(Owners.ContainsKey(handle) ? Owners[handle] : 0);
+    }
     public static System.IntPtr GetAncestor(System.IntPtr hwnd, uint flags) {
         if (flags != 2) throw new System.Exception("must follow parents, never owners");
         long handle = hwnd.ToInt64();
@@ -62,6 +68,8 @@ $identity = $ast.Find({param($node) $node -is [Management.Automation.Language.Fu
 if ($null -ne $identity) { . ([scriptblock]::Create($identity.Extent.Text)) }
 $ancestry = $ast.Find({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Get-DialogRootKey'}, $false)
 if ($null -ne $ancestry) { . ([scriptblock]::Create($ancestry.Extent.Text)) }
+$ownerQuery = $ast.Find({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Get-DialogOwnerKey'}, $false)
+if ($null -ne $ownerQuery) { . ([scriptblock]::Create($ownerQuery.Extent.Text)) }
 $discovery = $ast.Find({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Get-OwnedDialogWindows'}, $false)
 if ($null -eq $discovery) { throw 'owned dialog discovery function not found' }
 . ([scriptblock]::Create($discovery.Extent.Text))
@@ -220,4 +228,21 @@ foreach ($reverse in @($true,$false)) {
     }
 }
 [NativeDialogWindow]::Roots.Clear()
+# An inner #32770 that is a top-level popup OWNED by the picker has its own GA_ROOT,
+# so only the owner chain (GW_OWNER) can collapse it. A popup owned by something that
+# is not a candidate (the app window) is independent and must stay ambiguous.
+foreach ($ownerHandle in @(921,999)) {
+    $picker = New-TestWindow '#32770' $true -nativeWindowHandle 921
+    $inner = New-TestWindow '#32770' $true -nativeWindowHandle 922
+    [NativeDialogWindow]::Owners[922] = $ownerHandle
+    $windows = @($inner,$picker)
+    $dialog=$null; $observation=@{stage='inspect';count=2;overflow=$false;windows=@()}
+    $rejected=$false
+    try { . $probe } catch { if ($_.Exception.Message -ceq 'ambiguous-dialog') {$rejected=$true} else {throw} }
+    if ($ownerHandle -eq 921) {
+        if ($rejected -or -not [object]::ReferenceEquals($dialog,$picker)) { throw 'popup owned by the picker reported as ambiguous' }
+        if (($observation.ancestry | Sort-Object) -join ',' -cne 'owned,root') { throw 'owned ancestry diagnostic lost the relationship' }
+    } elseif (-not $rejected -or $null -ne $dialog) { throw 'popup owned by a non-candidate accepted' }
+}
+[NativeDialogWindow]::Owners.Clear()
 [Console]::WriteLine('PASS: actual PowerShell discovery and selection cover owned child dialogs, desktop dialogs, native handle aliases and ancestry (7 new cases), modality, bounded traversal, ownership, count caps, regex collision, disabled and ambiguous candidates.')
