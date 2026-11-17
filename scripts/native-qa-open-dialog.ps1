@@ -35,6 +35,19 @@ function Get-DialogOwnerKey($window) {
     return 'hwnd:' + $owner.ToInt64()
 }
 
+function Resolve-FilenameHolder($element, $editCondition) {
+    # Map one filename candidate to the element that holds the value. An Edit is itself; any other
+    # control (the filename ComboBox, or a provider that types ID 1148 as a Pane) yields its Edit
+    # descendants, else itself when it exposes ValuePattern (run 44137203928: filename-none because
+    # an ID 1148 match of a non-Edit, non-ComboBox type was silently dropped).
+    if ($element.Current.ControlType -eq [Windows.Automation.ControlType]::Edit) { return @($element) }
+    $inners = @(foreach ($inner in $element.FindAll([Windows.Automation.TreeScope]::Descendants, $editCondition)) { $inner })
+    if ($inners.Count -gt 0) { return $inners }
+    $pattern = $null
+    if ($element.TryGetCurrentPattern([Windows.Automation.ValuePattern]::Pattern, [ref]$pattern)) { return @($element) }
+    return @()
+}
+
 function Get-FilenameEdits($dialog, [int]$targetPid) {
     # Enabled filename Edit controls (automation ID 1148, or its ComboBox parent) inside one
     # dialog, collapsed by RuntimeId so a control UIA reports twice counts once.
@@ -46,22 +59,18 @@ function Get-FilenameEdits($dialog, [int]$targetPid) {
     $idMatches = @(foreach ($e in $dialog.FindAll([Windows.Automation.TreeScope]::Descendants, $idCondition)) { $e })
     if ($idMatches.Count -gt 16) { throw 'edit-count' }
     $edits = @()
-    foreach ($m in $idMatches) {
-        if ($m.Current.ControlType -eq [Windows.Automation.ControlType]::Edit) { $edits += $m }
-        elseif ($m.Current.ControlType -eq [Windows.Automation.ControlType]::ComboBox) {
-            # The filename ComboBox hosts its Edit as a descendant.
-            $inners = @(foreach ($inner in $m.FindAll([Windows.Automation.TreeScope]::Descendants, $editCondition)) { $inner })
-            if ($inners.Count -gt 0) { $edits += $inners } else { $edits += $m }  # Some providers expose the combo itself as the value holder.
-        }
-    }
+    foreach ($m in $idMatches) { $edits += @(Resolve-FilenameHolder $m $editCondition) }
     if ($edits.Count -eq 0) {
         # Some picker builds do not publish automation ID 1148 at all (run 44113712735: filename
-        # phase failed with zero edits on a healthy picker). Fall back to the Edit the dialog labels
-        # "File name:", read by exact Name only for matching; unrelated edits (address band, search)
-        # carry other names, and the single-match rule below still fails closed on ambiguity.
-        $named = @(foreach ($e in $dialog.FindAll([Windows.Automation.TreeScope]::Descendants, $editCondition)) { $e })
+        # phase failed with zero edits on a healthy picker). Fall back to the Edit or ComboBox the
+        # dialog labels "File name:", read by exact Name only for matching; unrelated edits (address
+        # band, search) carry other names, and the single-match rule below still fails closed.
+        $namedTypes = [Windows.Automation.OrCondition]::new(
+            $editCondition,
+            [Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::ControlTypeProperty, [Windows.Automation.ControlType]::ComboBox))
+        $named = @(foreach ($e in $dialog.FindAll([Windows.Automation.TreeScope]::Descendants, $namedTypes)) { $e })
         if ($named.Count -gt 64) { throw 'edit-count' }
-        foreach ($e in $named) { if ($e.Current.Name -cmatch '^File name:?$') { $edits += $e } }
+        foreach ($e in $named) { if ($e.Current.Name -cmatch '^File name:?$') { $edits += @(Resolve-FilenameHolder $e $editCondition) } }
     }
     $found = @()
     $seenEdits = @{}
