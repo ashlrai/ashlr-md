@@ -94,6 +94,10 @@ Each command prints its full list with `--help`.
 
 **`mdopener-mcp`** is the MCP server. Your MCP client starts it, so you rarely run it by hand.
 
+Add `--json` to `--version`, `--help`, or `--export-tool-schema` for one JSON
+object with `kind`, `schema_version: 1`, and the command's fields.
+See the [agent guide](./docs/AGENTS.md) for the output contract.
+
 | Command | What it does |
 |---|---|
 | `mdopener-mcp` | Serve MCP over stdin and stdout |

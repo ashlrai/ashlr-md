@@ -39,6 +39,16 @@ JSON with `--json`, download nothing, and write nothing. Add `--apply` only
 when you want `doctor --fix` to make the repairs
 ([doctor-fix.md](./doctor-fix.md)).
 
+For versioned output from informational commands, run
+`mdopener-mcp --version --json`, `mdopener-mcp --help --json`, or
+`mdopener-mcp --export-tool-schema --json`. Each prints one JSON object with
+`schema_version: 1`, `tool: "ashlr-md"`, and a `kind` of `ashlr.version`,
+`ashlr.help`, or `ashlr.tool-schema`. The command's fields are `version`,
+`help` (the full help text), or `tools` (the existing tool contract).
+The `--json` flag works before or after these flags; `-V` and `-h` also work.
+Without `--json`, their output stays the same. Consumers should check `kind`
+and `schema_version` and allow additional fields in version 1.
+
 ---
 
 ## What the integration is
