@@ -22,8 +22,12 @@ Released 2026-06-06. [Release notes and downloads](https://github.com/ashlrai/as
 - `bun run test:unit` runs the fast unit lane (punctuation, CLI build setup and mdlint) that the CI checks job now runs.
 
 - The Windows native QA harness (`scripts/native-qa-windows.py`) prints one hosted-runner `::error` annotation naming the failed phase and a fixed-vocabulary reason (any other exception is reported by class name alone), and a failed CLI startup scenario or UIA helper phase adds one `::warning`. Annotations change no verdict.
+- `native-qa.yml` (the Linux native probe) also runs after every push to `main` and when a release is published, besides `workflow_dispatch`, with `permissions: {}` at workflow level and job-only `contents: read` and `actions: read`. It is not a required check and not a release promotion.
+- The Windows Open dialog helper (`scripts/native-qa-open-dialog.ps1`) tells a nested native picker from an independent dialog by `GetAncestor(GA_ROOT)` and direct window owner, narrows several candidates to the one with a single filename Edit or confirm button, and reports at most eight fixed ancestry labels. `scripts/native-qa-windows.py` accepts the new `button-count`, `filename-none` and `filename-many` detail kinds and the optional `ancestry` field. `pwsh -NoProfile -File scripts/test-native-qa-open-dialog.ps1` covers the selection logic on any OS.
+- `scripts/check-docs.py` checks that the README's "Commands and flags" section lists every long flag and `mdopener-mcp` command in the two `HELP` texts, that its "MCP tools" table matches `tool_registry()` in order, and that "Get started" keeps five steps or fewer with a "You should see" line for each.
 
 ### Fixed
+- The Linux native probe's preparation metadata request retries transient failures (HTTP 429, 500, 502, 503, 504 and network errors) up to four times with backoff; a definitive answer such as 404 still fails at once.
 - Release builds prefetch WiX, NSIS and AppImage tools with retries, and skip Finder AppleScript when creating macOS DMGs on CI, so a GitHub 504 or a hung Finder session no longer fails the Tauri bundle step.
 - Jumping to a source line inside a fenced code block, Mermaid diagram or diff block in Read view lands on that block: rendered code blocks now carry their source line.
 - Release assembly accepts a successful `main`-only `workflow_dispatch` of `release.yml` for an existing tag, after peeling the tag and checking out the resolved commit. Tag-push checks are unchanged.
@@ -40,6 +44,9 @@ Released 2026-06-06. [Release notes and downloads](https://github.com/ashlrai/as
 - The CI checks job is named "Typecheck, lint, unit tests, crypto policy": it runs `bun run test:unit` in place of the single punctuation test, runs `bun run check:doc-links`, runs the Tauri bundler prefetch and apt dependency plan regressions, the CI and release gate tests, and the npm script file path check. `CONTRIBUTING.md` lists the matching local commands.
 
 ### Documentation
+- The README opens with a five-step "Get started" that says what you should see after each step, followed by a "Commands and flags" reference for `mdopen` and `mdopener-mcp` and an "MCP tools" table of all 20 tools. It states that `mdopener-mcp doctor --fix` only previews repairs until you add `--apply`.
+- `docs/WINDOWS-NATIVE-QA.md` documents the dialog ancestry and filename Edit narrowing rules above.
+- `docs/NATIVE-QA-PROPOSAL.md` notes that `native-qa.yml` now also runs after merges to `main` and on published releases.
 - `docs/WINDOWS-NATIVE-QA.md` states that `native-qa-windows.yml` runs on pushes to `main` and published releases as well as `workflow_dispatch`, and documents the failure annotations.
 - `docs/proposals/windows-probe-ci.md` proposes stopping the Windows original-artifact probe from re-running on every merge; it is listed in `docs/README.md`.
 - `CONTRIBUTING.md` names `bun run fresh:sync` and `bun run doclive:sync`, the commands that rewrite the generated release and docs blocks the matching check scripts verify.
@@ -47,6 +54,7 @@ Released 2026-06-06. [Release notes and downloads](https://github.com/ashlrai/as
 - `docs/integration-bracket-preservation.md` shows an annotation and a citation written back to back (`[sic][1]`) keeping both fragments in order.
 
 ### Tests
+- Added a `uiStore` case that toggling find twice restores the store unchanged, and a mdlint autofix fixture case.
 - Vitest allows 60 seconds per test and hook, so Milkdown mounts on a CPU-starved host no longer time out healthy suites.
 - Added reveal-line cases for fenced code blocks, empty documents and lines far beyond the end of the document, a diff hunk applied to empty content, and broad store, frontmatter, snippet, session, link export and mdlint autofix coverage.
 
