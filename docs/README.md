@@ -16,6 +16,8 @@ Agents start at [llms.txt](../llms.txt). The long form is [llms-full.txt](../llm
 | [mcp-registry.md](./mcp-registry.md) | You are publishing the MCP server |
 | [SECURITY.md](../SECURITY.md) | You want the threat model |
 | [VISION.md](./VISION.md) | You want the product goal |
+| [Part of Ashlr](../README.md#part-of-ashlr) | You want the mission and how Ashlr MD fits the ecosystem |
+| [CONTRIBUTING.md](../CONTRIBUTING.md) | You are sending a change, as an agent or a person |
 | [RELEASING.md](./RELEASING.md) | You are cutting or verifying a release |
 
 ## Full index
