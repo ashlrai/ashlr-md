@@ -77,6 +77,42 @@ https://github.com/ashlrai/ashlr-md/blob/main/docs/AGENTS.md
 /// `docs/` folder next to it, so `docs/AGENTS.md` alone named nothing.
 const AGENTS_GUIDE: &str = "https://github.com/ashlrai/ashlr-md/blob/main/docs/AGENTS.md";
 
+/// Informational CLI responses use the same version markers as doctor/setup.
+#[derive(serde::Serialize)]
+#[serde(tag = "kind")]
+enum CliOutput<'a> {
+    #[serde(rename = "ashlr.help")]
+    Help { help: &'a str },
+    #[serde(rename = "ashlr.version")]
+    Version { version: &'a str },
+    #[serde(rename = "ashlr.tool-schema")]
+    ToolSchema {
+        #[serde(flatten)]
+        contract: Value,
+    },
+}
+
+impl CliOutput<'_> {
+    fn json(self) -> String {
+        #[derive(serde::Serialize)]
+        struct Report<T> {
+            schema_version: u32,
+            tool: &'static str,
+            #[serde(flatten)]
+            output: T,
+        }
+        let report = Report {
+            schema_version: 1,
+            tool: "ashlr-md",
+            output: self,
+        };
+        format!(
+            "{}\n",
+            serde_json::to_string(&report).expect("CLI report is JSON")
+        )
+    }
+}
+
 fn main() {
     // Informational flags answer and exit instead of blocking on stdin.
     // Any other argument is still ignored, so an old client config that
@@ -90,10 +126,19 @@ fn main() {
         .skip(1)
         .map(|a| a.to_string_lossy().into_owned())
         .collect();
-    if args.as_slice() == ["--export-tool-schema"] {
-        let contract = serde_json::to_string_pretty(&mdopener_mcp::tool_contract())
-            .expect("tool contract is JSON");
-        std::process::exit(print_stdout(&format!("{contract}\n")));
+    let json = args.iter().any(|a| a == "--json");
+    let command: Vec<_> = args.iter().filter(|a| *a != "--json").collect();
+    if command.len() == 1 && command[0] == "--export-tool-schema" {
+        let contract = mdopener_mcp::tool_contract();
+        let out = if json {
+            CliOutput::ToolSchema { contract }.json()
+        } else {
+            format!(
+                "{}\n",
+                serde_json::to_string_pretty(&contract).expect("tool contract is JSON")
+            )
+        };
+        std::process::exit(print_stdout(&out));
     }
     // Companion handshake (docs/ashlr-handshake.md): one JSON line, before stdin.
     if mdopener_mcp::handshake::requested(&args) {
@@ -133,18 +178,25 @@ fn main() {
         let status = print_stdout(&out);
         std::process::exit(if code != 0 { code } else { status });
     }
-    for arg in std::env::args_os()
-        .skip(1)
-        .map(|a| a.to_string_lossy().into_owned())
-    {
+    for arg in args {
         match arg.as_str() {
             "--version" | "-V" => {
-                std::process::exit(print_stdout(&format!(
-                    "mdopener-mcp {}\n",
-                    env!("CARGO_PKG_VERSION")
-                )));
+                let version = env!("CARGO_PKG_VERSION");
+                let out = if json {
+                    CliOutput::Version { version }.json()
+                } else {
+                    format!("mdopener-mcp {version}\n")
+                };
+                std::process::exit(print_stdout(&out));
             }
-            "--help" | "-h" => std::process::exit(print_stdout(HELP)),
+            "--help" | "-h" => {
+                let out = if json {
+                    CliOutput::Help { help: HELP }.json()
+                } else {
+                    HELP.into()
+                };
+                std::process::exit(print_stdout(&out));
+            }
             _ => ignored.push(arg),
         }
     }
