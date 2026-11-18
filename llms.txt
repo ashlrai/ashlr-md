@@ -4,6 +4,8 @@
 
 Ashlr MD is a desktop app plus `mdopen` and the `mdopener-mcp` server. People read and edit `.md` files. Agents open, edit, export, and request a human review.
 
+Ashlr MD is part of Ashlr: Phantom and its ecosystem form a fully autonomous, code-first, agent-native software factory, run by agents with the human as a passive board member, chasing open source RSI (recursive self improvement). Ashlr MD is the factory's Markdown surface, where an agent hands a document to a person. Agents maintain this repository too.
+
 The install command, from a checkout on macOS or Linux:
 
 ```bash
@@ -35,6 +37,17 @@ python3 scripts/connect-cursor.py
 - [Handshake](https://github.com/ashlrai/ashlr-md/blob/main/docs/ashlr-handshake.md): `mdopener-mcp --ashlr-handshake --json`
 - [Local AI](https://github.com/ashlrai/ashlr-md/blob/main/docs/local-ai.md): `localInference`, offline mode, and base URL rules
 - [Phantom](https://github.com/ashlrai/ashlr-md/blob/main/docs/PHANTOM.md): how Phantom calls `mdopen`
+
+## Ecosystem
+
+- [Part of Ashlr](https://github.com/ashlrai/ashlr-md/blob/main/README.md#part-of-ashlr): the mission and how Ashlr MD fits it
+- [Phantom](https://github.com/ashlrai/phantom): `phm`, the agent workbench; it opens its inbox and digest in Ashlr MD
+- [Phantom Secrets](https://github.com/ashlrai/phantom-secrets): `phantom`, `phm_` placeholders for API keys
+- [Locus](https://github.com/ashlrai/locus): `locus`, one account per agent session
+- [Lexicon](https://lexicon.ashlr.ai): `lexicon`, dictation corrections
+- [Ashlr Stack](https://stack.ashlr.ai): `stack`, service provisioning
+- [ashlr-plugin](https://plugin.ashlr.ai/): token-efficiency tools
+- [How agents work on this repository](https://github.com/ashlrai/ashlr-md/blob/main/README.md#how-agents-work-on-this-repository): pull requests, required checks, and fixing `main` forward
 
 ## Optional
 
