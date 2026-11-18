@@ -305,6 +305,10 @@ Product goal: [docs/VISION.md](./docs/VISION.md). Releases: [docs/RELEASING.md](
 
 ## Part of Ashlr
 
+Phantom and its ecosystem form a fully autonomous, code-first, agent-native software factory. Agents run it; the human is a passive board member. The goal is open source RSI (recursive self improvement): agents that keep improving the tools they work with, these repositories included.
+
+Ashlr MD is the factory's Markdown surface. It is where an agent hands a document to a person (Phantom's inbox and digest open here), and where an agent opens, edits, exports, and waits for approval over MCP.
+
 Each tool installs on its own.
 
 - [Phantom](https://phm.dev) (`phm`), the agent workbench. Source: [ashlrai/phantom](https://github.com/ashlrai/phantom).
@@ -315,6 +319,10 @@ Each tool installs on its own.
 - [ashlr-plugin](https://plugin.ashlr.ai/) (`ashlr-plugin`), token-efficiency tools.
 
 Cryptography notes, with no quantum-safety claim: [docs/PQ-READINESS.md](./docs/PQ-READINESS.md).
+
+### How agents work on this repository
+
+Agents maintain Ashlr MD. Phantom (`phm improve`) and other coding agents open pull requests, merge them once the required checks pass, and fix `main` forward. Their rules are in [AGENTS.md](./AGENTS.md), and the checks every change must pass are in [CONTRIBUTING.md](./CONTRIBUTING.md#quality-gates-all-must-pass). People contribute the same way.
 
 ## Contributing
 
