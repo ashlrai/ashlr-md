@@ -2,6 +2,8 @@
 
 This is a manually invoked, fixed-input qualification of original release run41362219024, source721b976149ad402cac56205f28bf253603f76535. It is not an installer/updater test or a release-readiness claim. The owner specifically approved adding and running this manual read-only artifact-access job on2026-11-02. This does not authorize release promotion, write permissions or other test targets.
 
+Update: `native-qa.yml` now also runs after each push to `main` and when a release is published, with the same read-only permissions. It remains a non-required check and never promotes a release. The approval below covers the original manual job.
+
 ## Specifically approved scope
 
 One standard public GitHub-hosted ubuntu-22.04 manual QA job using the existing ephemeral GITHUB_TOKEN with **contents:read and actions:read only**, to retrieve original MD0.5 Actions artifacts and run a bounded Linux AppImage/WebView smoke. No new credential, write permission, paid/larger runner, release/upload/feed change, user machine or provider action. Existing CI permissions remain unchanged.
