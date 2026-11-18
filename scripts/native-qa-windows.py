@@ -126,17 +126,15 @@ def prepare():
         target = work/(leg+'.zip'); qa.download_zip(artifact, target, token); zips[leg] = target
     receipt = prov.verify_provenance(api, qa.TAG, qa.SHA, qa.RUN, zips, check_release_state=False)
     api = None; token = None
-    # The token-scoped fetcher deliberately has no /releases/latest route; read the public
-    # release unauthenticated instead (no credential ever reaches this request).
-    with qa.plain_opener().open('https://api.github.com'+prov.REPO+'/releases/latest', timeout=30) as r:
-        latest = json.loads(r.read(1024*1024+1))
-    # Do not pin a literal stable version: stable legitimately advances (it was v0.4.0 when this
-    # was written, v0.7.5 later). The invariant is that the probed original (qa.TAG) was never
-    # promoted to stable, and that the updater feed agrees with the stable release.
-    tag = latest.get('tag_name')
-    require(isinstance(tag, str) and tag.startswith('v') and latest.get('prerelease') is False and tag != qa.TAG, 'stable release changed')
+    # Read the stable release from the updater feed on github.com, not api.github.com: the
+    # unauthenticated API shares a per-IP rate limit with every hosted runner and returned 403,
+    # which failed this daily job. "/releases/latest/download/" only ever resolves to the
+    # non-prerelease stable release, so the feed itself proves stable is not a prerelease.
+    # Do not pin a literal stable version: stable legitimately advances. The invariant is that
+    # the probed original (qa.TAG) was never promoted to stable.
     with qa.plain_opener().open('https://github.com/ashlrai/ashlr-md/releases/latest/download/latest.json', timeout=30) as r:
-        require(json.loads(r.read(1024*1024+1)).get('version') == tag[1:], 'stable updater feed changed')
+        version = json.loads(r.read(1024*1024+1)).get('version')
+    require(isinstance(version, str) and re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+', version) is not None and 'v'+version != qa.TAG, 'stable release changed')
     select_installer(zips['bundle-windows-latest'], work)
     key = work/'public-key.txt'; key.write_text(receipt['public_key'])
     verifier = ROOT/'scripts/release-signature-check/target/release/release-signature-check.exe'
