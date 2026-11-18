@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="logo.png" width="80">
+  <img src="../../../../src-tauri/icons/128x128.png" width="80">
 </div>
 
 Some <kbd>Ctrl</kbd>+<kbd>C</kbd> inline HTML and a <br> break.
