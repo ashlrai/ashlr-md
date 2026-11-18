@@ -13,7 +13,7 @@ copyFileSync(
   resolve(root, "src/lib/llms-file.test.ts"),
   resolve(fixture, "src/lib/llms-file.test.ts"),
 );
-writeFileSync(resolve(fixture, "README.md"), "fixture\n");
+writeFileSync(resolve(fixture, "README.md"), "# Fixture\n\n## Part of Ashlr\n");
 writeFileSync(
   resolve(fixture, "vitest.config.mjs"),
   'export default { test: { environment: "node", include: ["src/lib/llms-file.test.ts"], maxWorkers: 1, minWorkers: 1 } };\n',
@@ -24,8 +24,17 @@ afterAll(() => rmSync(fixture, { recursive: true, force: true }));
 describe("llms.txt link validation", () => {
   it.each([
     ["README.md", true],
+    ["README.md#part-of-ashlr", true],
     ["https://github.com/ashlrai/ashlr-md/blob/main/README.md", true],
+    ["https://github.com/ashlrai/ashlr-md/blob/main/README.md#part-of-ashlr", true],
+    ["https://github.com/ashlrai/phantom", true],
+    ["https://lexicon.ashlr.ai", true],
+    ["https://", false],
+    ["missing.md#part-of-ashlr", false],
+    ["https://github.com/ashlrai/ashlr-md/blob/main/missing.md#part-of-ashlr", false],
     ["../README.md", false],
+    ["../README.md#part-of-ashlr", false],
+    [resolve(root, "README.md"), false],
     ["http://other.example/README.md", false],
   ])(
     "checks %s",
