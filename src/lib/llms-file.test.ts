@@ -10,12 +10,18 @@ describe("llms.txt", () => {
     expect(content).toMatch(/^# Ashlr MD\r?\n\r?\n> \S[^\r\n]*\r?\n/);
   });
 
-  it("links to existing repository files", () => {
+  it("links to existing repository files or valid HTTPS URLs", () => {
     const links = [...content.matchAll(/\]\(([^)]+)\)/g)].map((match) => match[1]);
     const prefix = "https://github.com/ashlrai/ashlr-md/blob/main/";
     expect(links.length).toBeGreaterThan(0);
     for (const link of links) {
-      const path = link.startsWith(prefix) ? link.slice(prefix.length) : link;
+      // Canonical repository URLs still resolve against the local checkout.
+      const target = link.startsWith(prefix) ? link.slice(prefix.length) : link;
+      if (target.startsWith("https://")) {
+        expect(new URL(target).protocol, link).toBe("https:");
+        continue;
+      }
+      const path = target.split("#", 1)[0];
       expect(path, link).not.toMatch(/^[a-z][a-z\d+.-]*:/i);
       expect(isAbsolute(path), link).toBe(false);
       expect(path).not.toMatch(/(?:^|\/)\.\.(?:\/|$)/);
