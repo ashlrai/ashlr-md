@@ -134,6 +134,7 @@ describe("applyLinkExport", () => {
     const body = document.createElement("div");
     body.className = "markdown-body";
     body.innerHTML = `<p>${content}</p>`;
+    const originalHtml = body.innerHTML;
     document.body.appendChild(body);
     invokeMock.mockResolvedValueOnce("html").mockResolvedValue(undefined);
 
@@ -151,7 +152,9 @@ describe("applyLinkExport", () => {
       const exported = new DOMParser().parseFromString(html, "text/html");
       const paragraph = exported.querySelector(".markdown-body p");
       expect(paragraph?.textContent).toBe(content);
-      expect(exported.querySelectorAll("a")).toHaveLength(0);
+      expect(Array.from(exported.querySelectorAll("a"))).toEqual([]);
+      expect(useDocumentStore.getState().content).toBe(content);
+      expect(body.innerHTML).toBe(originalHtml);
     } finally {
       body.remove();
     }
