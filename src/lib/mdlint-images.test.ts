@@ -2,6 +2,30 @@ import { describe, expect, it } from "vitest";
 import { applyAllFixes, applyFix, lintDocument, ruleMissingAltText } from "./mdlint";
 
 describe("image alt text", () => {
+  it.each([
+    "images/chart.png",
+    "./images/chart.png",
+    "../images/chart.png",
+  ])("accepts descriptive alt text for relative source %s while reporting an empty alt", (source) => {
+    const described = `![Bar chart showing monthly revenue](${source})`;
+    const undescribed = `![](${source})`;
+    const doc = `See ${described} and ${undescribed}.\n`;
+    const diagnostics = lintDocument(doc).filter(
+      ({ ruleId }) => ruleId === "missing-alt-text",
+    );
+
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0].range).toMatchObject({
+      from: { offset: doc.indexOf(undescribed) },
+      to: { offset: doc.indexOf(undescribed) + undescribed.length },
+    });
+    expect(
+      lintDocument(`See ${described}.\n`).filter(
+        ({ ruleId }) => ruleId === "missing-alt-text",
+      ),
+    ).toEqual([]);
+  });
+
   it("reports an empty alt and preserves the source when fixed", () => {
     const doc = "See ![](images/chart.png?size=2#preview) for details.\n";
     const diagnostics = lintDocument(doc).filter(
