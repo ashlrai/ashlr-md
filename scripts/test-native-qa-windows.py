@@ -311,8 +311,7 @@ class Tests(unittest.TestCase):
         prov.exactly.side_effect=lambda values,label:values[0]
         prov.verify_provenance.return_value={'public_key':'synthetic-key'}
         api=MagicMock(side_effect=AssertionError('token fetcher must not read releases/latest'))
-        bodies={'https://api.github.com/repos/ashlrai/ashlr-md/releases/latest':b'{"tag_name":"v0.4.0","prerelease":false}',
-                'https://github.com/ashlrai/ashlr-md/releases/latest/download/latest.json':b'{"version":"0.4.0"}'}
+        bodies={'https://github.com/ashlrai/ashlr-md/releases/latest/download/latest.json':b'{"version":"0.4.0"}'}
         opener=MagicMock(); opener.open.side_effect=lambda url,timeout=None: io.BytesIO(bodies[url])
         with canonical_tempdir() as t:
             root=Path(t); output=root/'out'; output.touch()
@@ -778,14 +777,28 @@ class Tests(unittest.TestCase):
             with self.assertRaises(ValueError): w.worker()
             run.assert_not_called()
 
+    def test_prepare_rejects_original_promoted_to_stable_without_api_call(self):
+        prov=MagicMock(REPO='/repos/ashlrai/ashlr-md',LEGS=('bundle-windows-latest',))
+        prov.pages.return_value=[{'id':13105824003,'name':'bundle-windows-latest','expired':False,'workflow_run':{'head_sha':w.qa.SHA}}]
+        prov.exactly.side_effect=lambda values,label:values[0]
+        prov.verify_provenance.return_value={'public_key':'synthetic-key'}
+        seen=[]
+        def fake_open(url,timeout=None):
+            seen.append(url); return io.BytesIO(('{"version":"%s"}'%w.qa.TAG[1:]).encode())
+        opener=MagicMock(); opener.open.side_effect=fake_open
+        with canonical_tempdir() as t:
+            root=Path(t); output=root/'out'; output.touch()
+            with patch.dict(os.environ,{'RUNNER_TEMP':t,'GITHUB_OUTPUT':str(output),'GH_TOKEN':'synthetic'},clear=True), patch.object(w.qa,'module',return_value=prov), patch.object(w.qa,'metadata_fetcher',return_value=MagicMock()), patch.object(w.qa,'download_zip'), patch.object(w.qa,'plain_opener',return_value=opener):
+                with self.assertRaises(ValueError): w.prepare()
+        self.assertFalse(any('api.github.com' in u for u in seen))
+
     def test_signature_failure_cannot_write_qualification_marker(self):
         prov=MagicMock(REPO='/repos/ashlrai/ashlr-md',LEGS=('bundle-windows-latest',))
         prov.pages.return_value=[{'id':13105824003,'name':'bundle-windows-latest','expired':False,'workflow_run':{'head_sha':w.qa.SHA}}]
         prov.exactly.side_effect=lambda values,label:values[0]
         prov.verify_provenance.return_value={'public_key':'synthetic-key'}
         api=MagicMock(side_effect=AssertionError('token fetcher must not read releases/latest'))
-        bodies={'https://api.github.com/repos/ashlrai/ashlr-md/releases/latest':b'{"tag_name":"v0.4.0","prerelease":false}',
-                'https://github.com/ashlrai/ashlr-md/releases/latest/download/latest.json':b'{"version":"0.4.0"}'}
+        bodies={'https://github.com/ashlrai/ashlr-md/releases/latest/download/latest.json':b'{"version":"0.4.0"}'}
         opener=MagicMock(); opener.open.side_effect=lambda url,timeout=None: io.BytesIO(bodies[url])
         with canonical_tempdir() as t:
             root=Path(t); output=root/'out'; output.touch()
