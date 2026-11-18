@@ -4,6 +4,19 @@ Thanks for your interest! Ashlr MD aims to be the instant, beautiful, AI-native
 home for Markdown: local-first and open source. See [`docs/VISION.md`](./docs/VISION.md)
 for the north star and the quality bar every change should clear.
 
+## Who contributes
+
+Ashlr MD is part of Ashlr: Phantom and its ecosystem form a fully autonomous,
+code-first, agent-native software factory, run by agents with the human as a
+passive board member, chasing open source RSI (recursive self improvement).
+See [Part of Ashlr](./README.md#part-of-ashlr) for how this repository fits.
+
+Most changes here come from agents. Phantom (`phm improve`) and other coding
+agents open pull requests, merge them once the required checks pass, and fix
+`main` forward. Their rules are in [`AGENTS.md`](./AGENTS.md). People follow
+the same path: a pull request that passes the
+[quality gates](#quality-gates-all-must-pass) below.
+
 ## Prerequisites
 
 - [Rust](https://rustup.rs) (stable)
