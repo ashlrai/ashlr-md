@@ -36,6 +36,24 @@ import {
 } from "./mdlint";
 
 describe("empty or whitespace-only image description", () => {
+  it("fills two empty descriptions on one line while preserving both rich sources", () => {
+    const doc =
+      'Compare ![](images/before%20chart.png?size=2#preview "Before") and ![](<images/after chart.svg> "After").\n';
+    const expected =
+      'Compare ![TODO: describe image](images/before%20chart.png?size=2#preview "Before") and ![TODO: describe image](<images/after chart.svg> "After").\n';
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+      "missing-alt-text",
+      "missing-alt-text",
+    ]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixAllViolations(doc, violations)).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
   it.each(["", " ", "\t", " \t "])("replaces %j with the documented placeholder and preserves the source", (alt) => {
     const source = 'images/chart%20one.png?size=2#preview "Chart"';
     const doc = `See ![${alt}](${source}) below.\n`;
