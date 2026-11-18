@@ -15,11 +15,16 @@ describe("llms.txt", () => {
     const prefix = "https://github.com/ashlrai/ashlr-md/blob/main/";
     expect(links.length).toBeGreaterThan(0);
     for (const link of links) {
+      // External https links (the Ashlr ecosystem sites) cannot be resolved
+      // against the working tree. scripts/llms-txt.test.mjs owns those plus
+      // the "#fragment names a real heading" rule; this test covers repo files.
+      if (/^https:\/\//.test(link) && !link.startsWith(prefix)) continue;
       const path = link.startsWith(prefix) ? link.slice(prefix.length) : link;
       expect(path, link).not.toMatch(/^[a-z][a-z\d+.-]*:/i);
       expect(isAbsolute(path), link).toBe(false);
       expect(path).not.toMatch(/(?:^|\/)\.\.(?:\/|$)/);
-      expect(existsSync(resolve(root, path)), path).toBe(true);
+      const [file] = path.split("#");
+      expect(existsSync(resolve(root, file)), path).toBe(true);
     }
   });
 });

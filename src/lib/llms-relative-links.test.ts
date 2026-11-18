@@ -24,7 +24,11 @@ afterAll(() => rmSync(fixture, { recursive: true, force: true }));
 describe("llms.txt link validation", () => {
   it.each([
     ["README.md", true],
+    ["README.md#part-of-ashlr", true],
     ["https://github.com/ashlrai/ashlr-md/blob/main/README.md", true],
+    ["https://github.com/ashlrai/ashlr-md/blob/main/README.md#part-of-ashlr", true],
+    ["https://lexicon.ashlr.ai", true],
+    ["missing.md", false],
     ["../README.md", false],
     ["http://other.example/README.md", false],
   ])(
