@@ -41,15 +41,24 @@ picks it up instantly via its registered URL scheme.
 
 ## Build
 
+Needs [Bun](https://bun.sh) and Node.js 22.6 or later (the tests run under
+Node with `--experimental-strip-types`).
+
 ```bash
 cd integrations/obsidian
-npm install
-npm run build      # produces main.js (minified, CJS)
+bun install --frozen-lockfile
+bun run build      # produces main.js (minified, CJS)
 # or for watch/dev mode:
-npm run dev
-npm test           # the pure helpers in links.ts, under node:test
-npm run typecheck  # tsc --noEmit
+bun run dev
+bun run test       # the pure helpers in links.ts, under node:test
+bun run typecheck  # tsc --noEmit
 ```
+
+`--frozen-lockfile` installs the versions `bun.lock` pins, including the
+`obsidian` API package, which `package.json` lists as `latest`. `npm install`
+ignores `bun.lock` and would resolve whatever is newest. Use `bun run test`,
+not `bun test`: the script runs the tests under Node, and `bun test` would
+use Bun's own runner instead.
 
 ---
 
