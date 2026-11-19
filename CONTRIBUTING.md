@@ -51,6 +51,21 @@ CLI and the MCP tool contract.
    crates when Rust changed. The default base is `origin/main`, which in a
    fork clone is your fork, so pass `upstream/main`.
 
+   `ci-local.sh` skips five steps that the required check's fast job runs.
+   They take seconds, so run them before you push:
+
+   ```bash
+   bun run test:unit
+   node --test scripts/ci/gate.test.mjs scripts/ci/release-gate.test.mjs scripts/ci/assembly-workflow.test.mjs
+   python3 scripts/test-apt-dependency-plan.py && python3 scripts/test-apt-https-sources.py && python3 scripts/test-prefetch-tauri-bundler-tools.py
+   node --test scripts/package-scripts.test.mjs
+   bun run check:workflow-bash
+   ```
+
+   `bun run test:unit` matters even for docs: its punctuation test fails on
+   an em or en dash in the top-level Markdown, `docs/`, `integrations/`,
+   `samples/` and the landing page, as well as in UI strings.
+
    For a docs-only change, `bun run check:doc-links` and `bun run doclive:check`
    cover links and doc claims. After editing `docs/AGENTS.md`, also run
    `python3 scripts/check-docs.py`. After editing `llms.txt` or
