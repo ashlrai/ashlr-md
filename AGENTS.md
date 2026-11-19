@@ -45,6 +45,9 @@ Agents are first-class users of Ashlr MD.
 - Run `scripts/ci-local.sh [base-ref]` (default `origin/main`; pass `upstream/main`
   from a fork). It classifies the diff with `scripts/ci/select.mjs` and runs the
   JS and Rust gates it needs.
+- `ci-local.sh` does not run the two diff secret scans (Gitleaks and the
+  secret-shape scan), and both block the required check. Run them locally as
+  shown in [Contribute with an agent](CONTRIBUTING.md#contribute-with-an-agent).
 - `Check (Linux)` is the one required pull request check; once it is green,
   auto-merge and the merge queue land the change.
 - The full walkthrough, for agents and people alike, is
