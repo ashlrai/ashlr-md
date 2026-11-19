@@ -14,6 +14,12 @@ When Ashlr MD is finished, this is true:
 6. **Shareable in one click.** Export to PDF / DOCX / HTML that looks great, with no Pandoc, no Terminal, no account.
 7. **Trustworthy & open.** MIT, local-first, no telemetry by default, no GPL bundled. A great open-source project the world can rely on; a premium hosted-AI tier funds it.
 
+## Where it fits
+
+Ashlr MD is part of Ashlr. Phantom and its ecosystem form a fully autonomous, code-first, agent-native software factory, run by agents with the human as a passive board member, chasing open source RSI (recursive self improvement). Ashlr MD is the factory's Markdown surface: where an agent hands a document to a person, and where it opens, edits, exports, and waits for approval over MCP. The other tools and how they fit are in [Part of Ashlr](../README.md#part-of-ashlr).
+
+Agents run the [goal loop](#the-goal-loop) below. Phantom (`phm improve`) and other coding agents pick the slice, build it, open the pull request, and merge it once the required checks pass. Their rules are in [AGENTS.md](../AGENTS.md).
+
 ## Who it's for
 
 The growing population of people (many non-technical) who use AI coding agents and are buried in Markdown they didn't ask for and can't comfortably read, edit, or share.
@@ -33,7 +39,7 @@ A feature is "done" only when:
 - It is **beautiful in all three themes** (Paper / Sepia / Midnight) and in light + dark.
 - It **degrades gracefully** (no provider? large file? malformed input? offline? All handled).
 - It is **fast** (no perceptible lag on a typical agent doc; large files don't freeze the UI).
-- Quality gates are green: `tsc` typecheck, Biome lint, `cargo check` (no warnings), production build.
+- Quality gates are green: every check in [CONTRIBUTING.md](../CONTRIBUTING.md#quality-gates-all-must-pass), from `tsc` typecheck and Biome lint to `cargo clippy` (no warnings), the Vitest and Rust suites, and the production build.
 - It **does not leak data** off-device without explicit user action.
 - The code reads like the surrounding code and the non-obvious bits are commented.
 
@@ -47,7 +53,7 @@ Each increment runs the same loop. We do not move on until the loop closes.
 3. RUN:      launch the real app and use the feature (open a real agent .md).
 4. VERIFY:   screenshot / live-check against the Definition of Excellent above.
 5. HARDEN:   edge cases, errors, all themes, perf, graceful degradation.
-6. GATE:     typecheck + lint + cargo check + build all green.
+6. GATE:     the CONTRIBUTING.md quality gates all green.
 7. REFLECT:  update this doc / README status; note caveats; pick the next slice.
    ↻ repeat
 ```
