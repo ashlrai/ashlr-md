@@ -59,6 +59,8 @@ mdopener-mcp --export-tool-schema
 
 `--json` may come before or after the flag, and `-V` and `-h` work too. Check `kind` and `schema_version`, and allow extra fields in version 1.
 
+`doctor` and `setup --local` exit 0 whatever they find, so read the JSON, not the exit code. Fields: https://github.com/ashlrai/ashlr-md/blob/main/docs/local-ai.md#json-output
+
 `mdopener-mcp doctor --apply` without `--fix` exits 2 and writes nothing. Repair rules: https://github.com/ashlrai/ashlr-md/blob/main/docs/doctor-fix.md
 
 ## Connect MCP

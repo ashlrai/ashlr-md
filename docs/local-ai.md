@@ -65,6 +65,36 @@ mdopener-mcp doctor --json
 mdopener-mcp setup --local --json
 ```
 
+### JSON output
+
+Both commands print one JSON object with `kind`, `schema_version: 1`, and `tool: "ashlr-md"`. Envelope keys use snake_case. Keys inside `probe`, `servers`, `config`, and `recommended` use camelCase.
+
+A `probe` object has `status` (one of the six above), `provider`, `loopback`, `reachable`, `httpStatus`, `modelCount`, and `reason`, a closed code that never repeats the URL. `provider`, `httpStatus`, and `reason` can be `null`.
+
+`doctor --json` (`kind` `ashlr.doctor`):
+
+| Field | Meaning |
+|---|---|
+| `status` | The worst check: `fail`, then `warn`, then `ok`. `info` never raises it |
+| `native_status` | The `local-inference` probe status |
+| `checks[0]` | `id` `local-inference`, `status`, `native_status`, `summary`, and `probe`. `config-invalid` and `remote-not-probed` are `fail`. `reachable` and `not-configured` are `ok`. The rest are `warn` |
+| `checks[1]` | `id` `offline`, `status`, `native_status`, and `summary`, as described under [Offline mode](#offline-mode) |
+
+`doctor` exits 0 whatever it finds. Read `status`, not the exit code. `doctor --fix` prints a different `ashlr.doctor` object, described in [doctor-fix.md](./doctor-fix.md).
+
+`setup --local --json` (`kind` `ashlr.setup-local`):
+
+| Field | Meaning |
+|---|---|
+| `downloads`, `writes` | Always `false` |
+| `servers` | Ollama, then oMLX: `provider`, `baseUrl` (the fixed default), and `probe` |
+| `config` | The `localInference` block: `status` (`absent`, `invalid`, or `ok`), `offline`, `provider`, and `probe`. `provider` is `null` unless `status` is `ok`. `probe` is `null` when `status` is `absent` |
+| `recommended` | `provider`, `model`, `reachable`, `pullCommand`, and `notes`. The provider is the configured one, else the first server that answered, else `ollama`. `pullCommand` is `null` except for Ollama |
+| `config_snippet` | What to add to `~/.ashlr/config.json`: the whole `localInference` block when there is none, `{"offline": true}` when the block is valid and offline is off, and `null` when offline is already on or the block is invalid |
+| `next` | The steps in order, each with `text` and, when there is one to run, `command`. The last is always `mdopener-mcp doctor` |
+
+`setup` exits 0, including `setup` without `--local`, which prints its help. An unknown argument exits 2 with the help on stderr.
+
 ## Offline mode
 
 Set `"offline": true` on the same block when this machine must not call a cloud model or a model server on another host. Leaving the key out, or setting `false`, changes nothing.
