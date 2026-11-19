@@ -11,14 +11,36 @@ contract is implemented by `locus`, `stack` (ashlr-stack), `ashlr-plugin` and
   "schema_version": 1,
   "name": "ashlr-md",
   "command": "mdopener-mcp",
-  "version": "0.7.3",
+  "version": "0.7.5",
   "protocols": { "ashlr.handshake": 1, "mcp": 1 },
-  "capabilities": ["mcp-server", "markdown-viewer", "review-annotations", "document-edit", "export", "vault-search", "agent-setup", "doctor-fix"],
-  "health": { "status": "ok", "checks": [{ "id": "app-running", "status": "absent" }] },
+  "capabilities": ["mcp-server", "markdown-viewer", "review-annotations", "document-edit", "export", "vault-search", "agent-setup", "doctor-fix", "local-inference-probe"],
+  "health": {
+    "status": "ok",
+    "checks": [
+      { "id": "app-running", "status": "absent" },
+      { "id": "local-inference-config", "status": "absent" }
+    ]
+  },
   "edits": ["~/.mdopener/", "~/.cursor/mcp.json"],
   "receipts": []
 }
 ```
+
+`version` is the installed server's version. `doctor-fix` means
+`mdopener-mcp doctor --fix` is available ([doctor-fix.md](./doctor-fix.md)).
+`local-inference-probe` means `mdopener-mcp doctor` probes the
+`localInference` server ([local-ai.md](./local-ai.md)).
+
+Ashlr MD reports two checks:
+
+| Check `id` | `ok` | `absent` | `missing` |
+|---|---|---|---|
+| `app-running` | `~/.mdopener/ipc-port` exists, so the app is probably running | the app is not running; several tools then answer from disk | never |
+| `local-inference-config` | `~/.ashlr/config.json` has a valid `localInference` block | no config file, or no `localInference` block | the block is invalid, or the file cannot be read as JSON |
+
+`health.status` is `degraded` only when `local-inference-config` is
+`missing`; otherwise it is `ok`. The config check reads the file and never
+contacts the model server. Run `mdopener-mcp doctor --json` for the probe.
 
 Rules every implementation follows:
 
@@ -29,4 +51,6 @@ Rules every implementation follows:
 - **Edits:** paths the CLI may write. `~/` is the home directory; other paths are relative to the project.
 - **Receipts:** receipt kinds the CLI emits (none yet; reserved for receipt.v1).
 
-The server answers before reading stdin, and reads neither the IPC token nor any document.
+The server answers before reading stdin. It checks whether `~/.mdopener/ipc-port`
+exists and reads `~/.ashlr/config.json`. It reads neither the IPC token nor any
+document.
