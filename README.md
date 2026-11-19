@@ -137,6 +137,8 @@ The server exposes these 20 tools, in the order the server lists them. Input sch
 | `replace_document` | Replace the entire content of the open document |
 | `set_content` | Replace the entire content of the open document. Same as `replace_document` |
 
+The server also serves resources (`mdopener://current`, `text://vault-search`, `mdopener://recent-documents`, and a `file://` entry for each watched-folder file) and three prompts (`summarize`, `review_plan`, `improve_writing`) that embed the open document. See [Resources](./docs/AGENTS.md#resources-reference) and [Prompts](./docs/AGENTS.md#prompts-reference).
+
 ## Desktop app without a terminal
 
 For the desktop app, without a terminal.
