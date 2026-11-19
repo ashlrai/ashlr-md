@@ -55,6 +55,7 @@ Repository links below are relative to https://github.com/ashlrai/ashlr-md/blob/
 
 - [How agents work on this repository](README.md#how-agents-work-on-this-repository): pull requests, required checks, and fixing `main` forward
 - [Agent contribution rules](AGENTS.md): repository instructions for agents
+- [Contribute with an agent](CONTRIBUTING.md#contribute-with-an-agent): fork, `scripts/ci-local.sh upstream/main`, pull request, auto-merge
 - [Contributing](CONTRIBUTING.md): how to send a change, and the checks it must pass
 - [Vision](docs/VISION.md): the product goal and the goal loop
 - [Roadmap](ROADMAP.md): planned work and the build loop

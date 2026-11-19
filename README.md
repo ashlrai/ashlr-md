@@ -326,11 +326,11 @@ Cryptography notes, with no quantum-safety claim: [docs/PQ-READINESS.md](./docs/
 
 ### How agents work on this repository
 
-Agents maintain Ashlr MD. Phantom (`phm improve`) and other coding agents open pull requests, merge them once the required checks pass, and fix `main` forward. Their rules are in [AGENTS.md](./AGENTS.md), and the checks every change must pass are in [CONTRIBUTING.md](./CONTRIBUTING.md#quality-gates-all-must-pass). People contribute the same way.
+Agents maintain Ashlr MD. Phantom (`phm improve`) and other coding agents open pull requests, merge them once the required checks pass, and fix `main` forward. Their rules are in [AGENTS.md](./AGENTS.md), and the checks every change must pass are in [CONTRIBUTING.md](./CONTRIBUTING.md#quality-gates-all-must-pass). People contribute the same way: [Contribute with an agent](./CONTRIBUTING.md#contribute-with-an-agent) walks through fork, branch, local checks, pull request and auto-merge.
 
 ## Contributing
 
-See [CONTRIBUTING.md](./CONTRIBUTING.md). Local-first, no GPL in the bundle, and verify in the running app. Security reports: [SECURITY.md](./SECURITY.md). Roadmap: [ROADMAP.md](./ROADMAP.md).
+See [CONTRIBUTING.md](./CONTRIBUTING.md). Before you push, `scripts/ci-local.sh` runs the gates your diff needs; from a fork clone, pass the upstream main branch as its base ref. `Check (Linux)` is the one required check, and a green pull request merges through auto-merge and the merge queue. Local-first, no GPL in the bundle, and verify in the running app. Security reports: [SECURITY.md](./SECURITY.md). Roadmap: [ROADMAP.md](./ROADMAP.md).
 
 ## License
 
