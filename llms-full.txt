@@ -50,11 +50,11 @@ mdopener-mcp --export-tool-schema
 | Command | Output |
 |---|---|
 | `doctor --json` | one JSON object, `"kind": "ashlr.doctor"` |
-| `doctor --fix --json` | one JSON object with `mode`, `plan`, and `outcome`. Dry run. Writes nothing |
+| `doctor --fix --json` | one JSON object, `"kind": "ashlr.doctor"`, with `mode`, `plan`, and `outcome`. Dry run. Writes nothing |
 | `doctor --fix --apply --json` | the same shape, and it makes the repairs |
 | `setup --local --json` | one JSON object, `"kind": "ashlr.setup-local"`, `downloads` false, `writes` false |
 | `--ashlr-handshake --json` | one JSON object, `"kind": "ashlr.handshake"` |
-| `--export-tool-schema` | tool names and input schemas as JSON |
+| `--export-tool-schema` | tool names and input schemas as JSON, sorted by name |
 | `--version --json`, `--help --json`, `--export-tool-schema --json` | one JSON object with a `kind` of `ashlr.version`, `ashlr.help`, or `ashlr.tool-schema`, `schema_version: 1`, and `tool: "ashlr-md"` |
 
 `--json` may come before or after the flag, and `-V` and `-h` work too. Check `kind` and `schema_version`, and allow extra fields in version 1.

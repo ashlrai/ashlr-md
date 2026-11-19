@@ -29,7 +29,7 @@ That clones into `~/ashlr-md` when you are not already in a checkout. When `clau
 These exit without waiting for MCP input. `doctor` and `setup --local` do not download a model and do not write config.
 
 ```bash
-mdopener-mcp --version
+mdopener-mcp --version --json
 mdopener-mcp doctor --json
 mdopener-mcp doctor --fix --json
 mdopener-mcp setup --local --json
@@ -42,15 +42,16 @@ What you get back:
 | Command | Output |
 |---|---|
 | `doctor --json` | one JSON object, `"kind": "ashlr.doctor"` |
-| `doctor --fix --json` | one JSON object with `mode`, `plan`, and `outcome`. This is a dry run and writes nothing |
+| `doctor --fix --json` | one JSON object, `"kind": "ashlr.doctor"`, with `mode`, `plan`, and `outcome`. This is a dry run and writes nothing |
 | `doctor --fix --apply --json` | the same shape, and it makes the repairs |
 | `setup --local --json` | one JSON object, `"kind": "ashlr.setup-local"`, `downloads` false, `writes` false |
 | `--ashlr-handshake --json` | one JSON object, `"kind": "ashlr.handshake"` |
-| `--export-tool-schema` | tool names and input schemas as JSON |
+| `--export-tool-schema` | tool names and input schemas as JSON, sorted by name |
+| `--version --json`, `--help --json`, `--export-tool-schema --json` | one JSON object, `"kind"` of `"ashlr.version"`, `"ashlr.help"`, or `"ashlr.tool-schema"`, with `schema_version: 1` and `tool: "ashlr-md"` |
 
 To resume a pending review, pass the returned `reviewId` as the `review_id` input to `request_review`; see [the review loop](./AGENTS.md#human-review-loop).
 
-`mdopener-mcp doctor --apply` without `--fix` is refused and exits 2. Repair rules: [doctor-fix.md](./doctor-fix.md). Handshake fields: [ashlr-handshake.md](./ashlr-handshake.md).
+`mdopener-mcp doctor --apply` without `--fix` is refused and exits 2. Repair rules and the full `doctor --fix --json` shape: [doctor-fix.md](./doctor-fix.md). Handshake fields: [ashlr-handshake.md](./ashlr-handshake.md).
 
 ## Open a file
 
@@ -132,7 +133,7 @@ These are the arguments, not shell commands. `open_file` is the tool that starts
 {"format": "html", "output_path": "/tmp/agent-plan.html", "overwrite": false}
 ```
 
-The full tool list, in server order, with every limit, is [AGENTS.md](./AGENTS.md). `mdopener-mcp --export-tool-schema` prints the same list as JSON.
+The full tool list, in server order, with every limit, is [AGENTS.md](./AGENTS.md). `mdopener-mcp --export-tool-schema` prints the same tools and input schemas as JSON, sorted by name rather than in server order.
 
 ## Prompts you can paste to an agent
 
