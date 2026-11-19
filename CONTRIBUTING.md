@@ -55,6 +55,19 @@ CLI and the MCP tool contract.
    cover links and doc claims. After editing `docs/AGENTS.md`, also run
    `python3 scripts/check-docs.py`.
 
+   `ci-local.sh` does not run the two diff secret scans, and both block the
+   required check. Run the secret-shape scan the way CI does; it prints only a
+   count, never the matched value, and exits non-zero on a hit:
+
+   ```bash
+   git diff --no-color --no-ext-diff "$(git merge-base upstream/main HEAD)" \
+     | perl .github/tests/secret-shape/scrub.pl --check --allow-fixtures
+   ```
+
+   With [Gitleaks](https://github.com/gitleaks/gitleaks) installed (CI pins
+   8.30.0 and ignores any repository Gitleaks config), scan your commits:
+   `gitleaks git . --log-opts="upstream/main..HEAD" --redact`.
+
 4. Push the branch to your fork and open a pull request against `main`.
    Fill in the template.
 5. `Check (Linux)` is the one required check (see
@@ -110,6 +123,8 @@ bun run check:crypto     # classical-only crypto policy
 bun run check:doc-links  # relative links in the repo's Markdown resolve
 node --test scripts/package-scripts.test.mjs  # npm scripts point at files that exist
 node --test scripts/ci/gate.test.mjs scripts/ci/release-gate.test.mjs scripts/ci/assembly-workflow.test.mjs  # CI and release gate regressions
+python3 scripts/test-apt-dependency-plan.py && python3 scripts/test-apt-https-sources.py && python3 scripts/test-prefetch-tauri-bundler-tools.py  # dependency plan parser regressions
+python3 scripts/test-mcp-setup.py && python3 scripts/test-connect-cursor.py  # MCP setup and Cursor connect helpers
 bun run test:select      # affected-scope selector for the CI Linux shards (fails open to the full suite)
 bun run test:dispatch    # allowlist validation of workflow_dispatch inputs
 bun run test:freshness && bun run fresh:check  # generated release blocks (`bun run fresh:sync` rewrites them)
