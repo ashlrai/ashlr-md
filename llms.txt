@@ -23,76 +23,58 @@ codex mcp add ashlr-md -- "$(command -v mdopener-mcp)"
 python3 scripts/connect-cursor.py
 ```
 
+Repository links below are relative to https://github.com/ashlrai/ashlr-md/blob/main/, including in the copy served at md.ashlr.ai.
+
 ## Start
 
-- [README](https://github.com/ashlrai/ashlr-md/blob/main/README.md): what it is, the install command, the JSON commands, and the MCP snippets
-- [Copy-paste examples](https://github.com/ashlrai/ashlr-md/blob/main/docs/EXAMPLES.md): every command, including Windows
-- [Full agent guide](https://github.com/ashlrai/ashlr-md/blob/main/llms-full.txt): the same material in one file
-- [MCP tool contract](https://github.com/ashlrai/ashlr-md/blob/main/docs/AGENTS.md): every tool, in server order
-- [Install a release](https://github.com/ashlrai/ashlr-md/blob/main/docs/INSTALL.md): macOS, Windows, and Linux downloads
+- [README](README.md): what it is, the install command, the JSON commands, and the MCP snippets
+- [Copy-paste examples](docs/EXAMPLES.md): every command, including Windows
+- [Full agent guide](llms-full.txt): the same material in one file
+- [MCP tool contract](docs/AGENTS.md): every tool, in server order
+- [Install a release](docs/INSTALL.md): macOS, Windows, and Linux downloads
 
 ## CLI
 
-- [doctor --fix](https://github.com/ashlrai/ashlr-md/blob/main/docs/doctor-fix.md): `mdopener-mcp doctor --fix --json` previews repairs and writes nothing
-- [Handshake](https://github.com/ashlrai/ashlr-md/blob/main/docs/ashlr-handshake.md): `mdopener-mcp --ashlr-handshake --json`
-- [Local AI](https://github.com/ashlrai/ashlr-md/blob/main/docs/local-ai.md): `localInference`, offline mode, and base URL rules
-- [Phantom](https://github.com/ashlrai/ashlr-md/blob/main/docs/PHANTOM.md): how Phantom calls `mdopen`
+- [doctor --fix](docs/doctor-fix.md): `mdopener-mcp doctor --fix --json` previews repairs and writes nothing
+- [Handshake](docs/ashlr-handshake.md): `mdopener-mcp --ashlr-handshake --json`
+- [Local AI](docs/local-ai.md): `localInference`, offline mode, and base URL rules
+- [Phantom](docs/PHANTOM.md): how Phantom calls `mdopen`
+- [MCP discovery metadata](docs/mcp-registry.md): server registry metadata
 
 ## Ecosystem
 
-- [Part of Ashlr](https://github.com/ashlrai/ashlr-md/blob/main/README.md#part-of-ashlr): the mission and how Ashlr MD fits it
+- [Part of Ashlr](README.md#part-of-ashlr): the mission and how Ashlr MD fits it
 - [Phantom](https://github.com/ashlrai/phantom): `phm`, the agent workbench; it opens its inbox and digest in Ashlr MD
 - [Phantom Secrets](https://github.com/ashlrai/phantom-secrets): `phantom`, `phm_` placeholders for API keys
 - [Locus](https://github.com/ashlrai/locus): `locus`, one account per agent session
 - [Lexicon](https://lexicon.ashlr.ai): `lexicon`, dictation corrections
 - [Ashlr Stack](https://stack.ashlr.ai): `stack`, service provisioning
 - [ashlr-plugin](https://plugin.ashlr.ai/): token-efficiency tools
-- [How agents work on this repository](https://github.com/ashlrai/ashlr-md/blob/main/README.md#how-agents-work-on-this-repository): pull requests, required checks, and fixing `main` forward
 
-## Optional
+## Working on this repository
 
-- [Docs index](https://github.com/ashlrai/ashlr-md/blob/main/docs/README.md): the rest of the guides
-- [Vision](https://github.com/ashlrai/ashlr-md/blob/main/docs/VISION.md): the product goal
-- [Security](https://github.com/ashlrai/ashlr-md/blob/main/SECURITY.md): threat model
-- [Obsidian](https://github.com/ashlrai/ashlr-md/blob/main/docs/OBSIDIAN.md): vault notes, wikilinks, and the Open in Ashlr MD plugin
-- [Contributing](https://github.com/ashlrai/ashlr-md/blob/main/CONTRIBUTING.md): how to send a change
-
-## Product and plans
-
-- [README](README.md): project overview and agent setup.
-- [Vision](docs/VISION.md): the product goal.
-- [Roadmap](ROADMAP.md): planned work and the build loop.
-- [Changelog](CHANGELOG.md): user-visible changes.
-- [Install guide](docs/INSTALL.md): installation and command-line setup.
-
-## Agent integration
-
-- [Agent guide](docs/AGENTS.md): the MCP tool contract and CLI.
-- [Phantom integration](docs/PHANTOM.md): how Phantom opens Markdown.
-- [MCP discovery metadata](docs/mcp-registry.md): server registry metadata.
-- [Agent contribution rules](AGENTS.md): repository instructions for agents.
+- [How agents work on this repository](README.md#how-agents-work-on-this-repository): pull requests, required checks, and fixing `main` forward
+- [Agent contribution rules](AGENTS.md): repository instructions for agents
+- [Contributing](CONTRIBUTING.md): how to send a change, and the checks it must pass
+- [Vision](docs/VISION.md): the product goal and the goal loop
+- [Roadmap](ROADMAP.md): planned work and the build loop
 
 ## Editor and app integrations
 
-- [Obsidian compatibility](docs/OBSIDIAN.md): supported vault features.
-- [VS Code extension](integrations/vscode/README.md): open Markdown from VS Code.
-- [Obsidian plugin](integrations/obsidian/README.md): open notes from Obsidian.
-- [Raycast extension](integrations/raycast/README.md): open recent Markdown files.
+- [Obsidian compatibility](docs/OBSIDIAN.md): vault notes, wikilinks, and the Open in Ashlr MD plugin
+- [Obsidian plugin](integrations/obsidian/README.md): open notes from Obsidian
+- [VS Code extension](integrations/vscode/README.md): open Markdown from VS Code
+- [Raycast extension](integrations/raycast/README.md): open recent Markdown files
 
-## Contributing and security
+## Optional
 
-- [Contributing](CONTRIBUTING.md): development and checks.
-- [Security policy](SECURITY.md): vulnerability reporting and threat model.
-- [Release process](docs/RELEASING.md): release runbook.
-- [Post-quantum readiness](docs/PQ-READINESS.md): cryptography inventory and migration considerations.
-
-## Samples
-
-- [Showcase](samples/showcase.md): supported Markdown features.
-- [Agent plan sample](samples/agent-plan.md): an example agent plan.
-
-## More resources
-
-- [Landing page readme](landing/README.md): landing page development.
-- [Historical Linux probe](docs/NATIVE-QA-PROPOSAL.md): a bounded historical qualification proposal.
-- [Historical Windows qualification](docs/WINDOWS-NATIVE-QA.md): a bounded historical qualification proposal.
+- [Docs index](docs/README.md): the rest of the guides
+- [Changelog](CHANGELOG.md): user-visible changes
+- [Security](SECURITY.md): vulnerability reporting and threat model
+- [Release process](docs/RELEASING.md): release runbook
+- [Post-quantum readiness](docs/PQ-READINESS.md): cryptography inventory and migration considerations
+- [Showcase](samples/showcase.md): supported Markdown features
+- [Agent plan sample](samples/agent-plan.md): an example agent plan
+- [Landing page readme](landing/README.md): landing page development
+- [Historical Linux probe](docs/NATIVE-QA-PROPOSAL.md): a bounded historical qualification proposal
+- [Historical Windows qualification](docs/WINDOWS-NATIVE-QA.md): a bounded historical qualification proposal
