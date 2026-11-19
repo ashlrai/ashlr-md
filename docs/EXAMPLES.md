@@ -51,7 +51,7 @@ What you get back:
 
 To resume a pending review, pass the returned `reviewId` as the `review_id` input to `request_review`; see [the review loop](./AGENTS.md#human-review-loop).
 
-`mdopener-mcp doctor --apply` without `--fix` is refused and exits 2. Repair rules and the full `doctor --fix --json` shape: [doctor-fix.md](./doctor-fix.md). Handshake fields: [ashlr-handshake.md](./ashlr-handshake.md).
+`doctor` and `setup --local` exit 0 whatever they find, so read the JSON, not the exit code. Their fields: [local-ai.md](./local-ai.md#json-output). `mdopener-mcp doctor --apply` without `--fix` is refused and exits 2. Repair rules and the full `doctor --fix --json` shape: [doctor-fix.md](./doctor-fix.md). Handshake fields: [ashlr-handshake.md](./ashlr-handshake.md).
 
 ## Open a file
 
