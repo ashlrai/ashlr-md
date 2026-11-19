@@ -112,6 +112,7 @@ CLI and the MCP tool contract.
 - [Node.js](https://nodejs.org): `scripts/ci-local.sh` classifies the diff with
   `node scripts/ci/select.mjs`, and many gates run under `node --test`
 - Python 3: `scripts/check-docs.py` and the dependency plan parser tests.
+  The release assembly validator tests need Python 3.11 or later (`tomllib`).
   `scripts/test-mcp-setup.py` also compiles small test programs with `rustc`
 - Perl: the secret-shape scan (`.github/tests/secret-shape/scrub.pl`)
 - macOS: Xcode Command Line Tools (`xcode-select --install`)
@@ -176,6 +177,9 @@ node --test scripts/check-readme-parity.test.mjs && node scripts/check-readme-pa
 cargo check --workspace --manifest-path src-tauri/Cargo.toml
 cargo clippy --workspace --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 cargo test --workspace   --manifest-path src-tauri/Cargo.toml   # Rust unit tests
+python3 scripts/test-release-provenance.py && python3 scripts/test-prepare-release-assembly.py && python3 scripts/test-release-archive.py && python3 scripts/test-assemble-updater.py  # release assembly validator (Python 3.11+)
+cargo test --locked --manifest-path scripts/release-signature-check/Cargo.toml  # release signature checker
+python3 scripts/test-publish-verified-release.py  # release publisher (no CI job runs it)
 bunx vite build          # production frontend build
 HOME=$(mktemp -d) bun run bench:render  # render benchmark (see bench/README.md); not part of CI
 bun audit                # known-vuln JS deps (advisory)
@@ -186,12 +190,13 @@ Run `bunx biome check --write src` to auto-fix formatting and imports.
 
 The pull request check runs only the fast job's subset of this list (listed
 at the end of this section), and the full suites after merge add the whole
-Vitest suite, the Rust checks and the production build. No workflow runs the
+Vitest suite, the Rust checks, the release assembly validator tests and the
+production build. No workflow runs the
 rest, so a regression in them merges unnoticed unless you run them: the
 `scripts/llms-txt.test.mjs` half of `bun run test`, `test:select`,
 `test:conflicts`, `test:dispatch`, the freshness and doclive lines,
-`check-docs.py`, the README parity check, the two MCP setup helper tests, and
-the repo guards on the second `node --test` line. `ci-local.sh` covers
+`check-docs.py`, the README parity check, the two MCP setup helper tests, the
+release publisher test, and the repo guards on the second `node --test` line. `ci-local.sh` covers
 `test:select` and `test:conflicts`. Run the others when you touch what they
 check.
 
@@ -238,7 +243,9 @@ check. It passes only when these jobs in `.github/workflows/ci.yml` succeed:
 
 The same check runs again in the merge queue. The full Linux and macOS suites
 run after merge on `main` and daily, so run the suites above for anything
-beyond a docs change.
+beyond a docs change. If you touch a release script in `scripts/` (the
+`*release*` files, `assemble-updater.py` or `release-signature-check/`), run
+the three release lines too; no pull request job runs them.
 
 ## DeepWiki documentation
 
