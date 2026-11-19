@@ -53,7 +53,16 @@ CLI and the MCP tool contract.
 
    For a docs-only change, `bun run check:doc-links` and `bun run doclive:check`
    cover links and doc claims. After editing `docs/AGENTS.md`, also run
-   `python3 scripts/check-docs.py`.
+   `python3 scripts/check-docs.py`. After editing `llms.txt` or
+   `llms-full.txt`, copy it over the deployed copy in `landing/` and run the
+   llms.txt test. The `landing/` copies are what the website serves, and no CI
+   job runs this test (only `bun run test` does), so a stale copy would merge
+   unnoticed:
+
+   ```bash
+   cp llms.txt llms-full.txt landing/
+   node --test scripts/llms-txt.test.mjs
+   ```
 
    `ci-local.sh` does not run the two diff secret scans, and both block the
    required check. Run the secret-shape scan the way CI does; it prints only a

@@ -63,5 +63,9 @@ Agents are first-class users of Ashlr MD.
 - After moving or renaming docs or headings, run `bun run check:doc-links`:
   it fails on any relative link or `#anchor` in the repository's Markdown that
   points nowhere (`--external` also probes remote URLs).
+- After editing `llms.txt` or `llms-full.txt`, run `cp llms.txt llms-full.txt landing/`
+  and `node --test scripts/llms-txt.test.mjs`. The website serves the
+  `landing/` copies, and no CI job runs that test, so a stale copy would merge
+  unnoticed.
 
 <!-- doclive: symbol src-tauri/bins/mdopener-mcp/src/lib.rs#tool_registry -->
