@@ -296,9 +296,9 @@ with `cargo run --manifest-path src-tauri/Cargo.toml -p mdopener-mcp -- <args>`
 if the sidecar has not been installed.
 
 ```bash
-mdopener-mcp --version
-mdopener-mcp --help
-mdopener-mcp --export-tool-schema
+mdopener-mcp --version [--json]
+mdopener-mcp --help [--json]
+mdopener-mcp --export-tool-schema [--json]
 mdopener-mcp --ashlr-handshake [--json]
 mdopener-mcp doctor [--json]
 mdopener-mcp doctor --fix [--apply] [--json]
