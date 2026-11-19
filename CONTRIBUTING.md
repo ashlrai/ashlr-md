@@ -143,6 +143,7 @@ bun run test:unit        # fast lane CI runs first: punctuation, CLI build setup
 bun run check:crypto     # classical-only crypto policy
 bun run check:doc-links  # relative links in the repo's Markdown resolve
 node --test scripts/package-scripts.test.mjs  # npm scripts point at files that exist
+node --test scripts/package-script-paths.test.mjs scripts/ignore-scripts.test.mjs scripts/patched-deps.test.mjs scripts/tauri-plugins-sync.test.mjs scripts/sonar-q9.test.mjs scripts/updater-tmpdir.test.mjs  # repo guards no CI job runs
 node --test scripts/ci/gate.test.mjs scripts/ci/release-gate.test.mjs scripts/ci/assembly-workflow.test.mjs  # CI and release gate regressions
 python3 scripts/test-apt-dependency-plan.py && python3 scripts/test-apt-https-sources.py && python3 scripts/test-prefetch-tauri-bundler-tools.py  # dependency plan parser regressions
 python3 scripts/test-mcp-setup.py && python3 scripts/test-connect-cursor.py  # MCP setup and Cursor connect helpers
@@ -164,6 +165,30 @@ cargo audit              # known-vuln Rust deps (advisory; cargo install cargo-a
 ```
 
 Run `bunx biome check --write src` to auto-fix formatting and imports.
+
+No workflow runs the repo guards on the second `node --test` line, so run
+them when you touch what they check:
+
+- `package-script-paths.test.mjs`: every `scripts/*.mjs` path in a
+  `package.json` script exists.
+- `ignore-scripts.test.mjs`: each `bun`, `npm`, `pnpm` or `yarn install` in
+  `scripts/install.sh` and `scripts/generate-icons.sh` passes
+  `--ignore-scripts`, or the line above it is an
+  `# ignore-scripts exception: <reason>` comment.
+- `patched-deps.test.mjs`: every `patchedDependencies` entry in
+  `package.json` points at a patch file that exists and starts with
+  `diff --git`.
+- `tauri-plugins-sync.test.mjs`: every `@tauri-apps/plugin-*` dependency has a
+  matching `tauri-plugin-*` line in `src-tauri/Cargo.toml`.
+- `sonar-q9.test.mjs`: ordering and hunk-matching edge cases in
+  `scripts/ci/select.mjs` and `scripts/resolve-conflicts.mjs`.
+- `updater-tmpdir.test.mjs`: `scripts/test-assemble-updater.py` does not
+  hard-code a `/tmp/` path.
+
+`scripts/fast-check.sh` is a quicker pre-push pass: typecheck, `bun run lint`,
+`bun run check:workflow-bash`, then `node --test` on every `*.test.mjs`,
+`*.test.cjs` or `*.test.js` file changed against `origin/main`, including
+untracked ones. It prints PASS or FAIL per step and the total time.
 
 After adding, renaming or removing a test in `src/lib/mdlint-autofix.test.ts`,
 run `bun run docs:fixtures` to regenerate
