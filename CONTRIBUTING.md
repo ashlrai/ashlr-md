@@ -24,8 +24,8 @@ agent, or are a fleet agent. Point your agent at [`AGENTS.md`](./AGENTS.md)
 and [`llms.txt`](./llms.txt) first: they index the docs, the `mdopen --json`
 CLI and the MCP tool contract.
 
-1. Fork `ashlrai/ashlr-md`, clone your fork, add the upstream remote and
-   branch from `main`:
+1. Install the [prerequisites](#prerequisites). Fork `ashlrai/ashlr-md`,
+   clone your fork, add the upstream remote and branch from `main`:
 
    ```bash
    git clone https://github.com/<your-user>/ashlr-md.git
@@ -84,8 +84,20 @@ CLI and the MCP tool contract.
 ## Prerequisites
 
 - [Rust](https://rustup.rs) (stable)
-- [Bun](https://bun.sh)
-- Xcode Command Line Tools (macOS)
+- [Bun](https://bun.sh) (CI pins 1.3.14)
+- [Node.js](https://nodejs.org): `scripts/ci-local.sh` classifies the diff with
+  `node scripts/ci/select.mjs`, and many gates run under `node --test`
+- Python 3: `scripts/check-docs.py` and the dependency plan parser tests
+- Perl: the secret-shape scan (`.github/tests/secret-shape/scrub.pl`)
+- macOS: Xcode Command Line Tools (`xcode-select --install`)
+- Windows: the MSVC build tools
+- Linux: a C toolchain and the
+  [Tauri Linux packages](https://tauri.app/start/prerequisites/#linux)
+
+`scripts/ci-local.sh` is a Bash script. For a docs-only change, Bun, Node.js,
+Python 3 and Perl cover the checks in step 3 of
+[Contribute with an agent](#contribute-with-an-agent). Rust and the platform
+toolchain are needed to build the app or change Rust code.
 
 ## Develop
 
