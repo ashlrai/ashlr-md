@@ -37,6 +37,8 @@ Released 2026-06-06. [Release notes and downloads](https://github.com/ashlrai/as
 - Applying a diff hunk with an empty `find` to an empty document now inserts the replacement text instead of failing to match.
 
 ### Changed
+- `mdopener-mcp --help` lists `[--json]` on `--version`, `--help` and `--export-tool-schema`, matching what the binary accepts and `docs/AGENTS.md`; `scripts/check-docs.py` passes again.
+- The pull request template and issue chooser point to "Contribute with an agent" in `CONTRIBUTING.md`, ask for `scripts/ci-local.sh` and the doc checks, and say the issue chooser describes Ashlr MD rather than MD Opener.
 - The keyboard shortcut tables in the README, `docs/SHORTCUTS.md` and the landing page list macOS modifiers in the order the app shows them (`⇧⌘L`, `⌥⌘F`), and the doc facts test now checks that order and the README's own table.
 - `native-qa-windows.yml` also triggers on pushes to `main` and published releases, with `permissions: {}` at workflow level and job-only `contents: read` and `actions: read`.
 - `src-tauri/Cargo.lock` is refreshed to current dependency resolutions (Tauri 2 build and utils crates); no application code or version changed.
