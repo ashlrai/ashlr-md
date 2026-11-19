@@ -271,7 +271,7 @@ That command only previews the repairs. Add `--apply` to make them.
 
 ## Develop
 
-Prerequisites: [Rust](https://rustup.rs) and [Bun](https://bun.sh). macOS also needs Xcode Command Line Tools (`xcode-select --install`). Windows needs the MSVC build tools. Linux needs a C toolchain and the [Tauri Linux packages](https://tauri.app/start/prerequisites/#linux).
+Prerequisites: [Rust](https://rustup.rs) and [Bun](https://bun.sh) build the app. macOS also needs Xcode Command Line Tools (`xcode-select --install`). Windows needs the MSVC build tools. Linux needs a C toolchain and the [Tauri Linux packages](https://tauri.app/start/prerequisites/#linux). The checks below also need [Node.js](https://nodejs.org) and Python 3, and the secret-shape scan needs Perl. The full list is in [CONTRIBUTING.md](./CONTRIBUTING.md#prerequisites).
 
 ```bash
 bun install

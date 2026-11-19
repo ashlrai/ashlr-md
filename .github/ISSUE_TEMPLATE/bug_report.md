@@ -21,8 +21,9 @@ Paste a minimal Markdown snippet that triggers it.
 
 **Environment**
 - Ashlr MD version:
-- macOS version:
-- Apple Silicon or Intel:
+- OS and version (macOS, Windows or Linux):
+- CPU (Apple Silicon, Intel or other x86_64, Arm):
+- Installed from (release download or built from source):
 - AI provider in use (Apple FM / Ollama / BYO key / none):
 
 **Screenshots / logs**
