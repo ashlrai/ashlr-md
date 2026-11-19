@@ -43,7 +43,8 @@ Agents are first-class users of Ashlr MD.
 
 ## Before you push
 - Run `scripts/ci-local.sh [base-ref]` (default `origin/main`; pass `upstream/main`
-  from a fork). It runs the gates your diff needs, using the selector CI uses.
+  from a fork). It classifies the diff with `scripts/ci/select.mjs` and runs the
+  JS and Rust gates it needs.
 - `Check (Linux)` is the one required pull request check; once it is green,
   auto-merge and the merge queue land the change.
 - The full walkthrough, for agents and people alike, is

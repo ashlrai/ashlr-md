@@ -44,8 +44,8 @@ CLI and the MCP tool contract.
    scripts/ci-local.sh upstream/main
    ```
 
-   It classifies the diff with `scripts/ci/select.mjs`, the selector CI uses.
-   It always runs typecheck, Biome, the crypto policy, version sync, doc links
+   It classifies the diff with `scripts/ci/select.mjs`, which maps changed
+   paths to the JS and Rust gates. It always runs typecheck, Biome, the crypto policy, version sync, doc links
    and the conflict and selector tests; it adds Vitest on changed files when
    the frontend changed, and `cargo clippy` plus `cargo test` on the affected
    crates when Rust changed. The default base is `origin/main`, which in a
@@ -125,7 +125,7 @@ node --test scripts/package-scripts.test.mjs  # npm scripts point at files that 
 node --test scripts/ci/gate.test.mjs scripts/ci/release-gate.test.mjs scripts/ci/assembly-workflow.test.mjs  # CI and release gate regressions
 python3 scripts/test-apt-dependency-plan.py && python3 scripts/test-apt-https-sources.py && python3 scripts/test-prefetch-tauri-bundler-tools.py  # dependency plan parser regressions
 python3 scripts/test-mcp-setup.py && python3 scripts/test-connect-cursor.py  # MCP setup and Cursor connect helpers
-bun run test:select      # affected-scope selector for the CI Linux shards (fails open to the full suite)
+bun run test:select      # tests for scripts/ci/select.mjs, the diff classifier ci-local.sh uses (fails open to every gate)
 bun run test:dispatch    # allowlist validation of workflow_dispatch inputs
 bun run test:freshness && bun run fresh:check  # generated release blocks (`bun run fresh:sync` rewrites them)
 bun run test:doclive && bun run doclive:check  # doc claims vs code + generated docs blocks (`bun run doclive:sync` rewrites them)
