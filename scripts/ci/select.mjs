@@ -1,12 +1,13 @@
 #!/usr/bin/env node
-// Affected-scope selector for the CI Linux shards. Emits GITHUB_OUTPUT-style
-// key=value lines: mode, js, js_base, rust, rust_args. The ci.yml `select` job
-// appends stdout to $GITHUB_OUTPUT; the `linux-shard` matrix consumes it.
+// Affected-scope selector. Emits GITHUB_OUTPUT-style key=value lines: mode,
+// js, js_base, rust, rust_args. scripts/ci-local.sh is its only caller today;
+// ci.yml does not run it. The unapplied scripts/ci/ci-shards.patch would add a
+// `select` job that appends stdout to $GITHUB_OUTPUT for a `linux-shard` matrix.
 //
 // Fail-open to the full suite, never to an empty one: any event that is not a
 // pull_request, any .github/** change, an empty or unavailable diff and any
-// selection error all select everything (merge_group and the daily run always
-// get the same test count as before). Path classification mirrors the rules
+// selection error all select everything (a merge_group or scheduled event
+// always gets the full suite). Path classification mirrors the rules
 // scripts/ci-local.sh used to inline; keep ci-local.sh calling this script so
 // the two never drift.
 import { execFileSync } from 'node:child_process';

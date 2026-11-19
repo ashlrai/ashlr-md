@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
-# ci-local: run what the merge queue will run for your change, before pushing.
+# ci-local: run the gates your change needs, before pushing.
 # Usage: scripts/ci-local.sh [base-ref]   (default origin/main)
-# Scope comes from scripts/ci/select.mjs — the same selector the CI `select`
-# job uses — so local and CI classification can never drift. JS gates and Rust
+# Scope comes from scripts/ci/select.mjs. ci.yml does not call the selector
+# today (the required check runs its own fixed fast job); the unapplied
+# scripts/ci/ci-shards.patch would add a `select` job that reuses it, so keep
+# classification in select.mjs rather than inlining it here. JS gates and Rust
 # checks run in parallel; target < 2 min on a warm machine.
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
