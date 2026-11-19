@@ -444,7 +444,7 @@ be in `TAURI_SIGNING_PRIVATE_KEY` before the first real release.
 The canonical icon source is `src-tauri/icons/icon.svg`.
 
 ```bash
-bun install            # if not already installed
+bun install --frozen-lockfile   # if not already installed
 ./scripts/generate-icons.sh
 git add src-tauri/icons/
 git commit -m "chore: regenerate app icons"
