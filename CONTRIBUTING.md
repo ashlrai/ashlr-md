@@ -111,7 +111,8 @@ CLI and the MCP tool contract.
 - [Bun](https://bun.sh) (CI pins 1.3.14)
 - [Node.js](https://nodejs.org): `scripts/ci-local.sh` classifies the diff with
   `node scripts/ci/select.mjs`, and many gates run under `node --test`
-- Python 3: `scripts/check-docs.py` and the dependency plan parser tests
+- Python 3: `scripts/check-docs.py` and the dependency plan parser tests.
+  `scripts/test-mcp-setup.py` also compiles small test programs with `rustc`
 - Perl: the secret-shape scan (`.github/tests/secret-shape/scrub.pl`)
 - macOS: Xcode Command Line Tools (`xcode-select --install`)
 - Windows: the MSVC build tools
@@ -121,7 +122,8 @@ CLI and the MCP tool contract.
 `scripts/ci-local.sh` is a Bash script. For a docs-only change, Bun, Node.js,
 Python 3 and Perl cover the checks in step 3 of
 [Contribute with an agent](#contribute-with-an-agent). Rust and the platform
-toolchain are needed to build the app or change Rust code.
+toolchain are needed to build the app, change Rust code, or run
+`scripts/test-mcp-setup.py`.
 
 ## Develop
 
@@ -214,7 +216,10 @@ The repo guards check:
 `scripts/fast-check.sh` is a quicker pre-push pass: typecheck, `bun run lint`,
 `bun run check:workflow-bash`, then `node --test` on every `*.test.mjs`,
 `*.test.cjs` or `*.test.js` file changed against `origin/main`, including
-untracked ones. It prints PASS or FAIL per step and the total time.
+untracked ones (it skips `scripts/fast-check.test.mjs`, which runs
+`fast-check.sh` itself). It prints PASS or FAIL per step and the total time.
+It takes no base argument, so in a fork clone it compares against your fork's
+`main`; sync that with upstream first, or use `scripts/ci-local.sh upstream/main`.
 
 After adding, renaming or removing a test in `src/lib/mdlint-autofix.test.ts`,
 run `bun run docs:fixtures` to regenerate
