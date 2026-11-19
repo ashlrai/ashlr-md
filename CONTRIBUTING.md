@@ -133,7 +133,7 @@ toolchain are needed to build the app, change Rust code, or run
 ## Develop
 
 ```bash
-bun install
+bun install --frozen-lockfile
 bun run tauri dev        # hot-reloading desktop app
 ```
 
