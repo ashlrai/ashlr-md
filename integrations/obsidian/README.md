@@ -126,7 +126,8 @@ Agents maintain this plugin with the rest of the repository. Phantom
 (`phm improve`) and other coding agents open pull requests and merge them once
 the required checks pass, under the rules in [AGENTS.md](https://github.com/ashlrai/ashlr-md/blob/main/AGENTS.md) and
 the checks in [CONTRIBUTING.md](https://github.com/ashlrai/ashlr-md/blob/main/CONTRIBUTING.md#quality-gates-all-must-pass).
-People contribute the same way.
+People contribute the same way: see
+[Contribute with an agent](https://github.com/ashlrai/ashlr-md/blob/main/CONTRIBUTING.md#contribute-with-an-agent).
 
 ---
 
