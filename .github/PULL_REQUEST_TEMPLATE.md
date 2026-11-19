@@ -12,7 +12,7 @@ Briefly: what does this change and why? One concern per pull request.
 - [ ] `scripts/ci-local.sh` passes (from a fork clone: `scripts/ci-local.sh upstream/main`)
 - [ ] No secrets committed (both diff secret scans fail closed)
 - [ ] UI change: verified in the real app (`bun run tauri dev`) in all three themes (Paper / Sepia / Midnight)
-- [ ] Docs change: `bun run check:doc-links` and `bun run doclive:check` pass; after editing `docs/AGENTS.md`, `python3 scripts/check-docs.py` passes
+- [ ] Docs change: `bun run check:doc-links` and `bun run doclive:check` pass; after editing `docs/AGENTS.md`, `python3 scripts/check-docs.py` passes; after editing `llms.txt` or `llms-full.txt`, the copies in `landing/` match and `node --test scripts/llms-txt.test.mjs` passes
 - [ ] No GPL added to the bundled dependency tree
 - [ ] Nothing leaves the device without explicit user action
 
