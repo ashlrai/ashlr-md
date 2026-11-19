@@ -2,7 +2,10 @@ blank_issues_enabled: true
 contact_links:
   - name: Website
     url: https://md.ashlr.ai
-    about: See what MD Opener does.
+    about: See what Ashlr MD does.
+  - name: Contribute with an agent
+    url: https://github.com/ashlrai/ashlr-md/blob/main/CONTRIBUTING.md#contribute-with-an-agent
+    about: Send the fix yourself, typed or agent-driven, through the same path the fleet uses.
   - name: Vision & roadmap
     url: https://github.com/ashlrai/ashlr-md/blob/main/ROADMAP.md
     about: Where the project is headed and how to shape it.
