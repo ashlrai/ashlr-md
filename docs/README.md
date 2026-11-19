@@ -13,6 +13,9 @@ Agents start at [llms.txt](../llms.txt). The long form is [llms-full.txt](../llm
 | [ashlr-handshake.md](./ashlr-handshake.md) | You are calling `--ashlr-handshake` |
 | [PHANTOM.md](./PHANTOM.md) | Phantom is opening Markdown through `mdopen` |
 | [OBSIDIAN.md](./OBSIDIAN.md) | You are opening a vault note |
+| [Obsidian plugin](../integrations/obsidian/README.md) | You are building or installing the Open in Ashlr MD plugin |
+| [VS Code extension](../integrations/vscode/README.md) | You want to open the active Markdown file from VS Code |
+| [Raycast extension](../integrations/raycast/README.md) | You want to open a recently modified Markdown file from Raycast on macOS |
 | [mcp-registry.md](./mcp-registry.md) | You are publishing the MCP server |
 | [SECURITY.md](../SECURITY.md) | You want the threat model |
 | [VISION.md](./VISION.md) | You want the product goal |

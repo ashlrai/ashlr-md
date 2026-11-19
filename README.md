@@ -301,6 +301,8 @@ cd src-tauri/bins/mdopener-afm && ./build.sh
 | `src/` | React 19 frontend: renderer, editors, AI sidebar, export |
 | `src-tauri/src/` | Rust core: files, watcher, deep links, AI proxy, loopback IPC |
 | `src-tauri/bins/` | `mdopen`, `mdopener-mcp`, and the macOS Swift sidecars (`mdopener-afm`, `mdopener-setdefault`) |
+| `integrations/` | Editor companions that open a file in Ashlr MD: the [Obsidian plugin](./integrations/obsidian/), [VS Code extension](./integrations/vscode/), and [Raycast extension](./integrations/raycast/) |
+| `packaging/` | Homebrew, winget, and AUR package definitions. None is published yet ([docs/INSTALL.md](./docs/INSTALL.md)) |
 | `landing/` | The marketing site |
 
 Product goal: [docs/VISION.md](./docs/VISION.md). Releases: [docs/RELEASING.md](./docs/RELEASING.md).

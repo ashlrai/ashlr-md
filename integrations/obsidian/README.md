@@ -113,6 +113,23 @@ integrations/obsidian/
 
 ---
 
+## Part of Ashlr
+
+Phantom and its ecosystem form a fully autonomous, code-first, agent-native
+software factory, run by agents with the human as a passive board member,
+chasing open source RSI (recursive self improvement). Ashlr MD is the
+factory's Markdown surface: where an agent hands a document to a person.
+This plugin sends an Obsidian note there. The other tools are listed in
+[Part of Ashlr](https://github.com/ashlrai/ashlr-md/blob/main/README.md#part-of-ashlr).
+
+Agents maintain this plugin with the rest of the repository. Phantom
+(`phm improve`) and other coding agents open pull requests and merge them once
+the required checks pass, under the rules in [AGENTS.md](https://github.com/ashlrai/ashlr-md/blob/main/AGENTS.md) and
+the checks in [CONTRIBUTING.md](https://github.com/ashlrai/ashlr-md/blob/main/CONTRIBUTING.md#quality-gates-all-must-pass).
+People contribute the same way.
+
+---
+
 ## License
 
 MIT. Part of the [Ashlr MD](https://github.com/ashlrai/ashlr-md) project.
