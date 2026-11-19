@@ -41,6 +41,14 @@ Agents are first-class users of Ashlr MD.
 - Never commit secrets. Use Phantom Secrets placeholders.
 - Never force-push to the default branch.
 
+## Before you push
+- Run `scripts/ci-local.sh [base-ref]` (default `origin/main`; pass `upstream/main`
+  from a fork). It runs the gates your diff needs, using the selector CI uses.
+- `Check (Linux)` is the one required pull request check; once it is green,
+  auto-merge and the merge queue land the change.
+- The full walkthrough, for agents and people alike, is
+  [Contribute with an agent](CONTRIBUTING.md#contribute-with-an-agent).
+
 ## Documentation freshness
 - The user-facing agent guide is [docs/AGENTS.md](docs/AGENTS.md).
 - MCP tool names and order come from `tool_registry()` in
