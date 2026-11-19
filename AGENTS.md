@@ -48,6 +48,9 @@ Agents are first-class users of Ashlr MD.
 - `ci-local.sh` does not run the two diff secret scans (Gitleaks and the
   secret-shape scan), and both block the required check. Run them locally as
   shown in [Contribute with an agent](CONTRIBUTING.md#contribute-with-an-agent).
+- It also skips five fast-job steps of the required check, including
+  `bun run test:unit`, whose punctuation test rejects em and en dashes in the
+  Markdown docs. The walkthrough lists all five commands.
 - `Check (Linux)` is the one required pull request check; once it is green,
   auto-merge and the merge queue land the change.
 - The full walkthrough, for agents and people alike, is
