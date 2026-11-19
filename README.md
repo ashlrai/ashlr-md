@@ -330,7 +330,7 @@ Agents maintain Ashlr MD. Phantom (`phm improve`) and other coding agents open p
 
 ## Contributing
 
-See [CONTRIBUTING.md](./CONTRIBUTING.md). Before you push, `scripts/ci-local.sh` runs the gates your diff needs; from a fork clone, pass the upstream main branch as its base ref. `Check (Linux)` is the one required check, and a green pull request merges through auto-merge and the merge queue. Local-first, no GPL in the bundle, and verify in the running app. Security reports: [SECURITY.md](./SECURITY.md). Roadmap: [ROADMAP.md](./ROADMAP.md).
+See [CONTRIBUTING.md](./CONTRIBUTING.md). Point your coding agent at [AGENTS.md](./AGENTS.md) and [llms.txt](./llms.txt) first. Before you push, `scripts/ci-local.sh` runs the gates your diff needs; from a fork clone, pass the upstream main branch as its base ref. It does not run the two diff secret scans or five steps of the required check's fast job, among them `bun run test:unit`, whose punctuation test fails on an em or en dash even in Markdown docs. [Contribute with an agent](./CONTRIBUTING.md#contribute-with-an-agent) lists those commands. `Check (Linux)` is the one required check, and a green pull request merges through auto-merge and the merge queue; on a fork pull request a maintainer or fleet agent arms auto-merge for you. Local-first, no GPL in the bundle, and verify in the running app. Security reports: [SECURITY.md](./SECURITY.md). Roadmap: [ROADMAP.md](./ROADMAP.md).
 
 ## License
 
