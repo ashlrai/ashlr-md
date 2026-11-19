@@ -17,6 +17,57 @@ agents open pull requests, merge them once the required checks pass, and fix
 the same path: a pull request that passes the
 [quality gates](#quality-gates-all-must-pass) below.
 
+## Contribute with an agent
+
+The path is the same whether you type the change yourself, drive a coding
+agent, or are a fleet agent. Point your agent at [`AGENTS.md`](./AGENTS.md)
+and [`llms.txt`](./llms.txt) first: they index the docs, the `mdopen --json`
+CLI and the MCP tool contract.
+
+1. Fork `ashlrai/ashlr-md`, clone your fork, add the upstream remote and
+   branch from `main`:
+
+   ```bash
+   git clone https://github.com/<your-user>/ashlr-md.git
+   cd ashlr-md
+   git remote add upstream https://github.com/ashlrai/ashlr-md.git
+   git fetch upstream
+   git switch -c my-change upstream/main
+   bun install
+   ```
+
+2. Make one change per pull request and keep the diff small. Never commit
+   secrets: both diff secret scans fail closed.
+3. Run the gates your change needs before pushing:
+
+   ```bash
+   scripts/ci-local.sh upstream/main
+   ```
+
+   It classifies the diff with `scripts/ci/select.mjs`, the selector CI uses.
+   It always runs typecheck, Biome, the crypto policy, version sync, doc links
+   and the conflict and selector tests; it adds Vitest on changed files when
+   the frontend changed, and `cargo clippy` plus `cargo test` on the affected
+   crates when Rust changed. The default base is `origin/main`, which in a
+   fork clone is your fork, so pass `upstream/main`.
+
+   For a docs-only change, `bun run check:doc-links` and `bun run doclive:check`
+   cover links and doc claims. After editing `docs/AGENTS.md`, also run
+   `python3 scripts/check-docs.py`.
+
+4. Push the branch to your fork and open a pull request against `main`.
+   Fill in the template.
+5. `Check (Linux)` is the one required check (see
+   [what it runs](#quality-gates-all-must-pass)). Once it is green the pull
+   request merges through GitHub auto-merge (`gh pr merge --auto`) and the
+   merge queue. GitHub lets only accounts with write access arm auto-merge, so
+   on a fork pull request a maintainer or fleet agent arms it for you. Paths
+   listed in [`.github/CODEOWNERS`](./.github/CODEOWNERS) (CI workflows,
+   the secret-shape fixtures and the Rust files that make network or loopback
+   requests) have a named owner, so expect a review there.
+6. After merge the full Linux and macOS suites run on `main`. If `main` goes
+   red, it is fixed forward with a new pull request, never by force-pushing.
+
 ## Prerequisites
 
 - [Rust](https://rustup.rs) (stable)
@@ -85,10 +136,17 @@ The index is a lookup aid, so no test fails while it lags the test file.
 
 `scripts/ci-local.sh [base-ref]` runs the gates your change needs (JS, Rust or
 both) before you push. On a pull request, `Check (Linux)` is the one required
-check: it runs typecheck, Biome, `bun run test:unit`, the crypto policy and a
-diff secret scan. The
-full Linux and macOS suites run after merge on `main` and daily, so run the
-suites above for anything beyond a docs change.
+check. It passes only when these jobs in `.github/workflows/ci.yml` succeed:
+
+- the fast job: typecheck, Biome, the CI gate regression tests, the dependency
+  plan parser tests, `bun run test:unit`, npm script paths, doc links, version
+  sync, workflow run-block syntax and the crypto policy (`bun audit` runs too,
+  but does not block);
+- two diff secret scans: Gitleaks and the secret-shape scan.
+
+The same check runs again in the merge queue. The full Linux and macOS suites
+run after merge on `main` and daily, so run the suites above for anything
+beyond a docs change.
 
 ## DeepWiki documentation
 
