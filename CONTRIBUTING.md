@@ -163,6 +163,7 @@ node --test scripts/ci/gate.test.mjs scripts/ci/release-gate.test.mjs scripts/ci
 python3 scripts/test-apt-dependency-plan.py && python3 scripts/test-apt-https-sources.py && python3 scripts/test-prefetch-tauri-bundler-tools.py  # dependency plan parser regressions
 python3 scripts/test-mcp-setup.py && python3 scripts/test-connect-cursor.py  # MCP setup and Cursor connect helpers
 bun run test:select      # tests for scripts/ci/select.mjs, the diff classifier ci-local.sh uses (fails open to every gate)
+bun run test:conflicts   # fixture-rebase tests for scripts/resolve-conflicts.mjs
 bun run test:dispatch    # allowlist validation of workflow_dispatch inputs
 bun run test:freshness && bun run fresh:check  # generated release blocks (`bun run fresh:sync` rewrites them)
 bun run test:doclive && bun run doclive:check  # doc claims vs code + generated docs blocks (`bun run doclive:sync` rewrites them)
@@ -181,8 +182,18 @@ cargo audit              # known-vuln Rust deps (advisory; cargo install cargo-a
 
 Run `bunx biome check --write src` to auto-fix formatting and imports.
 
-No workflow runs the repo guards on the second `node --test` line, so run
-them when you touch what they check:
+The pull request check runs only the fast job's subset of this list (listed
+at the end of this section), and the full suites after merge add the whole
+Vitest suite, the Rust checks and the production build. No workflow runs the
+rest, so a regression in them merges unnoticed unless you run them: the
+`scripts/llms-txt.test.mjs` half of `bun run test`, `test:select`,
+`test:conflicts`, `test:dispatch`, the freshness and doclive lines,
+`check-docs.py`, the README parity check, the two MCP setup helper tests, and
+the repo guards on the second `node --test` line. `ci-local.sh` covers
+`test:select` and `test:conflicts`. Run the others when you touch what they
+check.
+
+The repo guards check:
 
 - `package-script-paths.test.mjs`: every `scripts/*.mjs` path in a
   `package.json` script exists.
