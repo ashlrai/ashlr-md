@@ -252,29 +252,37 @@ maintained guides remain authoritative.
 
 ## Resolving merge conflicts
 
-Some files churn on every PR and are resolved mechanically, never by hand:
+Some files churn on every PR and are resolved mechanically, never by hand.
+The rules match by file name, so they apply at any depth. "Main's version"
+below assumes a rebase onto `main`, the usual flow; during a `git merge`,
+"ours" is your current branch instead.
 
-- `CHANGELOG.md` (any depth) is union-merged via `.gitattributes`
-  (`merge=union`): both sides' entries survive. Note GitHub's server-side
-  merge ignores custom drivers; the attribute helps local `git merge` /
-  `git rebase` runs.
+- `CHANGELOG.md` is union-merged: both sides' entries survive. The root
+  `.gitattributes` sets `merge=union` for it too, but GitHub's server-side
+  merge ignores custom drivers, so the attribute only helps local
+  `git merge` and `git rebase` runs.
 - `CLAUDE.md` and `README.md` take main's version and re-apply the PR's
   own hunks; a hunk whose preimage is gone keeps main's version.
-- `bun.lock` and `src-tauri/Cargo.lock` are never hand-merged: take main's
-  version, then re-run `bun install` / `cargo metadata`. The manifest
-  (`package.json` / `Cargo.toml`) must come out byte-identical and
-  resolved sources must stay on `registry.npmjs.org` / `crates.io`.
+- `bun.lock`, `bun.lockb` and `Cargo.lock` are never hand-merged: take
+  main's version, then re-run `bun install` or `cargo metadata`. Resolve the
+  manifest beside it (`package.json` or `Cargo.toml`) first. The manifest
+  must not change during the regeneration, and resolved sources must stay
+  on `registry.npmjs.org` or `crates.io`; otherwise the lockfile is left for
+  a human.
 
-When a `git rebase main` (or `git merge`) stops on conflicts:
+When a rebase stops on conflicts (from a fork clone,
+`git rebase upstream/main`; in a clone of `ashlrai/ashlr-md`,
+`git rebase origin/main`):
 
 ```bash
 bun run resolve-conflicts        # or: node scripts/resolve-conflicts.mjs
 ```
 
 Each conflicted path is resolved by the rules above and staged; anything
-else is reported and left for a human. Re-run after finishing those, then
-`git rebase --continue`. `--dry-run` previews without touching files.
-`bun run test:conflicts` runs the fixture-rebase test suite.
+else, including a file that main deleted, is reported and left for a human.
+The command exits non-zero while any path is still unmerged. Finish those,
+re-run it, then `git rebase --continue`. `--dry-run` previews without
+touching files. `bun run test:conflicts` runs the fixture-rebase test suite.
 
 ## Principles
 
