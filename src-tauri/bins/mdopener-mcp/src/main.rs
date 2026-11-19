@@ -48,9 +48,11 @@ const HELP: &str = "mdopener-mcp: MCP server for Ashlr MD (stdio JSON-RPC 2.0)
 
 USAGE:
     mdopener-mcp               serve MCP on stdin/stdout (launched by an MCP client)
-    mdopener-mcp --version     print the version
-    mdopener-mcp --help        print this help
-    mdopener-mcp --export-tool-schema
+    mdopener-mcp --version [--json]
+                               print the version
+    mdopener-mcp --help [--json]
+                               print this help
+    mdopener-mcp --export-tool-schema [--json]
                                print tool names and input schemas as JSON, then exit
     mdopener-mcp --ashlr-handshake [--json]
                                print the Ashlr companion handshake (JSON)
