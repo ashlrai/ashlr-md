@@ -41,7 +41,9 @@ CLI and the MCP tool contract.
    dependency runs plain `bun install` and commits the updated `bun.lock`.
 
 2. Make one change per pull request and keep the diff small. Never commit
-   secrets: both diff secret scans fail closed.
+   secrets: both diff secret scans fail closed. Keep an agent's working
+   notes out of the commit too; `.gitignore` skips a `task_plan.md` or
+   `notes.md` at the repository root.
 3. Run the gates your change needs before pushing:
 
    ```bash

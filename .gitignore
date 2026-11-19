@@ -42,3 +42,8 @@ target/
 
 # Python bytecode caches
 __pycache__/
+
+# Agent working notes (a plan and scratch notes at the repository root).
+# They describe one session's task and do not belong in a pull request.
+/task_plan.md
+/notes.md
