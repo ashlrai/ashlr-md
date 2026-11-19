@@ -33,8 +33,12 @@ CLI and the MCP tool contract.
    git remote add upstream https://github.com/ashlrai/ashlr-md.git
    git fetch upstream
    git switch -c my-change upstream/main
-   bun install
+   bun install --frozen-lockfile
    ```
+
+   `--frozen-lockfile` installs exactly what `bun.lock` pins, as CI does, and
+   fails rather than rewrite the lockfile. Only a change that adds or bumps a
+   dependency runs plain `bun install` and commits the updated `bun.lock`.
 
 2. Make one change per pull request and keep the diff small. Never commit
    secrets: both diff secret scans fail closed.
@@ -100,8 +104,8 @@ CLI and the MCP tool contract.
    merge queue. GitHub lets only accounts with write access arm auto-merge, so
    on a fork pull request a maintainer or fleet agent arms it for you. Paths
    listed in [`.github/CODEOWNERS`](./.github/CODEOWNERS) (CI workflows,
-   the secret-shape fixtures and the Rust files that make network or loopback
-   requests) have a named owner, so expect a review there.
+   `CODEOWNERS` itself, the secret-shape scanner and its fixtures, and the
+   Rust files that make network or loopback requests) have a named owner, so expect a review there.
 6. After merge the full Linux and macOS suites run on `main`. If `main` goes
    red, it is fixed forward with a new pull request, never by force-pushing.
 
