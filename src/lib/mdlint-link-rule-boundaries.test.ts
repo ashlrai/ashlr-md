@@ -35,6 +35,7 @@ describe("link rule boundary guide", () => {
   it.each([
     "",
     " ",
+    "   ",
     "\t",
     "\n",
     " \r\n\t",
@@ -45,6 +46,9 @@ describe("link rule boundary guide", () => {
     const violations = lintDocument(doc, { rules });
     expect(violations).toHaveLength(1);
     expect(applyAllFixes(doc, violations)).toBe("before [label](TODO) after");
+    // The fix is the same whether or not the link has surrounding text.
+    const bare = `[label](${href})`;
+    expect(applyAllFixes(bare, lintDocument(bare, { rules }))).toBe("[label](TODO)");
   });
 
   it.each([
@@ -54,9 +58,15 @@ describe("link rule boundary guide", () => {
     "?page=2",
     "TODO",
     "??",
+    "./guide.md",
     "./missing.md",
   ])("does not flag destination %j", (href) => {
     expect(lintDocument(`[label](${href})`, { rules })).toEqual([]);
+  });
+
+  it("fixes an image destination while preserving the image marker and label", () => {
+    const doc = "![chart](?)";
+    expect(applyAllFixes(doc, lintDocument(doc, { rules }))).toBe("![chart](TODO)");
   });
 
   it("ignores reference links, code, and matches crossing masked spans", () => {
@@ -79,5 +89,21 @@ describe("link rule boundary guide", () => {
     expect(
       doc.slice(violations[0].range!.from.offset, violations[0].range!.to.offset),
     ).toBe("[prose](?)");
+  });
+
+  it("walks the reviewer checklist example from fix to a verified anchor", () => {
+    const before = example("review-before");
+    const violations = lintDocument(before, { rules });
+    expect(violations).toHaveLength(1);
+    const placeholder = applyAllFixes(before, violations);
+    expect(placeholder).toBe(example("review-placeholder"));
+    expect(lintDocument(placeholder, { rules })).toEqual([]);
+
+    // The resolved example points at a section of this same guide.
+    const destination = "#what-is-checked";
+    const resolved = example("review-resolved");
+    expect(resolved).toBe(placeholder.replace("TODO", destination));
+    expect(lintDocument(resolved, { rules })).toEqual([]);
+    expect(guide).toMatch(/^## What is checked$/m);
   });
 });

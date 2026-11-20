@@ -52,4 +52,4 @@ judge the quality of a nonempty description.
 For more examples, excluded Markdown regions, and images that trigger both
 rules, see the [autofix guide](mdlint-autofix-guide.md).
 For the exact destination comparisons, see
-[invalid link destination behavior](mdlint-invalid-href-behavior.md).
+[invalid link target rule boundaries](mdlint-link-rule-boundaries.md).
