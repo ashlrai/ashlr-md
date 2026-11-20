@@ -39,10 +39,10 @@ Before tagging, complete every item:
 - [ ] Update `version` in **`src-tauri/tauri.conf.json`** (e.g. `"0.2.0"`).
 - [ ] Update `version` in **`src-tauri/Cargo.toml`** `[package]` section to match.
 - [ ] Update `version` in **`package.json`** to match.
-- [ ] Update **`CHANGELOG.md`**: add a section headed `## [X.Y.Z]`, an em dash and the
-  date (`YYYY-MM-DD`), like the earlier releases' headings.
+- [ ] Update **`CHANGELOG.md`**: move the `## [Unreleased]` entries under a new
+  heading `## [X.Y.Z] - YYYY-MM-DD` (a hyphen, as in the 0.7.1 to 0.7.5 headings).
 - [ ] Run `./scripts/generate-icons.sh` if `src-tauri/icons/icon.svg` changed.
-- [ ] Commit all changes:
+- [ ] Commit all changes and land them on `main` through a pull request:
   ```bash
   git add src-tauri/tauri.conf.json src-tauri/Cargo.toml package.json CHANGELOG.md
   git commit -m "chore: release vX.Y.Z"
@@ -52,12 +52,16 @@ Before tagging, complete every item:
 
 ## 2. Cutting the Tag
 
+Do not push the tag by hand. `auto-tag.yml` is the only place tags are created
+(see the comment at the top of that workflow): it creates `vX.Y.Z` with the
+ashlr-release GitHub App token once the bump is on `main` and every required
+check on that commit is green. If the tag is missing, re-run the gate:
+
 ```bash
-git tag vX.Y.Z
-git push origin vX.Y.Z
+gh workflow run auto-tag.yml -R ashlrai/ashlr-md
 ```
 
-This triggers `.github/workflows/release.yml`, which fans out across the full
+The tag triggers `.github/workflows/release.yml`, which fans out across the full
 build matrix and **uploads each platform's bundles as workflow artifacts**.
 
 > **`release.yml` does NOT create the GitHub Release.** It is build-only: it
@@ -66,8 +70,10 @@ build matrix and **uploads each platform's bundles as workflow artifacts**.
 > succeeds (see §4). Until that job publishes, **no release exists and the
 > updater sees nothing.**
 
-> A pre-release tag is not automatically marked as a pre-release by this
-> build-only workflow. Set the Release status explicitly when publishing.
+> Only stable `X.Y.Z` versions are supported end to end. `release.yml` builds
+> any `v*` tag, but assembly rejects prerelease versions, and
+> `scripts/publish-verified-release.py` always publishes with `prerelease: false`
+> and marks the release as Latest.
 
 ---
 
@@ -107,12 +113,13 @@ a successful upload does not prove the inventory is complete.
 | `mdopener-afm` (Swift) | yes | no | no |
 | `mdopener-setdefault` (Swift) | yes | no | no |
 
-> **macOS AFM sidecar risk:** `mdopener-afm` requires Xcode 26 / Swift 6.2+
-> (macOS 26 SDK). The workflow selects the latest available Xcode via
-> `maxim-lobanov/setup-xcode@v1`. Until GitHub-hosted runners carry Xcode 26,
-> this sidecar may build against an older SDK or fail. See the comment block
-> in `.github/workflows/release.yml` (the "Select latest Xcode" step) for
-> mitigation steps. All other bundle artifacts are unaffected.
+> **macOS AFM sidecar:** `mdopener-afm` requires Xcode 26 / Swift 6.2+
+> (macOS 26 SDK). Both macOS runner images ship Xcode 26, but not as the
+> default, so the workflow selects the latest Xcode via
+> `maxim-lobanov/setup-xcode@v1` (the "Select latest Xcode" step in
+> `.github/workflows/release.yml`). Check each build's selected Xcode and
+> sidecar output; the Swift sidecars stay best-effort, and all other bundle
+> artifacts are unaffected.
 
 ---
 
@@ -120,7 +127,7 @@ The release jobs use GitHub's native `macos-15` (ARM64) and
 `macos-15-intel` (x86_64) runners, as listed in the
 [official image architecture table](https://github.com/actions/runner-images#available-images).
 This replaces [retired `macos-13`](https://github.blog/changelog/2025-09-19-github-actions-macos-13-runner-image-is-closing-down/)
-and [`macos-14`, retiring November 2, 2026](https://github.blog/changelog/2026-10-01-github-actions-macos-14-runner-image-retirement/).
+and [`macos-14`, retired November 2, 2026](https://github.blog/changelog/2026-10-01-github-actions-macos-14-runner-image-retirement/).
 The prerequisite `ci.yml` macOS full-suite job also uses `macos-15`.
 
 Both [ARM64](https://github.com/actions/runner-images/blob/main/images/macos/macos-15-arm64-Readme.md#xcode)
@@ -415,15 +422,15 @@ git push
 
 | Secret | Used by | Required? |
 |---|---|---|
-| `GITHUB_TOKEN` | Read-only for build and assembly. Only the publish job has `contents: write`, see §4 | Auto-provided |
+| `GITHUB_TOKEN` | Read-only for assembly. The `release.yml` build matrix job still declares `contents: write`, but it never calls the Release API; only the publish job writes the Release, see §4 | Auto-provided |
 | `TAURI_SIGNING_PRIVATE_KEY` | Updater `.sig` files | Yes (all legs) |
 | `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | Updater `.sig` files | Yes (all legs) |
-| `APPLE_CERTIFICATE` | macOS code signing | Optional (unsigned DMG works) |
+| `APPLE_SIGNING_IDENTITY` | macOS code signing; gates every other `APPLE_*` secret | Optional (without it the bundle is ad-hoc signed and not notarized) |
+| `APPLE_CERTIFICATE` | macOS code signing | Optional |
 | `APPLE_CERTIFICATE_PASSWORD` | macOS code signing | Optional |
-| `APPLE_SIGNING_IDENTITY` | macOS code signing | Optional |
-| `APPLE_ID` | macOS notarization | Optional |
-| `APPLE_PASSWORD` | macOS notarization | Optional |
-| `APPLE_TEAM_ID` | macOS notarization | Optional |
+| `APPLE_ID` | macOS notarization, only when `APPLE_SIGNING_IDENTITY` is set | Optional |
+| `APPLE_PASSWORD` | macOS notarization, only when `APPLE_SIGNING_IDENTITY` is set | Optional |
+| `APPLE_TEAM_ID` | macOS notarization, only when `APPLE_SIGNING_IDENTITY` is set | Optional |
 
 ### Generate the Tauri updater keypair (one-time)
 
@@ -459,8 +466,8 @@ git commit -m "chore: regenerate app icons"
 - [ ] `package.json` version bumped
 - [ ] `CHANGELOG.md` updated
 - [ ] Icons regenerated (if SVG changed)
-- [ ] Version bump commit on `main`
-- [ ] Tag `vX.Y.Z` pushed; workflow fires
+- [ ] Version bump merged to `main`
+- [ ] `auto-tag.yml` created tag `vX.Y.Z`; `release.yml` fired
 - [ ] All four workflow legs green
 - [ ] Assembly succeeded and `release-publish.yml` published the Release (§4)
 - [ ] Homebrew tap cask updated (version + sha256)
