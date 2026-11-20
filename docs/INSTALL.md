@@ -1,6 +1,6 @@
 # Installing Ashlr MD
 
-Ashlr MD is available for macOS (Apple Silicon), Windows (x64) and Linux (x86_64)
+Ashlr MD is available for macOS (Apple Silicon and Intel), Windows (x64) and Linux (x86_64)
 from [GitHub Releases](https://github.com/ashlrai/ashlr-md/releases/latest).
 There are no Homebrew, winget or AUR packages yet.
 
@@ -11,9 +11,9 @@ There are no Homebrew, winget or AUR packages yet.
 ### DMG
 
 1. Go to [github.com/ashlrai/ashlr-md/releases/latest](https://github.com/ashlrai/ashlr-md/releases/latest).
-2. Download `Ashlr_MD_X.Y.Z_aarch64.dmg` (Apple Silicon, M1 or later). The
-   current release has no Intel build; on an Intel Mac, build from source (see
-   the README).
+2. Download `Ashlr_MD_X.Y.Z_aarch64.dmg` on Apple Silicon (M1 or later), or
+   `Ashlr_MD_X.Y.Z_x64.dmg` on an Intel Mac. Releases before 0.7.3 have no
+   Intel build.
 3. Open the DMG, drag **Ashlr MD.app** to `/Applications`.
 4. On first launch, right-click the app and choose **Open** to bypass Gatekeeper
    (required for unsigned/unnotarized builds; see note below).

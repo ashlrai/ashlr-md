@@ -143,7 +143,7 @@ The server also serves resources (`mdopener://current`, `text://vault-search`, `
 
 For the desktop app, without a terminal.
 
-1. Download the [latest release](https://github.com/ashlrai/ashlr-md/releases/latest) for your OS: `.dmg` (Apple Silicon), `.msi`/`-setup.exe` (Windows), `.deb`/`.rpm`/`.AppImage` (Linux).
+1. Download the [latest release](https://github.com/ashlrai/ashlr-md/releases/latest) for your OS: `.dmg` (`aarch64` for Apple Silicon, `x64` for Intel), `.msi`/`-setup.exe` (Windows), `.deb`/`.rpm`/`.AppImage` (Linux).
 2. Double-click any `.md` file, or run `mdopen notes.md` after **Preferences → Command-line tool → Install mdopen** (the app's installers leave `mdopen` off your `PATH`; see [docs/AGENTS.md](./docs/AGENTS.md#install)).
 3. Ask the AI sidebar about it. On a Mac with Apple Silicon and macOS 26 or later, the built-in on-device model needs no account and no API key: turn on Apple Intelligence in System Settings, then restart Ashlr MD. On Windows and Linux, install [Ollama](https://ollama.com) for free local AI, or add an Anthropic API key in Preferences.
 
@@ -219,7 +219,7 @@ Apple's on-device model and a loopback Ollama stay on the machine. Cloud calls h
 
 ### Which computers have a release build?
 
-Apple Silicon Macs, Windows x64, and Linux x86_64. The current release is unsigned. On macOS, right-click the app and choose Open the first time. Windows may show a SmartScreen warning. There is no Homebrew, winget, or AUR package yet. Intel Macs build from source. Steps: [docs/INSTALL.md](./docs/INSTALL.md).
+Macs (Apple Silicon and Intel), Windows x64, and Linux x86_64. The current release is unsigned. On macOS, right-click the app and choose Open the first time. Windows may show a SmartScreen warning. There is no Homebrew, winget, or AUR package yet. Steps: [docs/INSTALL.md](./docs/INSTALL.md).
 
 ### How does Phantom open a file?
 
