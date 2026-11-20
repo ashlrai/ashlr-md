@@ -14,6 +14,7 @@ import {
 } from "./mdlint";
 
 const review = readFileSync("docs/mdlint-autofix-order-review.md", "utf8");
+const source = readFileSync("src/lib/mdlint-autofix.test.ts", "utf8");
 const rules = [ruleInvalidLinkTarget, ruleMissingAltText];
 
 function example(name: string): string {
@@ -23,6 +24,21 @@ function example(name: string): string {
   expect(match).not.toBeNull();
   return match![1];
 }
+
+describe("mixed autofix order review cases", () => {
+  // Moved from the former ordering-questions note: every listed case must
+  // name exactly one test in mdlint-autofix.test.ts.
+  it("references existing, uniquely named source tests in each case", () => {
+    const cases = [...review.matchAll(/<!-- case: (.+?) -->\s*`([^`]+)`/g)];
+    expect(cases.length).toBeGreaterThan(0);
+    expect(new Set(cases.map(([, name]) => name)).size).toBe(cases.length);
+
+    for (const [, name, label] of cases) {
+      expect(label).toBe(name);
+      expect(source.split(`"${name}"`).length - 1).toBe(1);
+    }
+  });
+});
 
 describe("mixed autofix order review examples", () => {
   beforeEach(() => clearLintHistory());
