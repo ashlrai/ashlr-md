@@ -1,6 +1,10 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { fixAllViolations } from "../components/LinterToast";
+import {
+  clearLintHistory,
+  fixAllViolations,
+  getLintHistory,
+} from "../components/LinterToast";
 import {
   applyAllFixes,
   applyFix,
@@ -65,7 +69,17 @@ describe("autofix preservation guide", () => {
   });
 
   it("shows Fix all preserving both image sources", () => {
+    clearLintHistory();
     const before = example("combined before");
+    const expected = example("combined after");
+    expect(before).toBe(
+      "See ![A café map](images/map.svg?view=full#north) beside " +
+        "![](images/chart.png?size=2#data), then [details]().\n",
+    );
+    expect(expected).toBe(
+      "See ![A café map](images/map.svg?view=full#north) beside " +
+        "![TODO: describe image](images/chart.png?size=2#data), then [details](TODO).\n",
+    );
     const rules = BUILTIN_RULES.filter((rule) =>
       LINTER_DEFAULT_ENABLED_RULES.includes(rule.id),
     );
@@ -76,7 +90,17 @@ describe("autofix preservation guide", () => {
       "invalid-link-target",
     ]);
     const after = fixAllViolations(before, violations);
-    expect(after).toBe(example("combined after"));
-    expect(lintDocument(after, { rules })).toEqual([]);
+    expect(after).toBe(expected);
+    const history = [...getLintHistory()];
+    expect(history.map(({ ruleId }) => ruleId)).toEqual([
+      "missing-alt-text",
+      "invalid-link-target",
+    ]);
+
+    // A second Fix all pass must leave both the text and the fix history alone.
+    const remaining = lintDocument(after, { rules });
+    expect(remaining).toEqual([]);
+    expect(fixAllViolations(after, remaining)).toBe(after);
+    expect(getLintHistory()).toEqual(history);
   });
 });
