@@ -12,10 +12,8 @@ immediate fixes and replacement steps, and the
 [placeholder review guide](mdlint-placeholder-review.md) for a workflow
 and examples of replacing them with reviewed content.
 For a source-linked summary, see the [fix output reference](mdlint-fix-output-reference.md).
-For focused before-and-after examples, see
-[what autofix preserves](mdlint-autofix-preservation.md).
-For a single input with both fixes, see the
-[combined link and image example](mdlint-combined-fix-example.md).
+For focused before-and-after examples, including single inputs with both
+fixes, see [what autofix preserves](mdlint-autofix-preservation.md).
 For exactly what to replace in each generated placeholder, see
 [placeholder follow-up](mdlint-placeholder-followup.md).
 For an image-specific review workflow, see the

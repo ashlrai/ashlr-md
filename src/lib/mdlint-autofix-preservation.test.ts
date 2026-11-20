@@ -68,6 +68,27 @@ describe("autofix preservation guide", () => {
     expect(lintDocument(after, { rules })).toEqual([]);
   });
 
+  it("shows both fixes leaving a trailing bracketed word intact", () => {
+    // Mirrors the LF case of "preserves a bracketed word at the end of a
+    // paragraph and its final newline" in mdlint-autofix.test.ts.
+    const before = example("bracket before");
+    const after = example("bracket after");
+    expect(before).toBe("Read [draft]() and see ![](chart.png) for details [note]\n");
+    expect(after).toBe(
+      "Read [draft](TODO) and see ![TODO: describe image](chart.png) for details [note]\n",
+    );
+
+    const violations = lintDocument(before, { rules: singleRules });
+    expect(violations.map(({ ruleId }) => ruleId).sort()).toEqual([
+      "invalid-link-target",
+      "missing-alt-text",
+    ]);
+    expect(applyAllFixes(before, violations)).toBe(after);
+    const remaining = lintDocument(after, { rules: singleRules });
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(after, remaining)).toBe(after);
+  });
+
   it("shows Fix all preserving both image sources", () => {
     clearLintHistory();
     const before = example("combined before");
