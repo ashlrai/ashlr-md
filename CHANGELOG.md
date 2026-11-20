@@ -58,6 +58,10 @@ Released 2026-06-06. [Release notes and downloads](https://github.com/ashlrai/as
 - `docs/AGENTS.md` and `docs/EXAMPLES.md` document the `--json` forms of the info commands.
 - `docs/doctor-fix.md` and `docs/local-ai.md` document the `doctor` `--json` fields; the handshake lists both.
 - `docs/RELEASING.md` says `release.yml` only builds; the publish workflow creates the GitHub Release.
+- `codeql.yml` (CodeQL for JavaScript/TypeScript and Rust, daily at 10:00 UTC and on dispatch) and `scorecard.yml` (OpenSSF Scorecard on pushes to `main` and weekly) run with `contents: read` at workflow level. Neither is a required check.
+- `bun run check:crypto` flags classical-only asymmetric crypto outside the allowlist (`docs/PQ-READINESS.md`), and `bun run check:doc-links` fails on a relative Markdown link or `#anchor` that points nowhere. Both run in the required CI check.
+- `bun run resolve-conflicts` resolves merge conflicts in high-churn generated files during a stopped rebase or merge (`bun run test:conflicts` covers it).
+- `docs/LINTER.md` is a reference for the 11 rules in `src/lib/mdlint.ts`, and `docs/README.md` and `llms.txt` index every top-level guide.
 - `docs/VISION.md` and the VS Code and Raycast READMEs say where Ashlr MD fits and link the contribution guide.
 
 ### Tests

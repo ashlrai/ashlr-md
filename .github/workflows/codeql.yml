@@ -1,8 +1,8 @@
 name: CodeQL
 
 # Code scanning stays off pull_request and off per-push CI.
-# Same nightly window as the CI workflow (06:17 UTC), plus merge_group
-# and manual runs.
+# Runs nightly at 10:00 UTC (after the full CI run at 08:23 UTC) and on
+# manual dispatch.
 on:
   # Daily only (Mason, Oct 28 2026): CodeQL is not a required check.
   schedule:
