@@ -1,8 +1,12 @@
 # What Markdown autofix preserves
 
-These examples reproduce cases in [the autofix tests](../src/lib/mdlint-autofix.test.ts).
-Linting reports a suggestion; **Fix** applies one available fix and **Fix all**
-applies the available fixes together.
+The linter's link and image fixes change only the Markdown being fixed: labels,
+image sources, the prose around them, punctuation, and the final newline stay
+as they were. These examples reproduce cases in
+[the autofix tests](../src/lib/mdlint-autofix.test.ts), and
+`src/lib/mdlint-autofix-preservation.test.ts` checks each one against this
+page. Linting reports a suggestion; **Fix** applies one available fix and
+**Fix all** applies the available fixes together.
 
 ## Prose around a link
 
@@ -23,6 +27,29 @@ After:
 ```md
 Before [link](TODO) after.
 ```
+
+Replace `TODO` with the intended URL or path.
+
+## Prose around an image
+
+`missing-alt-text` replaces empty alternative text with a placeholder, keeping
+the image source and the text before and after it.
+
+Before:
+
+<!-- example: image before -->
+```md
+Before ![](img.png) after.
+```
+
+After:
+
+<!-- example: image after -->
+```md
+Before ![TODO: describe image](img.png) after.
+```
+
+Replace the placeholder with suitable alternative text.
 
 ## Image sources in Fix all
 

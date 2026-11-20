@@ -2,11 +2,13 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { fixAllViolations } from "../components/LinterToast";
 import {
+  applyAllFixes,
   applyFix,
   BUILTIN_RULES,
   LINTER_DEFAULT_ENABLED_RULES,
   lintDocument,
   ruleInvalidLinkTarget,
+  ruleMissingAltText,
 } from "./mdlint";
 
 const guide = readFileSync("docs/mdlint-autofix-preservation.md", "utf8");
@@ -20,7 +22,36 @@ function example(name: string): string {
 }
 
 describe("autofix preservation guide", () => {
-  it("shows a single link fix preserving its surrounding prose", () => {
+  const singleRules = [ruleInvalidLinkTarget, ruleMissingAltText];
+
+  it("fixes an empty link between words without changing the surrounding text", () => {
+    const before = "Before [draft]() after.\n";
+    const violations = lintDocument(before, { rules: singleRules });
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "invalid-link-target",
+    ]);
+    const fixed = applyAllFixes(before, violations);
+    expect(fixed).toBe("Before [draft](TODO) after.\n");
+    expect(lintDocument(fixed, { rules: singleRules })).toEqual([]);
+  });
+
+  it.each([
+    ["link", "invalid-link-target"],
+    ["image", "missing-alt-text"],
+  ])("shows the %s fix with surrounding prose intact", (name, ruleId) => {
+    const before = example(`${name} before`);
+    const after = example(`${name} after`);
+    const violations = lintDocument(before, { rules: singleRules });
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([ruleId]);
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(before, violations[0])).toBe(after);
+    expect(applyAllFixes(before, violations)).toBe(after);
+    expect(lintDocument(after, { rules: singleRules })).toEqual([]);
+  });
+
+  it("shows a single link fix with only the link rule enabled", () => {
     const before = example("link before");
     const rules = [ruleInvalidLinkTarget];
     const violations = lintDocument(before, { rules });
