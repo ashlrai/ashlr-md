@@ -13,7 +13,7 @@ immediate fixes and replacement steps, and the
 and examples of replacing them with reviewed content.
 For a source-linked summary, see the [fix output reference](mdlint-fix-output-reference.md).
 For focused before-and-after examples, see
-[surrounding text in autofixes](mdlint-autofix-surrounding-text.md).
+[what autofix preserves](mdlint-autofix-preservation.md).
 For a single input with both fixes, see the
 [combined link and image example](mdlint-combined-fix-example.md).
 For exactly what to replace in each generated placeholder, see
