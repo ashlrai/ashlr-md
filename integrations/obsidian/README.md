@@ -64,8 +64,8 @@ use Bun's own runner instead.
 
 ## Install manually
 
-1. Build (see above), or download `main.js` from the
-   [latest GitHub release](https://github.com/ashlrai/ashlr-md/releases).
+1. Build (see above) so `main.js` exists. GitHub releases ship the desktop
+   app only, not a prebuilt plugin, so build it from source.
 2. Create the plugin folder inside your vault:
    ```
    <your-vault>/.obsidian/plugins/ashlr-md/
@@ -111,10 +111,12 @@ plugin toolchain.  Source entry point: `main.ts`.
 integrations/obsidian/
 ├── main.ts           ← plugin source
 ├── links.ts          ← pure helpers and strings (tested by links.test.ts)
+├── links.test.ts     ← node:test suite for links.ts
 ├── styles.css        ← minimal CSS (Obsidian design tokens)
 ├── manifest.json     ← plugin metadata
 ├── versions.json     ← minAppVersion map
 ├── package.json      ← build deps + scripts
+├── bun.lock          ← pinned dependency versions
 ├── tsconfig.json     ← TypeScript config
 ├── esbuild.config.mjs← bundler config
 └── .gitignore
