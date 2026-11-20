@@ -58,8 +58,8 @@ The link and image fixes have detailed, test-pinned guides:
 
 - [Markdown link and image autofixes](./mdlint-autofix-guide.md): the hub,
   with the overlap case and the `no-bare-urls` fix.
-- [Markdown lint rule examples](./mdlint-rule-examples.md): before and after
-  for each fix.
+- [Markdown lint fix output reference](./mdlint-fix-output-reference.md):
+  before and after for each fix, with source links.
 - [Resolving Markdown lint placeholders](./mdlint-placeholder-resolution.md):
   what to put in place of each `TODO`.
 - [Invalid link target rule boundaries](./mdlint-link-rule-boundaries.md) and

@@ -1,8 +1,10 @@
 # Markdown lint fix output reference
 
 Linting reports warnings without changing the document. **Fix** applies one
-available fix; **Fix all** applies available fixes in a pass. Both placeholders
-below need an author's review even though they clear their respective warnings.
+available fix; **Fix all** applies available fixes in a pass. Both rules below
+are marked **Default** in Settings → Linter rules (see the
+[linter reference](LINTER.md)). Both placeholders below need an author's review
+even though they clear their respective warnings.
 
 ## Invalid destination
 
@@ -22,11 +24,13 @@ Read [setup](TODO) and [search](TODO).
 ```
 
 Replace `TODO` with the intended path or URL. The rule does not check whether
-a nonempty destination exists. It can also match an image's destination.
+a nonempty destination exists or can be reached. It can also match an image's
+destination. For the exact destination comparisons, see
+[invalid link target rule boundaries](mdlint-link-rule-boundaries.md).
 
 ## Empty image alt text
 
-[`missing-alt-text`](../src/lib/mdlint.ts#L615) flags an inline image with
+[`missing-alt-text`](../src/lib/mdlint.ts#L634) flags an inline image with
 empty or whitespace-only alt text when its source has at least one character.
 Its fix inserts the literal `TODO: describe image` and preserves the source:
 
@@ -47,7 +51,7 @@ The rule does not judge the quality of nonempty alt text.
 
 For an image with empty alt text and a destination of `?`, both rules warn.
 In one Fix all pass, the wider image fix takes precedence; after linting again,
-a second pass fixes the destination (see [`applyAllFixes`](../src/lib/mdlint.ts#L719)).
+a second pass fixes the destination (see [`applyAllFixes`](../src/lib/mdlint.ts#L738)).
 
 <!-- example: overlap input -->
 ```md
@@ -65,4 +69,5 @@ a second pass fixes the destination (see [`applyAllFixes`](../src/lib/mdlint.ts#
 ```
 
 These rules use patterns for inline Markdown, not a full Markdown parser. For
-scope and other edge cases, see the [autofix guide](mdlint-autofix-guide.md).
+scope, excluded Markdown regions and other edge cases, see the
+[autofix guide](mdlint-autofix-guide.md).
