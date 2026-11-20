@@ -1,12 +1,44 @@
 # Resolving Markdown lint placeholders
 
 **Fix** and **Fix all** can insert placeholders when the linter cannot know the
-intended destination, image description, or document metadata. This guide shows
-the exact text each fix inserts and how to replace it. The examples are
-**illustrative**: use the actual destination, image, and metadata for your
-document. Search for `TODO` after fixing and review each match in context; some
-matches may be unrelated author notes. A cleared warning does not prove that a
-destination works or that alt text is meaningful.
+intended destination, image description, or document metadata. This guide lists
+every placeholder, shows the exact text each fix inserts, and how to replace it.
+The examples are **illustrative**: use the actual destination, image, and
+metadata for your document. Search for `TODO` after fixing and review each
+match in context; some matches may be unrelated author notes. A cleared warning
+does not prove that a destination works or that alt text is meaningful.
+
+## Placeholder inventory
+
+The built-in link and image rules in [mdlint.ts](../src/lib/mdlint.ts) report
+warnings. Linting alone does not change the document. **Fix** or **Fix all**
+can insert these literal placeholders, which need an author's review:
+
+| Rule | Trigger | Placeholder inserted by the fix |
+| --- | --- | --- |
+| `invalid-link-target` | An inline `[label](destination)` has an empty or whitespace-only destination, or the destination is exactly `#` or `?`. The same pattern also matches the link-shaped part of an inline image. | `TODO` replaces the destination. |
+| `missing-alt-text` | An inline `![alt](source)` has empty or whitespace-only alt text and at least one character in the source parentheses. | `TODO: describe image` replaces the alt text. |
+| `frontmatter-required` | A nonempty document does not begin with a frontmatter block: a `---` line closed by a later `---` or `...` line. | A block with an empty `title:` and `tags: []` is prepended. |
+
+The link and image rules are enabled by default; `frontmatter-required` is off
+until you turn it on in Settings → Linter rules. For example:
+
+<!-- example: inventory before -->
+```md
+Read [draft]() and [section](#).
+See ![  ](chart.png).
+```
+
+<!-- example: inventory after -->
+```md
+Read [draft](TODO) and [section](TODO).
+See ![TODO: describe image](chart.png).
+```
+
+The comparisons for `#` and `?` are exact: ` # ` and ` ? ` are not flagged.
+An empty image source, as in `![]()`, does not trigger `missing-alt-text`, but
+its empty destination triggers `invalid-link-target`. A whitespace-only image
+source has at least one character and can trigger both rules.
 
 ## Link destination
 
@@ -72,9 +104,31 @@ in nearby text or a table. A purely decorative image may appropriately have
 empty alt text, though this rule flags it; handle that warning in your
 accessibility workflow rather than adding misleading filler.
 
+## Images with both placeholders
+
 An image may need both a destination and a description. For `![]()`, the first
 Fix all pass produces `![](TODO)`; after linting again, a second pass produces
-`![TODO: describe image](TODO)`. Resolve both parts separately.
+`![TODO: describe image](TODO)`.
+
+An image such as `![](?)` triggers both rules at once. In one **Fix all** pass
+the wider image fix wins; lint again and fix the remaining destination warning:
+
+<!-- example: overlap before -->
+```md
+![](?)
+```
+
+<!-- example: overlap first -->
+```md
+![TODO: describe image](?)
+```
+
+<!-- example: overlap second -->
+```md
+![TODO: describe image](TODO)
+```
+
+Resolve both parts separately.
 
 ## Frontmatter fields
 
@@ -112,6 +166,12 @@ tags: [garden, planning]
 # Garden notes
 ```
 
-See the [autofix guide](mdlint-autofix-guide.md) for rule scope and overlapping
-fixes, and the [placeholder review guide](mdlint-placeholder-review.md) for a
-review workflow.
+## Scope
+
+The link and image rules use simple inline patterns rather than a full Markdown
+parser; reference-style links and images are not checked. Front matter, fenced
+and indented code, HTML blocks, inline code and inline math are masked from
+these checks. See [link rule boundaries](mdlint-link-rule-boundaries.md) and
+[image rule boundaries](mdlint-image-rule-boundaries.md) for matching limits,
+the [autofix guide](mdlint-autofix-guide.md) for overlapping fixes, and the
+[placeholder review guide](mdlint-placeholder-review.md) for a review workflow.
