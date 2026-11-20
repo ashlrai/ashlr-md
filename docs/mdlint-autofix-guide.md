@@ -20,7 +20,7 @@ For a single input with both fixes, see the
 For exactly what to replace in each generated placeholder, see
 [placeholder follow-up](mdlint-placeholder-followup.md).
 For an image-specific review workflow, see the
-[image alt-text review checklist](mdlint-image-review-checklist.md).
+[image alt-text review checklist](mdlint-image-rule-boundaries.md#reviewer-checklist).
 For every rule, and for where the suggestions toast stands in the app today, see the
 [linter reference](LINTER.md).
 
