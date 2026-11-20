@@ -31,6 +31,27 @@ describe("Markdown lint fix output reference", () => {
     expect(lintDocument(output, { rules })).toEqual([]);
   });
 
+  // Single-warning cases kept from the former docs/mdlint-rule-examples.md,
+  // which this reference absorbed: a lone `?` destination and an empty alt.
+  it.each([
+    [
+      "Read the [installation guide](?).\n",
+      "invalid-link-target",
+      "Read the [installation guide](TODO).\n",
+    ],
+    [
+      "![](architecture.png)\n",
+      "missing-alt-text",
+      "![TODO: describe image](architecture.png)\n",
+    ],
+  ])("fixes %j with one %s warning", (before, ruleId, after) => {
+    const violations = lintDocument(before, { rules });
+    expect(violations.map((v) => v.ruleId)).toEqual([ruleId]);
+    const output = applyAllFixes(before, violations);
+    expect(output).toBe(after);
+    expect(lintDocument(output, { rules })).toEqual([]);
+  });
+
   it("shows both passes for overlapping warnings", () => {
     const input = example("overlap input");
     const violations = lintDocument(input, { rules });
