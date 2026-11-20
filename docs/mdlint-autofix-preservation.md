@@ -51,6 +51,32 @@ Before ![TODO: describe image](img.png) after.
 
 Replace the placeholder with suitable alternative text.
 
+## A bracketed word after both fixes
+
+The LF case of “preserves a bracketed word at the end of a paragraph and its
+final newline” applies the link and image fixes to one line. The empty link
+destination becomes `TODO` and the empty alt text becomes
+`TODO: describe image`; the image source, the trailing `[note]`, the prose and
+the final newline stay as they were. A second lint and fix pass leaves the
+result unchanged.
+
+Before:
+
+<!-- example: bracket before -->
+```md
+Read [draft]() and see ![](chart.png) for details [note]
+```
+
+After:
+
+<!-- example: bracket after -->
+```md
+Read [draft](TODO) and see ![TODO: describe image](chart.png) for details [note]
+```
+
+`[note]` has no destination, so it is plain text to the linter and is not
+reported as a link.
+
 ## Image sources in Fix all
 
 The test “Fix all preserves both image sources while fixing an empty alt and a
