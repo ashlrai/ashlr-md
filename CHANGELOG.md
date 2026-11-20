@@ -20,6 +20,7 @@ Released 2026-06-06. [Release notes and downloads](https://github.com/ashlrai/as
 - The release prepare job uploads a `release-binding` artifact (`release-binding.json`: event, `inputs.version`, version, tag and sha) after checking the tag is `vX.Y.Z` and the sha is a full commit. Assembly checks it, because the Actions API returns neither dispatch inputs nor job outputs.
 - `bun run docs:fixtures` regenerates `docs/mdlint-autofix-fixture-index.md` from the declarations in `src/lib/mdlint-autofix.test.ts`.
 - `bun run test:unit` runs the fast unit lane (punctuation, CLI build setup and mdlint) that the CI checks job now runs.
+- `mdopener-mcp --version`, `--help` and `--export-tool-schema` take `--json` and print one typed object.
 
 - The Windows native QA harness (`scripts/native-qa-windows.py`) prints one hosted-runner `::error` annotation naming the failed phase and a fixed-vocabulary reason (any other exception is reported by class name alone), and a failed CLI startup scenario or UIA helper phase adds one `::warning`. Annotations change no verdict.
 - `native-qa.yml` (the Linux native probe) also runs after every push to `main` and when a release is published, besides `workflow_dispatch`, with `permissions: {}` at workflow level and job-only `contents: read` and `actions: read`. It is not a required check and not a release promotion.
@@ -54,6 +55,10 @@ Released 2026-06-06. [Release notes and downloads](https://github.com/ashlrai/as
 - `CONTRIBUTING.md` names `bun run fresh:sync` and `bun run doclive:sync`, the commands that rewrite the generated release and docs blocks the matching check scripts verify.
 - `CONTRIBUTING.md` lists `bun run test:select`, `bun run test:dispatch` and `bun run bench:render`, the last npm scripts it did not mention.
 - `docs/integration-bracket-preservation.md` shows an annotation and a citation written back to back (`[sic][1]`) keeping both fragments in order.
+- `docs/AGENTS.md` and `docs/EXAMPLES.md` document the `--json` forms of the info commands.
+- `docs/doctor-fix.md` and `docs/local-ai.md` document the `doctor` `--json` fields; the handshake lists both.
+- `docs/RELEASING.md` says `release.yml` only builds; the publish workflow creates the GitHub Release.
+- `docs/VISION.md` and the VS Code and Raycast READMEs say where Ashlr MD fits and link the contribution guide.
 
 ### Tests
 - Added a `uiStore` case that toggling find twice restores the store unchanged, and a mdlint autofix fixture case.
