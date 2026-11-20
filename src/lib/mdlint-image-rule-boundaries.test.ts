@@ -1,6 +1,12 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { applyAllFixes, lintDocument, ruleMissingAltText } from "./mdlint";
+import {
+  applyAllFixes,
+  applyFix,
+  lintDocument,
+  ruleInvalidLinkTarget,
+  ruleMissingAltText,
+} from "./mdlint";
 
 const guide = readFileSync("docs/mdlint-image-rule-boundaries.md", "utf8");
 const rules = [ruleMissingAltText];
@@ -14,7 +20,7 @@ function example(name: string): string {
 }
 
 describe("image rule boundaries guide", () => {
-  it("shows the warning ranges and actual placeholder fixes", () => {
+  it("shows the warning ranges, message and actual placeholder fixes", () => {
     const before = example("before");
     const violations = lintDocument(before, { rules });
     expect(violations.map((v) => [v.ruleId, v.severity])).toEqual([
@@ -24,17 +30,34 @@ describe("image rule boundaries guide", () => {
     expect(
       violations.map((v) => before.slice(v.range!.from.offset, v.range!.to.offset)),
     ).toEqual(["![](chart.png?view=full#data)", '![  ](map.png "Map")']);
+    expect(guide).toContain(`\`${violations[0].message}\``);
+    expect(violations[0].message).toBe("Image is missing alt text: chart.png?view=full#data");
     const after = applyAllFixes(before, violations);
     expect(after).toBe(example("after"));
     expect(lintDocument(after, { rules })).toEqual([]);
   });
 
-  it.each(["", " ", "\t", "\u00a0"])("flags whitespace-only alt %j", (alt) => {
+  it("Fix changes only the selected image", () => {
+    const before = example("before");
+    const [first] = lintDocument(before, { rules });
+    expect(applyFix(before, first)).toBe(
+      'See ![TODO: describe image](chart.png?view=full#data) and ![  ](map.png "Map").\n',
+    );
+  });
+
+  it("shortens long sources in the message as documented", () => {
+    const src = `${"a".repeat(41)}.png`;
+    const [v] = lintDocument(`![](${src})`, { rules });
+    expect(v.message).toBe(`Image is missing alt text: ${src.slice(0, 37)}…`);
+  });
+
+  it.each(["", " ", "\t", " "])("flags whitespace-only alt %j", (alt) => {
     expect(lintDocument(`![${alt}](image.png)`, { rules })).toHaveLength(1);
   });
 
   it.each([
     "![]()",
+    "![  ]()",
     "![description](image.png)",
     "![][image]",
     "![ ]",
@@ -59,5 +82,35 @@ describe("image rule boundaries guide", () => {
     "$![](image.png)$",
   ])("ignores masked content %j", (doc) => {
     expect(lintDocument(doc, { rules })).toEqual([]);
+  });
+
+  it("shows why an empty source needs another lint pass", () => {
+    const both = [ruleInvalidLinkTarget, ruleMissingAltText];
+    const before = "![]()";
+    const first = lintDocument(before, { rules: both });
+    expect(first.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+    const sourceFixed = applyAllFixes(before, first);
+    expect(sourceFixed).toBe("![](TODO)");
+    expect(guide).toContain("`![]()` becomes `![](TODO)`");
+    const second = lintDocument(sourceFixed, { rules: both });
+    expect(second.map((v) => v.ruleId)).toEqual(["missing-alt-text"]);
+    expect(applyAllFixes(sourceFixed, second)).toBe("![TODO: describe image](TODO)");
+  });
+
+  it("shows the real generated placeholder and a reviewed replacement", () => {
+    const both = [ruleInvalidLinkTarget, ruleMissingAltText];
+    const before = example("review-before");
+    const violations = lintDocument(before, { rules: both });
+    expect(violations.map((v) => v.ruleId)).toEqual(["missing-alt-text"]);
+    const generated = applyAllFixes(before, violations);
+    expect(generated).toBe(example("review-placeholder"));
+    expect(lintDocument(generated, { rules: both })).toEqual([]);
+    expect(example("review-resolved")).toBe(
+      generated.replace(
+        "TODO: describe image",
+        "Revenue rose from $1 million in January to $2 million in June",
+      ),
+    );
+    expect(lintDocument(example("review-resolved"), { rules: both })).toEqual([]);
   });
 });
