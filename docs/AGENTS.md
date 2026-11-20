@@ -14,6 +14,17 @@ Markdown into Ashlr MD the moment your agent writes it.
 > any one to open it instantly. It's the recommended way to keep an eye on an
 > agent's `.md` output without polling the filesystem yourself.
 
+Ashlr MD is the Markdown surface of the Ashlr ecosystem: Phantom and its
+companions, a fully autonomous, code-first, agent-native software factory
+that agents run while the human acts as a passive board member, chasing open
+source RSI (recursive self improvement). Here an agent hands a document to a
+person and waits for approval. Phantom (`phm companions`, `phm doctor`) and
+Ashlr Stack (`stack doctor --fix`) discover this server through
+`mdopener-mcp --ashlr-handshake`, the same contract that Locus, Lexicon and
+ashlr-plugin implement ([ashlr-handshake.md](./ashlr-handshake.md)). The
+companion tools are listed under
+[Part of Ashlr](../README.md#part-of-ashlr) in the README.
+
 ---
 
 ## Copy-paste
@@ -307,10 +318,17 @@ mdopener-mcp setup --local [--json]
 
 Square brackets indicate optional arguments; omit the brackets when running a
 command. `--export-tool-schema` prints the tool names and input schemas as
-JSON, then exits. `doctor` checks local inference and offline status. `doctor
---fix` previews state repairs; add `--apply` to write them. `setup --local`
-prints local model setup steps and downloads and writes nothing. Repair
-boundaries: [doctor-fix.md](./doctor-fix.md).
+JSON, then exits. `--ashlr-handshake` prints one `ashlr.handshake` object
+(name, version, capabilities, local health, and the paths it may edit) before
+reading stdin, with no network access and no document reads; the contract is
+in [ashlr-handshake.md](./ashlr-handshake.md). `doctor` checks local
+inference and offline status. `doctor --fix` previews state repairs; add
+`--apply` to write them. `setup --local` prints local model setup steps and
+downloads and writes nothing. Repair boundaries:
+[doctor-fix.md](./doctor-fix.md). Local model settings, offline mode and the
+`doctor` and `setup --local` JSON fields:
+[local-ai.md](./local-ai.md). MCP registry metadata (`server.json`):
+[mcp-registry.md](./mcp-registry.md).
 
 The offline schema export sorts tools by name and preserves complete input
 schemas, including property descriptions, for companion-client compatibility.
