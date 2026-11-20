@@ -7,11 +7,10 @@ by default and can be managed in Settings → Linter rules. Linting itself does 
 Replace each `TODO` destination with the intended URL or path, and replace `TODO: describe image`
 with appropriate alternative text. These placeholders silence the warning but do not verify the
 destination or describe the image.
-See [resolving generated placeholders](mdlint-placeholder-resolution.md) for replacement steps,
-[editing generated placeholders](mdlint-placeholder-editing.md) for more examples,
-and the [placeholder review guide](mdlint-placeholder-review.md) for a workflow
-and examples of replacing them with reviewed content, or the
-[placeholder examples](mdlint-placeholder-examples.md) for the immediate fixes.
+See [resolving generated placeholders](mdlint-placeholder-resolution.md) for the
+immediate fixes and replacement steps, and the
+[placeholder review guide](mdlint-placeholder-review.md) for a workflow
+and examples of replacing them with reviewed content.
 For a source-linked summary, see the [fix output reference](mdlint-fix-output-reference.md).
 For focused before-and-after examples, see
 [surrounding text in autofixes](mdlint-autofix-surrounding-text.md).
