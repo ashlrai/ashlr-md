@@ -41,6 +41,11 @@ Repository links below are relative to https://github.com/ashlrai/ashlr-md/blob/
 - [Phantom](docs/PHANTOM.md): how Phantom calls `mdopen`
 - [MCP discovery metadata](docs/mcp-registry.md): server registry metadata
 
+## App
+
+- [Keyboard shortcuts](docs/SHORTCUTS.md): every shortcut, with Ctrl in place of ⌘ on Windows and Linux
+- [Markdown linter](docs/LINTER.md): the rules, what each fix does, and where the linter shows up today
+
 ## Ecosystem
 
 - [Part of Ashlr](README.md#part-of-ashlr): the mission and how Ashlr MD fits it
