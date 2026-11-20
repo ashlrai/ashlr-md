@@ -66,7 +66,7 @@ leaks data off-device without explicit consent. Quality over scope, every time.
 
 **Distribution & reach**
 - [ ] Signed & notarized macOS DMG (needs an Apple Developer cert: the 6 `APPLE_*` secrets, see [`docs/RELEASING.md`](./docs/RELEASING.md))
-- [ ] Intel (x86_64) macOS build (pending a GitHub runner)
+- [x] Intel (x86_64) macOS build: releases ship `Ashlr_MD_<version>_x64.dmg` (and the `x64.app.tar.gz` updater bundle) since v0.7.3, unsigned like the Apple Silicon build
 - [ ] Publish to Homebrew cask, winget, and AUR
 
 **Make agent output come alive (the differentiator)**
