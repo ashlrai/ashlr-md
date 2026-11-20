@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   applyAllFixes,
+  LINTER_DEFAULT_ENABLED_RULES,
   lintDocument,
   ruleFrontmatterRequired,
   ruleInvalidLinkTarget,
@@ -76,6 +77,57 @@ describe("placeholder resolution guide", () => {
     expect(resolved).not.toBe(placeholder);
     expect(resolved).not.toContain("TODO");
     expect(lintDocument(resolved, { rules: frontmatterRules })).toEqual([]);
+  });
+
+  it("inventories the placeholders produced by Fix all", () => {
+    const before = example("inventory before");
+    const violations = lintDocument(before, { rules });
+    expect(violations.map((v) => v.ruleId)).toEqual([
+      "invalid-link-target",
+      "invalid-link-target",
+      "missing-alt-text",
+    ]);
+    const after = applyAllFixes(before, violations);
+    expect(after).toBe(example("inventory after"));
+    expect(lintDocument(after, { rules })).toEqual([]);
+  });
+
+  it("shows both passes for overlapping image and destination fixes", () => {
+    const before = example("overlap before");
+    const violations = lintDocument(before, { rules });
+    expect(violations.map((v) => v.ruleId).sort()).toEqual([
+      "invalid-link-target",
+      "missing-alt-text",
+    ]);
+    const first = applyAllFixes(before, violations);
+    expect(first).toBe(example("overlap first"));
+    const remaining = lintDocument(first, { rules });
+    expect(remaining.map((v) => v.ruleId)).toEqual(["invalid-link-target"]);
+    const second = applyAllFixes(first, remaining);
+    expect(second).toBe(example("overlap second"));
+    expect(lintDocument(second, { rules })).toEqual([]);
+  });
+
+  it.each([
+    ["![]()", ["invalid-link-target"]],
+    ["![]( )", ["invalid-link-target", "missing-alt-text"]],
+    ["[label]( # )", []],
+    ["[label]( ? )", []],
+  ])("documents rule boundaries for %s", (doc, expected) => {
+    expect(
+      lintDocument(doc, { rules })
+        .map((v) => v.ruleId)
+        .sort(),
+    ).toEqual(expected);
+  });
+
+  it("matches the frontmatter rule's default and its empty-document skip", () => {
+    expect(LINTER_DEFAULT_ENABLED_RULES).toContain("invalid-link-target");
+    expect(LINTER_DEFAULT_ENABLED_RULES).toContain("missing-alt-text");
+    expect(LINTER_DEFAULT_ENABLED_RULES).not.toContain("frontmatter-required");
+    expect(guide).toContain("`frontmatter-required` is off");
+    expect(lintDocument("", { rules: [ruleFrontmatterRequired] })).toEqual([]);
+    expect(guide).toContain("A nonempty document does not begin");
   });
 
   it("documents both passes for an image with an empty source and alt text", () => {
