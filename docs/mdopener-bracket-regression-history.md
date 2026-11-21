@@ -1,6 +1,6 @@
 # Prose bracket regression history
 
-The [0.4.1 unreleased changelog](../CHANGELOG.md), under
+The 0.6.0 Fixed entry in the [changelog](../CHANGELOG.md),
 “`export_text` keeps brackets that are not reference links,” reports a loss of
 punctuation in mdopener-mcp's plain-text export. Previously, `[text]` without
 an inline `(url)` lost its square brackets: `[sic]`, `[TODO]`, and `[1]` came
