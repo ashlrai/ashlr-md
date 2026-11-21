@@ -1,6 +1,6 @@
 # The bracket-loss regression in mdopener-mcp
 
-In the [0.4.1 unreleased changelog](../CHANGELOG.md),
+Until the fix recorded under 0.6.0 (Fixed) in the [changelog](../CHANGELOG.md),
 `export_text` lost square brackets from ordinary prose: `[sic]`, `[TODO]`, and
 `[1]` became `sic`, `TODO`, and `1`, even though the page displayed the
 brackets. The inline Markdown reader treated any `[text]` without an inline
