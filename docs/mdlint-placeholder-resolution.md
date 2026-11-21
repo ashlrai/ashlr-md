@@ -74,8 +74,9 @@ Read the [installation guide](./installation.md).
 The rule does not check whether a nonempty destination exists, so open the link
 where the document will be used and verify that the path, URL, or anchor reaches
 the intended content. The same destination placeholder can appear in an image
-source. If the destination is unknown, leave it for an author to resolve or
-revise the sentence; do not guess.
+source. Check relative paths and anchors as well as external URLs. If there is
+no appropriate destination, revise the sentence or remove the link; if it is
+unknown, leave the placeholder for an author who knows. Do not guess.
 
 ## Image description
 
@@ -103,13 +104,25 @@ After resolving it:
 ![Sales doubled from January to June](images/sales.png)
 ```
 
-Describe the information the reader needs, not the fact that an image exists;
-the [accessibility guide](mdlint-placeholder-accessibility.md) helps you choose.
-The rule does not assess the quality of nonempty alt text. Verify that the image
-loads and that the description matches it. Put detailed data for a complex chart
-in nearby text or a table. A purely decorative image may appropriately have
-empty alt text, though this rule flags it; handle that warning in your
-accessibility workflow rather than adding misleading filler.
+The rule does not inspect the image or judge nonempty alt text, so the
+placeholder clears the warning while telling a screen reader user nothing.
+Someone who can see the image and knows its purpose should write the
+replacement. Verify that the image loads, then choose text for its purpose:
+
+- **Informative image:** describe the information or takeaway the reader needs,
+  not the fact that an image exists. For a complex chart, put the key takeaway
+  in the alt text and the detailed data in nearby prose or a table, and check
+  the numbers against the image.
+- **Functional image:** if the image is the only content of a link or control,
+  describe the action or destination, such as `Search`, not its appearance.
+- **Decorative image:** if it adds no information or function, empty alt text
+  such as `![](ornament.png)` may be right so assistive technology skips it.
+  This rule will warn again; handle that warning in your accessibility workflow
+  rather than adding misleading filler.
+
+The same image can need different text in different contexts. Avoid repeating
+adjacent text, and do not assume a filename describes the image. A clean lint
+result is not an accessibility review.
 
 ## Images with both placeholders
 
@@ -180,5 +193,4 @@ parser; reference-style links and images are not checked. Front matter, fenced
 and indented code, HTML blocks, inline code and inline math are masked from
 these checks. See [link rule boundaries](mdlint-link-rule-boundaries.md) and
 [image rule boundaries](mdlint-image-rule-boundaries.md) for matching limits,
-the [autofix guide](mdlint-autofix-guide.md) for overlapping fixes, and the
-[placeholder review guide](mdlint-placeholder-review.md) for a review workflow.
+and the [autofix guide](mdlint-autofix-guide.md) for overlapping fixes.

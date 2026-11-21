@@ -138,4 +138,13 @@ describe("placeholder resolution guide", () => {
     expect(guide).toContain(`\`${first}\``);
     expect(guide).toContain(`\`${second}\``);
   });
+
+  it("says a clean lint result is not an accessibility review", () => {
+    expect(guide).toContain("A clean lint\nresult is not an accessibility review.");
+  });
+
+  it("warns again when a decorative image is deliberately left empty", () => {
+    expect(guide).toContain("![](ornament.png)");
+    expect(lintDocument("![](ornament.png)", { rules })).toHaveLength(1);
+  });
 });

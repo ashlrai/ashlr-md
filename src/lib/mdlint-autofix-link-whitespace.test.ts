@@ -10,7 +10,7 @@ import {
 const rules = [ruleInvalidLinkTarget];
 
 // The placeholder is `TODO`, documented in docs/mdlint-autofix-guide.md and
-// docs/mdlint-placeholder-review.md: the fix replaces an empty or
+// docs/mdlint-placeholder-resolution.md: the fix replaces an empty or
 // whitespace-only destination and keeps the label.
 describe("invalid link autofix with a whitespace-only href", () => {
   it.each([
@@ -200,7 +200,7 @@ describe("invalid link autofix with a whitespace-only href", () => {
       "invalid-link-target",
     ]);
     // The wider missing-alt-text fix wins the batch (see applyAllFixes); the
-    // link fix applies on the next pass, as mdlint-placeholder-review.md
+    // link fix applies on the next pass, as mdlint-placeholder-resolution.md
     // describes.
     const once = applyAllFixes(doc, first);
     expect(once).toBe("A ![TODO: describe image](  ) here.\n");

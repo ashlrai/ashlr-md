@@ -30,7 +30,7 @@ warning, its range, and the actual fix against these snippets. Replace the
 placeholder with alt text appropriate to the image and its context. The
 placeholder is nonempty, so it clears this warning without confirming that
 the description is useful. The rule also warns on intentionally empty alt
-text for decorative images; see the [review guide](mdlint-placeholder-review.md).
+text for decorative images; see [resolving generated placeholders](mdlint-placeholder-resolution.md#image-description).
 
 The rule uses a pattern rather than a complete Markdown parser. It does not
 match an empty source (`![]()`) or reference-style images, and it stops at the
