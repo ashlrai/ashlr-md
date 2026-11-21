@@ -7,7 +7,7 @@ downstream distribution channels (Homebrew, winget, AUR).
 
 ## Automatic releases
 
-Merge a version bump (the three version carriers in section 1 must agree) and
+Merge a version bump (every version carrier in section 1 must agree) and
 `.github/workflows/auto-tag.yml` does the rest: once every required check on
 that exact `main` commit is green it creates `vX.Y.Z` with the ashlr-release
 GitHub App token, which starts `release.yml`. If no release run appears within
@@ -39,12 +39,29 @@ Before tagging, complete every item:
 - [ ] Update `version` in **`src-tauri/tauri.conf.json`** (e.g. `"0.2.0"`).
 - [ ] Update `version` in **`src-tauri/Cargo.toml`** `[package]` section to match.
 - [ ] Update `version` in **`package.json`** to match.
+- [ ] Update `version` in the sidecar manifests
+  **`src-tauri/bins/mdopen/Cargo.toml`** and
+  **`src-tauri/bins/mdopener-mcp/Cargo.toml`** to match. `auto-tag.yml` compares
+  only the three files above, but `bun run check:version` (part of the
+  required check) fails when a sidecar version differs from `package.json`.
+- [ ] Update `version` in **`server.json`** to match, as
+  [mcp-registry.md](./mcp-registry.md#version-and-validation) asks.
+- [ ] Refresh **`src-tauri/Cargo.lock`**: its `md-opener`, `mdopen` and
+  `mdopener-mcp` entries pick up the new version the next time Cargo runs,
+  for example `cargo check --manifest-path src-tauri/Cargo.toml`.
 - [ ] Update **`CHANGELOG.md`**: move the `## [Unreleased]` entries under a new
   heading `## [X.Y.Z] - YYYY-MM-DD` (a hyphen, as in the 0.7.1 to 0.7.5 headings).
 - [ ] Run `./scripts/generate-icons.sh` if `src-tauri/icons/icon.svg` changed.
+- [ ] Run `bun run check:version` and `bun run fresh:check`. The second
+  verifies that `package.json`, `tauri.conf.json` and the new dated
+  `CHANGELOG.md` heading agree. Leave `scripts/freshness/published.json`
+  alone: it advances only after the release is public (§4, "Advance the
+  release receipt").
 - [ ] Commit all changes and land them on `main` through a pull request:
   ```bash
-  git add src-tauri/tauri.conf.json src-tauri/Cargo.toml package.json CHANGELOG.md
+  git add src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock \
+    src-tauri/bins/mdopen/Cargo.toml src-tauri/bins/mdopener-mcp/Cargo.toml \
+    server.json package.json CHANGELOG.md
   git commit -m "chore: release vX.Y.Z"
   ```
 
@@ -311,6 +328,27 @@ yet qualified on four actual artifacts from one eligible run. It does not publis
 
    Homebrew, winget and the AUR stay manual.
 
+### Advance the release receipt
+
+The README release badge, the `CHANGELOG.md` "Released version" table and the
+landing page Download button are generated from
+`scripts/freshness/published.json`, not from `package.json`. No workflow
+updates that receipt, so until someone does, those three keep naming the
+previous release. Once the Release is published and marked Latest, confirm it
+and its assets, then advance the receipt in a pull request:
+
+```bash
+gh release list -R ashlrai/ashlr-md -L 1      # vX.Y.Z, marked Latest
+gh release view vX.Y.Z -R ashlrai/ashlr-md    # every asset in §3 attached
+# set "version" in scripts/freshness/published.json to "X.Y.Z", then:
+bun run fresh:sync
+bun run fresh:check
+```
+
+`fresh:sync` rewrites only the marked blocks, and the receipt's version must
+match exactly one dated `CHANGELOG.md` heading
+([scripts/freshness/README.md](../scripts/freshness/README.md)).
+
 Updater signatures are not Apple Developer ID signing/notarization or Windows
 Authenticode. Verify those independently, along with native install, update and
 UI behavior on each OS/architecture. The full CI suite covers Linux and macOS,
@@ -464,12 +502,14 @@ git commit -m "chore: regenerate app icons"
 - [ ] `src-tauri/tauri.conf.json` version bumped
 - [ ] `src-tauri/Cargo.toml` version bumped
 - [ ] `package.json` version bumped
+- [ ] Sidecar `Cargo.toml` files, `server.json` and `Cargo.lock` bumped to match
 - [ ] `CHANGELOG.md` updated
 - [ ] Icons regenerated (if SVG changed)
 - [ ] Version bump merged to `main`
 - [ ] `auto-tag.yml` created tag `vX.Y.Z`; `release.yml` fired
 - [ ] All four workflow legs green
 - [ ] Assembly succeeded and `release-publish.yml` published the Release (§4)
+- [ ] `scripts/freshness/published.json` advanced and `bun run fresh:sync` run (§4)
 - [ ] Homebrew tap cask updated (version + sha256)
 - [ ] winget manifest PR submitted to `microsoft/winget-pkgs`
 - [ ] AUR PKGBUILD updated and pushed
