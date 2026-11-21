@@ -253,6 +253,22 @@ beyond a docs change. If you touch a release script in `scripts/` (the
 `*release*` files, `assemble-updater.py` or `release-signature-check/`), run
 the three release lines too; no pull request job runs them.
 
+The editor companions in `integrations/` are separate packages, each with its
+own `package.json`. No workflow installs, typechecks, tests or builds them,
+and the root typecheck, Biome and Vitest cover only `src/` (and Vitest
+`test/`), so the required check passes whatever state they are in. The only
+gate that reads them is the punctuation test in `bun run test:unit`. After
+changing one, run its own checks from its folder:
+
+```bash
+cd integrations/vscode && npm install && npm test         # tsc, then node:test on src/*.test.ts
+cd integrations/obsidian && bun install --frozen-lockfile && bun run typecheck && bun run test && bun run build
+cd integrations/raycast && bun install && bun run typecheck && bun run test && bun run build
+```
+
+Use `bun run test` for the Obsidian plugin, not `bun test`: its script runs
+the tests under Node. Each folder's README covers building and installing it.
+
 ## DeepWiki documentation
 
 [`.devin/wiki.json`](./.devin/wiki.json) steers DeepWiki generation with
