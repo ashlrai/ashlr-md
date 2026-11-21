@@ -10545,32 +10545,8 @@ fn export_text_matches_bracket_history_examples() {
         assert_eq!(result["text"].as_str().unwrap(), expected, "{input:?}");
         examples += 1;
     }
-    assert_eq!(examples, 4, "all history examples must be checked");
-}
-
-#[test]
-fn export_text_matches_bracket_regression_history() {
-    let docs = include_str!("../../../../docs/mdopener-bracket-regression-history.md");
-    let (input, rest) = docs
-        .split_once("Input:\n```markdown\n")
-        .expect("history has an input example");
-    assert!(input.contains("CHANGELOG.md"));
-    let (markdown, rest) = rest
-        .split_once("\n```\nOutput:\n```text\n")
-        .expect("history input has an output");
-    let (expected, _) = rest.split_once("\n```").expect("output fence closes");
-    assert_eq!(
-        markdown,
-        "Review [TODO] and note [1]; see [guide].\n\n[guide]: /guide"
-    );
-    assert_eq!(expected, "Review [TODO] and note [1]; see guide.");
-    let result = run_export_text_on(&format!("{markdown}\n"));
-    assert_eq!(result["text"].as_str().unwrap(), expected);
-}
-
-#[test]
-fn bracket_regression_doc_cites_existing_tests() {
-    let docs = include_str!("../../../../docs/mdopener-bracket-regression.md");
+    assert_eq!(examples, 7, "all history examples must be checked");
+    assert!(docs.contains("CHANGELOG.md"));
     let source = include_str!("integration.rs");
     let mut cited = 0;
     for name in docs
@@ -10584,15 +10560,6 @@ fn bracket_regression_doc_cites_existing_tests() {
         cited += 1;
     }
     assert!(cited >= 3, "doc must cite the regression tests");
-    for (doc, want) in [
-        ("He said [sic] and [TODO]", "He said [sic] and [TODO]"),
-        ("See [Docs] now\n\n[docs]: https://e.x", "See Docs now"),
-        ("[ ] not a task", "[ ] not a task"),
-        ("- [ ] task", "task"),
-    ] {
-        let result = run_export_text_on(&format!("{doc}\n"));
-        assert_eq!(result["text"].as_str().unwrap(), want, "{doc:?}");
-    }
 }
 
 #[test]
