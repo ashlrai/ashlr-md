@@ -11,7 +11,7 @@ Ashlr MD opens `.md` files on macOS, Windows, and Linux, and it speaks [MCP](htt
 People get a rendered page instead of raw syntax. Agents get `mdopen`, `mdopener-mcp`, and JSON on stdout.
 
 <!-- fresh:begin version-badge -->
-[![Release: 0.4.0](https://img.shields.io/badge/release-0.4.0-0969da.svg)](https://github.com/ashlrai/ashlr-md/releases/tag/v0.4.0)
+[![Release: 0.7.5](https://img.shields.io/badge/release-0.7.5-0969da.svg)](https://github.com/ashlrai/ashlr-md/releases/tag/v0.7.5)
 <!-- fresh:end -->
 
 [![CI](https://github.com/ashlrai/ashlr-md/actions/workflows/ci.yml/badge.svg)](https://github.com/ashlrai/ashlr-md/actions/workflows/ci.yml)
