@@ -333,6 +333,11 @@ downloads and writes nothing. Repair boundaries:
 The offline schema export sorts tools by name and preserves complete input
 schemas, including property descriptions, for companion-client compatibility.
 `tools/list` keeps the presentation order shown in the tool table below.
+Checked-in fixtures pin the schema export, the `tools/list` fields, the
+`doctor`, `doctor --fix` and `setup --local` JSON, the `list_ai_actions`
+response and the vendored handshake contract; any drift fails `cargo test`.
+The [contract fixtures README](../src-tauri/bins/mdopener-mcp/tests/contract/README.md)
+lists each file, its test and how to update it.
 
 The tool table below and the frontend event inventory are checked against
 source by `python3 scripts/check-docs.py`.
