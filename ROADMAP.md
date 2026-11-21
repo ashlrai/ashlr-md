@@ -23,7 +23,9 @@ A change is "done" only when it works end-to-end in the running app, is beautifu
 in all three themes, degrades gracefully, passes every quality gate, and never
 leaks data off-device without explicit consent. Quality over scope, every time.
 
-## Shipped since v0.4
+## Shipped in v0.3 and later
+
+The [CHANGELOG](./CHANGELOG.md) has each release's full notes.
 
 **Distribution & reach**
 - **Auto-update channel is live**: v0.4.0 published with a working `latest.json`; the in-app updater pulls signed releases.
@@ -47,12 +49,15 @@ leaks data off-device without explicit consent. Quality over scope, every time.
 - **Round-trip**: **Open in Obsidian** + the companion **Open in Ashlr MD** plugin (ribbon, commands, file/editor menus, settings).
 - **A respectful guest**: saving is refused inside any `.obsidian/` config folder (textual + symlink-resolved guard).
 
+**Reading & editing**
+- **Find & replace**: `⌘F` finds in the Read and Source views (from Edit it switches to Read), `⌥⌘F` opens replace in the Source view, and `⇧⌘F` searches your recent and watched files.
+- **EPUB export**: next to PDF, DOCX and HTML, in the Export dialog (`⌘E`) and the command palette.
+
 **AI**
-- **Find & replace**: `⌘F` to find (edit + read views), `⌥⌘F` to replace; `⇧⌘F` cross-file search.
 - **Per-document chat memory + library RAG**: a user-owned AI memory store, and a **This doc / My library** toggle that grounds answers across your recent/watched Markdown with source citations.
 - **Local embeddings, on-device**: semantic "ask across my recent docs" via a local Ollama embedding model, with keyword fallback. Nothing leaves the machine.
 
-## Shipped (v0.1)
+## Shipped in v0.1 and v0.2
 
 - **Cross-platform**: macOS, Windows, and Linux (Tauri 2)
 - Instant, beautiful rendering (GFM · Shiki · Mermaid · KaTeX · callouts)
