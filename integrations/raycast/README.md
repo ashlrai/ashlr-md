@@ -1,18 +1,66 @@
 # Ashlr MD for Raycast
 
-On macOS, list the 50 most recently modified Markdown files indexed by Spotlight,
-search by name or path, and press Return to open one in the installed Ashlr MD app.
-Like the [VS Code integration](../vscode/README.md), this uses
-`mdopener://open?path=<percent-encoded-absolute-path>`; no shell handoff or app IPC credentials.
+Find a recently modified Markdown file from [Raycast](https://www.raycast.com)
+and open it in **[Ashlr MD](https://md.ashlr.ai)** with one keystroke.
 
-Run `bun install` in this directory, then `bun run dev` to load the local extension
-into Raycast. Run `bun run typecheck`, `bun test`, and `bun run build` to validate.
-Requires Raycast and Ashlr MD installed with its URL scheme registered.
+> **macOS only.** Raycast runs on macOS, and the extension reads Spotlight's
+> index. Ashlr MD must be installed so its `mdopener://` URL scheme is
+> registered.
 
-“Recent” means filesystem modification time, not Ashlr MD's viewing history.
-Spotlight exclusions and unindexed volumes are omitted. Deleted files, directories,
-dotfiles and invalid paths are filtered. Spotlight failures show an error; an empty
-index shows an empty list. Reopen the command to refresh results.
+## What it does
+
+| Step | What happens |
+|---|---|
+| Run **Open Recent Markdown** | Lists the 50 most recently modified Markdown files that Spotlight has indexed, newest first |
+| Type in the search bar | Filters the list by file name or full path |
+| Press Return (**Open in Ashlr MD**) | Opens the file in the installed Ashlr MD app |
+
+A Markdown file is one ending in `.md`, `.markdown`, `.mdown`, `.mkd` or
+`.mdx`, in any letter case: the same list the desktop app accepts. Like the
+[VS Code](../vscode/README.md) and [Obsidian](../obsidian/README.md)
+integrations, the extension opens
+`mdopener://open?path=<percent-encoded-absolute-path>`. It starts no shell,
+uses no app IPC credentials, and sends nothing over the network.
+
+## Requirements
+
+- macOS with [Raycast](https://www.raycast.com) installed
+- Ashlr MD installed: [download here](https://github.com/ashlrai/ashlr-md/releases/latest)
+- Spotlight indexing turned on for the folders you want listed
+
+## Build and test
+
+Load the extension from a clone of this repository with [Bun](https://bun.sh):
+
+```bash
+cd integrations/raycast
+bun install
+bun run dev        # ray develop: loads the extension into Raycast
+bun run test       # the path and deep-link helpers in src/deeplink.ts
+bun run typecheck  # tsc --noEmit
+bun run build      # ray build: validates and builds the extension
+```
+
+There is no committed lockfile, so `bun install` resolves the newest versions
+the `package.json` ranges allow and writes a `bun.lock` that git shows as
+untracked. Leave it out of your commit unless the change is meant to pin
+dependencies. No CI job builds or tests this extension, so run these commands
+after changing it (they are also listed in
+[CONTRIBUTING.md](../../CONTRIBUTING.md#quality-gates-all-must-pass)).
+
+## Caveats
+
+- "Recent" means file modification time, not Ashlr MD's viewing history.
+- Files Spotlight has not indexed are missing: excluded folders (System
+  Settings → Spotlight), unindexed volumes, and files created since the last
+  index update.
+- Deleted files, directories, dotfiles (a name starting with `.`), relative
+  paths and paths with `.` or `..` segments are dropped before listing.
+- The list is read once when the command opens. Reopen the command to refresh
+  it.
+- If Spotlight fails, takes longer than 10 seconds, or returns more than 4 MiB
+  of paths, the command shows "Could not read Spotlight results". An empty
+  index shows "No Markdown files found".
 
 ## Part of Ashlr
 
