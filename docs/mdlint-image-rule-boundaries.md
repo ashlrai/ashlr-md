@@ -29,7 +29,7 @@ See ![TODO: describe image](chart.png?view=full#data) and ![TODO: describe image
 Replace each placeholder with an appropriate description. The placeholder is
 nonempty, so it clears this warning even before it has been reviewed. Empty
 alt text can be intentional for a decorative image, but this rule still warns;
-see the [placeholder review guide](mdlint-placeholder-review.md).
+see [resolving generated placeholders](mdlint-placeholder-resolution.md#image-description).
 
 ## Matching limits
 
