@@ -12,7 +12,8 @@ function getLinksFromLlmsFile(filePath: string): Array<{name: string, url: strin
     const match = line.match(/^\- \[(.*?)\]\((.*?)\):/);
     if (match) {
       const name = match[1];
-      const url = match[2];
+      // Drop any #anchor: the file must exist (anchors are checked by check:doc-links).
+      const url = match[2].split("#")[0];
       links.push({ name, url });
     }
   }
