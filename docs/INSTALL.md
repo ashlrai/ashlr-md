@@ -22,6 +22,13 @@ There are no Homebrew, winget or AUR packages yet.
 > Developer ID, so macOS shows a warning. Right-click → Open bypasses this one
 > time. Once you have opened it this way, future launches work normally.
 
+The app bundle also carries the `mdopen` CLI and the `mdopener-mcp` MCP server
+in `/Applications/Ashlr MD.app/Contents/Resources/`. Neither is on your `PATH`
+after install. **Preferences → Command-line tool → Install mdopen** symlinks
+`mdopen` into `/usr/local/bin`, or into `~/.local/bin` when that is not
+writable. To connect Claude Code, Codex or Cursor to `mdopener-mcp`, see the
+[AI agent guide](AGENTS.md).
+
 ### Set Ashlr MD as the default Markdown app (macOS)
 
 1. Right-click any `.md` file in Finder → **Get Info**.
@@ -98,7 +105,8 @@ The `.deb` installs:
 - Icons under `/usr/share/icons/hicolor/`
 
 `mdopen` is not on your `PATH` after install. Use **Preferences → Command-line
-tool → Install mdopen**, or call it by its full path:
+tool → Install mdopen**, which symlinks it into `/usr/local/bin`, or into
+`~/.local/bin` when that is not writable. Or call it by its full path:
 `"/usr/lib/Ashlr MD/mdopen" notes.md`.
 
 After install, `.md` files will appear in **Open With → Ashlr MD** in Nautilus
@@ -217,9 +225,11 @@ Preferences and app data are stored at:
 - **Linux:** `~/.config/app.mdopener.desktop`
 
 On every platform the app and its agent tools also keep `~/.mdopener/`
-(`%USERPROFILE%\.mdopener\` on Windows): the IPC port and token files and
-`sessions/`, the conversation memory agents save. A copy made with **Install
-mdopen** stays where it was copied too.
+(`%USERPROFILE%\.mdopener\` on Windows): the IPC port and token files,
+`sessions/` (the conversation memory agents save) and `reviews/` (saved
+reviews). The `mdopen` link or copy made with **Install mdopen** stays too:
+`/usr/local/bin/mdopen` or `~/.local/bin/mdopen` on macOS and Linux,
+`%USERPROFILE%\.local\bin\mdopen.exe` on Windows.
 
 These are not removed by a standard uninstall; delete them manually if you
 want a clean slate.
