@@ -10079,7 +10079,7 @@ describe("rule:missing-alt-text", () => {
       "\n",
       "\r\n",
     ])("describes the guide's two example images on separate lines and keeps all surrounding text byte-for-byte (%j)", (nl) => {
-      // mdlint-empty-alt-behavior's example pair, split onto separate lines.
+      // mdlint-image-rule-boundaries' example pair, split onto separate lines.
       const first = "![](chart.png?view=full#data)";
       const second = '![  ](map.png "Map")';
       const repairedFirst = `![${PLACEHOLDER}](chart.png?view=full#data)`;
@@ -15679,7 +15679,7 @@ describe("rule:missing-alt-text two undescribed images", () => {
     "\n",
     "\r\n",
   ])("fills the documented two-images-on-one-line example and keeps both sources (%j line endings)", (nl) => {
-    // The worked example of docs/mdlint-empty-alt-behavior.md and
+    // The worked example of docs/mdlint-image-rule-boundaries.md and
     // docs/mdlint-autofix-guide.md: an empty alt and a whitespace-only alt
     // side by side on one line.
     const first = "![](chart.png?view=full#data)";
