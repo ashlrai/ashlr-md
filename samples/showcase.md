@@ -6,7 +6,7 @@ author: Claude Code
 # Ashlr MD Showcase
 
 A single document that exercises every renderer feature. If this all looks
-great, the app is working. Try **⌘K** for the command palette, **⌘⇧L** to cycle
+great, the app is working. Try **⌘K** for the command palette, **⇧⌘L** to cycle
 themes, **⌘B** for the Agent Activity drawer, and, while editing, **⌘I** for an
 inline AI rewrite. (Use **Ctrl** instead of ⌘ on Windows & Linux.)
 

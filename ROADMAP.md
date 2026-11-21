@@ -5,6 +5,12 @@
 > a joy to read, edit, share, and act on. See [`docs/VISION.md`](./docs/VISION.md)
 > for the north star.
 
+Ashlr MD is part of Ashlr. Phantom and its ecosystem form a fully autonomous,
+code-first, agent-native software factory, run by agents with the human as a
+passive board member, chasing open source RSI (recursive self improvement).
+Ashlr MD is the factory's Markdown surface: where an agent hands a document to
+a person. The other tools are listed in [Part of Ashlr](./README.md#part-of-ashlr).
+
 ## The goal loop
 
 We build in tight loops, and we don't move on until a loop closes:
@@ -21,7 +27,7 @@ leaks data off-device without explicit consent. Quality over scope, every time.
 
 **Distribution & reach**
 - **Auto-update channel is live**: v0.4.0 published with a working `latest.json`; the in-app updater pulls signed releases.
-- **Windows MSI/NSIS + Linux `.deb`/`.AppImage`**: cross-platform installers ship in v0.4.0 (unsigned for now).
+- **Windows MSI/NSIS + Linux `.deb`/`.AppImage`**: cross-platform installers ship in v0.4.0 (unsigned for now). Current releases add a Linux `.rpm`; see [`docs/INSTALL.md`](./docs/INSTALL.md).
 - **Apple Silicon macOS build**: ships in v0.4.0 (ad-hoc / unsigned; signing + notarization still pending, see [Next](#next)).
 
 **Make agent output come alive (the differentiator)**
@@ -42,7 +48,7 @@ leaks data off-device without explicit consent. Quality over scope, every time.
 - **A respectful guest**: saving is refused inside any `.obsidian/` config folder (textual + symlink-resolved guard).
 
 **AI**
-- **Find & replace**: `⌘F` to find (edit + read views), `⌘⌥F` to replace; `⌘⇧F` cross-file search.
+- **Find & replace**: `⌘F` to find (edit + read views), `⌥⌘F` to replace; `⇧⌘F` cross-file search.
 - **Per-document chat memory + library RAG**: a user-owned AI memory store, and a **This doc / My library** toggle that grounds answers across your recent/watched Markdown with source citations.
 - **Local embeddings, on-device**: semantic "ask across my recent docs" via a local Ollama embedding model, with keyword fallback. Nothing leaves the machine.
 
@@ -56,8 +62,8 @@ leaks data off-device without explicit consent. Quality over scope, every time.
 - **AI superpowers**: selection actions, **inline AI rewrite (⌘I)**, "Explain changes" on disk-change, chat-with-document
 - **⌘K command palette**: fuzzy access to every action + recent files
 - **Agent Activity drawer (⌘B)**: watch an agent's output folder, open new docs live
-- **Outline navigation (⌘⇧O)**: auto table-of-contents with scrollspy
-- **Multiple documents in tabs**: open many docs at once; tab bar appears only with 2+ open (`⌘⇧]` / `⌘⇧[` / `⌘W`)
+- **Outline navigation (⇧⌘O)**: auto table-of-contents with scrollspy
+- **Multiple documents in tabs**: open many docs at once; tab bar appears only with 2+ open (`⇧⌘]` / `⇧⌘[` / `⌘W`)
 - Agent hand-off: `mdopen` CLI · `mdopener://` scheme · **MCP server** (one-click setup)
 - Smart agent output: callouts, interactive checkboxes, plan/diff/multi-file detection with badges
 - Three themes, Settings, custom icon, CI + signed-release pipeline, landing site
@@ -67,7 +73,7 @@ leaks data off-device without explicit consent. Quality over scope, every time.
 **Distribution & reach**
 - [ ] Signed & notarized macOS DMG (needs an Apple Developer cert: the 6 `APPLE_*` secrets, see [`docs/RELEASING.md`](./docs/RELEASING.md))
 - [x] Intel (x86_64) macOS build: releases ship `Ashlr_MD_<version>_x64.dmg` (and the `x64.app.tar.gz` updater bundle) since v0.7.3, unsigned like the Apple Silicon build
-- [ ] Publish to Homebrew cask, winget, and AUR
+- [ ] Publish to Homebrew cask, winget, and AUR: the package definitions live in `packaging/` and [`docs/RELEASING.md`](./docs/RELEASING.md) has the manual update steps, but none is published yet
 
 **Make agent output come alive (the differentiator)**
 - [x] Live diff-review UI for ` ```diff ` blocks (apply / copy hunks): shipped in `src/components/viewer/DiffBlock.tsx` (per-hunk Copy hunk, Copy all, Apply, Reject)
@@ -88,7 +94,7 @@ leaks data off-device without explicit consent. Quality over scope, every time.
 **Polish**
 - [x] Image paste → saved relative to the file: shipped in `src/lib/pasteImage.ts`, used by `SourceEditor.tsx` and `MarkdownEditor.tsx`
 - [x] Image drag-drop ordering: shipped in `src/lib/milkdownImageDragDrop.ts`, wired into `MarkdownEditor.tsx`
-- [x] "Copy as rich text" for email/Slack: shipped in `src/lib/copyRichText.ts` (`⌘⇧C`)
+- [x] "Copy as rich text" for email/Slack: shipped in `src/lib/copyRichText.ts` (`⇧⌘C`)
 - [x] More export themes: offline themes in `src/lib/exportThemes.ts`, chosen through **Preferences → Export templates** (`src/lib/exportTemplates.ts`)
 - [x] Accessibility pass (full keyboard nav, screen-reader labels)
 
@@ -98,4 +104,8 @@ Open an issue or discussion, especially if you're a **non-technical** person
 drowning in agent-generated `.md`, or you build agents and want a better
 hand-off surface. Real use cases steer this roadmap more than anything.
 
-Contributions welcome: see [CONTRIBUTING.md](./CONTRIBUTING.md).
+Agents maintain this repository. Phantom (`phm improve`) and other coding agents
+open pull requests and merge them once the required checks pass, under the
+rules in [AGENTS.md](./AGENTS.md). People contribute the same way: see
+[Contribute with an agent](./CONTRIBUTING.md#contribute-with-an-agent), and the
+rest of [CONTRIBUTING.md](./CONTRIBUTING.md).

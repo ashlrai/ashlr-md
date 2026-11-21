@@ -17,6 +17,7 @@ import vscodeReadme from "../integrations/vscode/README.md?raw";
 import landingHtml from "../landing/index.html?raw";
 import readme from "../README.md?raw";
 import roadmap from "../ROADMAP.md?raw";
+import showcase from "../samples/showcase.md?raw";
 import mdopenIpc from "../src-tauri/bins/mdopen/src/ipc.rs?raw";
 import mdopenMain from "../src-tauri/bins/mdopen/src/main.rs?raw";
 import mcpLib from "../src-tauri/bins/mdopener-mcp/src/lib.rs?raw";
@@ -988,5 +989,23 @@ describe("doc facts: keyboard shortcuts", () => {
     expect(misordered(listed), "landing/index.html: write modifiers as ⌥⇧⌘").toEqual(
       [],
     );
+  });
+
+  // ROADMAP.md and the showcase sample mention shortcuts in prose, so they
+  // need not list all of them, but each one must be real and in app order.
+  it("ROADMAP.md and samples/showcase.md name only real shortcuts, in app order", () => {
+    for (const [name, doc] of [
+      ["ROADMAP.md", roadmap],
+      ["samples/showcase.md", showcase],
+    ] as const) {
+      const listed = all(/([⌥⇧⌘]+[A-Z0-9[\]\\/,])/g, doc);
+      expect(listed.length, `${name}: no shortcuts found`).toBeGreaterThan(2);
+      for (const l of listed) {
+        expect(documentedShortcuts, `${name}: ${l} is not a real shortcut`).toContain(
+          fromGlyphs(l),
+        );
+      }
+      expect(misordered(listed), `${name}: write modifiers as ⌥⇧⌘`).toEqual([]);
+    }
   });
 });
