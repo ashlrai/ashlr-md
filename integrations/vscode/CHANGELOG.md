@@ -13,8 +13,9 @@ All notable changes to the **Open in Ashlr MD** VS Code extension.
   command does. The `ashlr-md.openInEditMode` setting makes edit mode the
   default for the plain command.
 - `npm test` compiles the extension and runs tests for its pure helpers
-  (`src/links.ts`: `isOpenableInAshlr`, `buildDeepLink`) with Node's built-in
-  `node:test`; there were none.
+  (`src/links.ts`: `isOpenableInAshlr`, `buildDeepLink`, `handoffRefusal`) and
+  for the `mdopen` fallback (`src/cli.ts`: `openViaCli`, `cliFailureMessage`)
+  with Node's built-in `node:test`; there were none.
 
 ### Fixed
 
