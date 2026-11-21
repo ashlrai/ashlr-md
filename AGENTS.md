@@ -51,6 +51,10 @@ Agents are first-class users of Ashlr MD.
 - It also skips five fast-job steps of the required check, including
   `bun run test:unit`, whose punctuation test rejects em and en dashes in the
   Markdown docs. The walkthrough lists all five commands.
+- No CI job installs, tests or builds the editor companions in
+  `integrations/` (VS Code, Obsidian, Raycast). After changing one, run its
+  own checks, listed under
+  [Quality gates](CONTRIBUTING.md#quality-gates-all-must-pass).
 - `Check (Linux)` is the one required pull request check; once it is green,
   auto-merge and the merge queue land the change.
 - The full walkthrough, for agents and people alike, is
