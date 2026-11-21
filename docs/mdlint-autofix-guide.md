@@ -18,7 +18,7 @@ For a source-linked summary, see the [fix output reference](mdlint-fix-output-re
 For focused before-and-after examples, including single inputs with both
 fixes, see [what autofix preserves](mdlint-autofix-preservation.md).
 For an image-specific review workflow, see the
-[image alt-text review checklist](mdlint-image-review-checklist.md).
+[image alt-text review checklist](mdlint-image-rule-boundaries.md#reviewing-the-placeholder).
 For every rule, and for where the suggestions toast stands in the app today, see the
 [linter reference](LINTER.md).
 
