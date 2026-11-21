@@ -1,5 +1,10 @@
 # Resolving Markdown lint placeholders
 
+> **Not in the app yet.** The **Fix** and **Fix all** suggestions toast this
+> page describes is not mounted in Ashlr MD as of 0.7.5. The rules and fixes
+> live in `src/lib/mdlint.ts`, and the examples here are what its tests assert.
+> See [where the linter shows up today](./LINTER.md#where-it-shows-up-today).
+
 **Fix** and **Fix all** can insert placeholders when the linter cannot know the
 intended destination, image description, or document metadata. This guide lists
 every placeholder, shows the exact text each fix inserts, and how to replace it.

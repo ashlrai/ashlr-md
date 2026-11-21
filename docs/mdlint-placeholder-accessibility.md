@@ -1,5 +1,10 @@
 # Reviewing image alt text for accessibility
 
+> **Not in the app yet.** The **Fix** and **Fix all** suggestions toast this
+> page describes is not mounted in Ashlr MD as of 0.7.5. The rules and fixes
+> live in `src/lib/mdlint.ts`, and the examples here are what its tests assert.
+> See [where the linter shows up today](./LINTER.md#where-it-shows-up-today).
+
 The `missing-alt-text` rule warns when an inline Markdown image has empty or
 whitespace-only alt text and a nonempty source. **Fix** and **Fix all** insert
 the literal placeholder `TODO: describe image`; linting alone changes nothing.

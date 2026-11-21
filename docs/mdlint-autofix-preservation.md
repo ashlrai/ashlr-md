@@ -1,5 +1,10 @@
 # What Markdown autofix preserves
 
+> **Not in the app yet.** The **Fix** and **Fix all** suggestions toast this
+> page describes is not mounted in Ashlr MD as of 0.7.5. The rules and fixes
+> live in `src/lib/mdlint.ts`, and the examples here are what its tests assert.
+> See [where the linter shows up today](./LINTER.md#where-it-shows-up-today).
+
 The linter's link and image fixes change only the Markdown being fixed: labels,
 image sources, the prose around them, punctuation, and the final newline stay
 as they were. These examples reproduce cases in
