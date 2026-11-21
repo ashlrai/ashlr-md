@@ -17,6 +17,22 @@ agents open pull requests, merge them once the required checks pass, and fix
 the same path: a pull request that passes the
 [quality gates](#quality-gates-all-must-pass) below.
 
+## Find something to work on
+
+- **A red `main` comes first.** When the scheduled full suite fails on
+  `main`, [`fix-main.yml`](./.github/workflows/fix-main.yml) opens (or
+  comments on) an issue labelled `FIX-MAIN` and `P0`. Fix it forward with a
+  new pull request; never revert or force-push.
+- **Open issues.** The `good first issue` and `help wanted` labels mark work
+  that suits a newcomer, when any issue carries them.
+- **The roadmap.** Unchecked items under [Next](./ROADMAP.md#next) are open.
+  Some need maintainer credentials (the signed macOS build needs the Apple
+  signing secrets), so pick one that does not.
+- **Your own bug or idea.**
+  [Open an issue](https://github.com/ashlrai/ashlr-md/issues/new/choose) with
+  the bug report or feature request template, or send the pull request
+  directly. The repository has no GitHub Discussions.
+
 ## Contribute with an agent
 
 The path is the same whether you type the change yourself, drive a coding
