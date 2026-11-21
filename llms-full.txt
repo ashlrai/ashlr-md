@@ -117,22 +117,24 @@ mdopener://open?path=/absolute/path/to/file.md&mode=edit
 4. `request_review` blocks for a human verdict. Pass `path` or `content`, or a `review_id` to keep waiting.
 5. `get_user_annotations` reads the latest verdict and task checkboxes. Works from disk when the app is closed.
 6. `edit_document` replaces one exact `find` with `replace`. `save` defaults to false.
-7. `search_vault` searches the watched folder and recents.
+7. `search_vault` searches the watched folder and recents. When the app is closed, `vault` names a directory to search on disk instead.
 8. `present_document` switches the open doc to a distraction-free read view. It does not start the app.
 9. `list_ai_actions` lists editor AI actions. No app required.
-10. `get_conversation_context` reads a saved chat session.
-11. `save_conversation_message` appends one message to that session.
-12. `diff_documents` diffs two Markdown files on disk.
+10. `get_conversation_context` reads a saved chat session. No app required.
+11. `save_conversation_message` appends one message to that session. No app required.
+12. `diff_documents` diffs two Markdown files on disk. No app required.
 13. `stream_edit` previews a find/replace as a diff.
 14. `stream_edit_apply` applies a preview.
-15. `export_text` returns plain text with Markdown syntax stripped.
-16. `export_metadata` returns headings, front matter, and wikilinks.
-17. `edit_canvas` edits a `.canvas` file. It writes by default.
+15. `export_text` returns plain text with Markdown syntax stripped. With `path` it reads that file from disk, no app required.
+16. `export_metadata` returns headings, front matter, and wikilinks. With `path` it reads that file from disk, no app required.
+17. `edit_canvas` edits a `.canvas` file. It writes by default. No app required.
 18. `export` exports the open document. Formats: `pdf`, `docx`, `html`, `epub`. With `output_path` the document must be in Read view. PDF takes no `output_path`.
 19. `replace_document` replaces the whole open document.
 20. `set_content` is the same whole-document replace.
 
 Prefer `edit_document` over `set_content` and `replace_document`.
+
+The other tools act on the window and need the running app. `open_file` starts it; no other tool does. Details: https://github.com/ashlrai/ashlr-md/blob/main/docs/AGENTS.md#how-it-works-the-ipc-model
 
 `open_file` arguments:
 
