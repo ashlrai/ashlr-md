@@ -100,9 +100,11 @@ leaks data off-device without explicit consent. Quality over scope, every time.
 
 ## How to shape it
 
-Open an issue or discussion, especially if you're a **non-technical** person
-drowning in agent-generated `.md`, or you build agents and want a better
-hand-off surface. Real use cases steer this roadmap more than anything.
+[Open an issue](https://github.com/ashlrai/ashlr-md/issues/new/choose) with
+the bug report or feature request template, especially if you're a
+**non-technical** person drowning in agent-generated `.md`, or you build agents
+and want a better hand-off surface. Real use cases steer this roadmap more than
+anything. The repository has no GitHub Discussions; issues are the place.
 
 Agents maintain this repository. Phantom (`phm improve`) and other coding agents
 open pull requests and merge them once the required checks pass, under the
