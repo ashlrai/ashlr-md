@@ -18,6 +18,12 @@ describe("isOpenableInAshlr", () => {
 });
 
 describe("buildUrl", () => {
+	it("preserves the resolved path to a nested Markdown document", () => {
+		const path = "/My Vault/Projects/Release Notes/launch.md";
+		const link = new URL(buildUrl(path));
+		assert.equal(link.searchParams.get("path"), path);
+	});
+
 	it("encodes the path and adds the mode when given", () => {
 		assert.equal(buildUrl("/My Vault/a&b.md"), "mdopener://open?path=%2FMy%20Vault%2Fa%26b.md");
 		assert.equal(buildUrl("/a.md", "edit"), "mdopener://open?path=%2Fa.md&mode=edit");
