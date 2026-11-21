@@ -13,7 +13,7 @@ scroll-reveal animations.
 | `index.html` | The whole page: markup, styles and script |
 | `og.png` | The social preview image (`og:image` and `twitter:image`) |
 | `llms.txt`, `llms-full.txt` | The agent index and the one-file manual, served at the site root |
-| `robots.txt`, `sitemap.xml` | Crawler rules and the one-page sitemap |
+| `robots.txt`, `sitemap.xml` | Crawler rules and the sitemap (the page plus both llms files) |
 | `vercel.json` | Static hosting config: no framework, no build, and a skip when nothing in `landing/` changed |
 
 ## Keep it in step with the repository
@@ -38,6 +38,9 @@ fails a check:
   the repository root. After editing either root file, run
   `cp llms.txt llms-full.txt landing/` and
   `node --test scripts/llms-txt.test.mjs`.
+- **Sitemap dates.** No script updates `sitemap.xml`. When you change
+  `index.html`, `llms.txt` or `llms-full.txt`, set that entry's `<lastmod>`
+  to the date of the change.
 
 ## Preview locally
 
