@@ -1,5 +1,10 @@
 # Review checklist for generated image alt text
 
+> **Not in the app yet.** The **Fix** and **Fix all** suggestions toast this
+> page describes is not mounted in Ashlr MD as of 0.7.5. The rules and fixes
+> live in `src/lib/mdlint.ts`, and the examples here are what its tests assert.
+> See [where the linter shows up today](./LINTER.md#where-it-shows-up-today).
+
 The `missing-alt-text` rule warns about an inline image with empty or
 whitespace-only alt text and a nonempty source. **Fix** or **Fix all** inserts
 the literal placeholder `TODO: describe image`; it does not inspect the image or
