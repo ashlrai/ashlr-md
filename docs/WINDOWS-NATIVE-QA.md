@@ -223,9 +223,24 @@ the same PID and Window conditions. The eight-window cap applies to both levels
 together; foreign ownership, overflow and multiple enabled dialogs still fail.
 The PowerShell regression reproduces the desktop-only miss and exercises the real
 discovery code with that owned-child layout, either modality flag, both ambiguity
-layouts, and ownership/count/traversal boundaries. A hosted Windows rerun is still
-needed to establish the native provider's layout and qualify the real Open scenario.
+layouts, and ownership/count/traversal boundaries. Later hosted runs qualified the
+real Open scenario; see [Current result](#current-result).
 
 The same run's always-run cleanup step succeeded. Its read-only AppData and Desktop
 messages describe recovered WinError 5 removal attempts, covered by the existing
 single-retry tests, rather than an additional cleanup failure.
+
+## Current result
+
+Every run since 2026-11-18 has passed. The last failure, run 44391808816,
+stopped at "Prepare and verify original artifacts": the unauthenticated
+`api.github.com` `/releases/latest` read returned 403 under the shared hosted-runner
+rate limit. #1956 replaced it with the `releases/latest/download/latest.json`
+updater feed on github.com, and the next push run passed.
+
+The "Install probe and uninstall without artifact token" step now passes too. In
+run 44652172121 it logs a warning that the CLI startup scenario failed, then
+`PASS: distinct real Open-file UI scenario matched original native Unicode DOM.
+CLI startup remains failed.` So the real Open-file scenario is qualified on a
+hosted runner. The original 0.5.0 app still does not show its startup fixture,
+and the probe reports that as a warning annotation, not a job failure.

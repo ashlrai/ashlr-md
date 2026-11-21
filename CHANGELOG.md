@@ -52,7 +52,7 @@ Released 2026-11-09. [Release notes and downloads](https://github.com/ashlrai/as
 - `docs/WINDOWS-NATIVE-QA.md` documents the dialog ancestry and filename Edit narrowing rules above.
 - `docs/NATIVE-QA-PROPOSAL.md` notes that `native-qa.yml` now also runs after merges to `main` and on published releases.
 - `docs/WINDOWS-NATIVE-QA.md` states that `native-qa-windows.yml` runs on pushes to `main` and published releases as well as `workflow_dispatch`, and documents the failure annotations.
-- `docs/proposals/windows-probe-ci.md` proposes stopping the Windows original-artifact probe from re-running on every merge; it is listed in `docs/README.md`.
+- `docs/proposals/windows-probe-ci.md` proposes stopping the Windows original-artifact probe from re-running on every merge; it is listed in `docs/README.md`. It is now marked not needed: after #1956 fixed the Prepare step, every run passed, and `docs/WINDOWS-NATIVE-QA.md` has a "Current result" section saying the real Open-file scenario is qualified on a hosted runner while the original CLI startup still fails.
 - `CONTRIBUTING.md` names `bun run fresh:sync` and `bun run doclive:sync`, the commands that rewrite the generated release and docs blocks the matching check scripts verify.
 - `CONTRIBUTING.md` lists `bun run test:select`, `bun run test:dispatch` and `bun run bench:render`, the last npm scripts it did not mention.
 - `docs/integration-bracket-preservation.md` shows an annotation and a citation written back to back (`[sic][1]`) keeping both fragments in order.

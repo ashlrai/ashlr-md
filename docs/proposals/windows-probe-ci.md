@@ -1,6 +1,20 @@
 # Proposal: stop the Windows original-artifact probe from re-running on every merge
 
-Status: proposed, needs G1 Security review. No file under `.github/` was changed.
+Status: not needed, kept as a record. No file under `.github/` was changed.
+
+## Outcome
+
+The loop this proposal describes stopped without the diff below. #1956
+(2026-11-18) changed only `scripts/native-qa-windows.py` and its test: the
+Prepare step now reads the stable version from the
+`releases/latest/download/latest.json` updater feed instead of the
+unauthenticated `api.github.com` `/releases/latest` call that returned 403.
+Every run of the workflow since then has passed, including step 12, which now
+qualifies the real Open-file scenario and reports the original CLI startup
+failure as a warning. The workflow still runs on every push to `main`. See
+[Current result](../WINDOWS-NATIVE-QA.md#current-result).
+
+The rest of this page is the proposal as written while the job was failing.
 
 ## Problem
 
