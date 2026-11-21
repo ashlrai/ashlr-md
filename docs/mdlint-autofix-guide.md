@@ -19,8 +19,6 @@ and examples of replacing them with reviewed content.
 For a source-linked summary, see the [fix output reference](mdlint-fix-output-reference.md).
 For focused before-and-after examples, including single inputs with both
 fixes, see [what autofix preserves](mdlint-autofix-preservation.md).
-For exactly what to replace in each generated placeholder, see
-[placeholder follow-up](mdlint-placeholder-followup.md).
 For an image-specific review workflow, see the
 [image alt-text review checklist](mdlint-image-review-checklist.md).
 For every rule, and for where the suggestions toast stands in the app today, see the
