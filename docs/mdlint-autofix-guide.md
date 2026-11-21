@@ -1,5 +1,10 @@
 # Markdown link and image autofixes
 
+> **Not in the app yet.** The **Fix** and **Fix all** suggestions toast this
+> page describes is not mounted in Ashlr MD as of 0.7.5. The rules and fixes
+> live in `src/lib/mdlint.ts`, and the examples here are what its tests assert.
+> See [where the linter shows up today](./LINTER.md#where-it-shows-up-today).
+
 The linter reports warnings for certain inline Markdown links and images. In the linter suggestions,
 use **Fix** for one warning or **Fix all** for the available fixes. The two rules below are enabled
 by default and can be managed in Settings → Linter rules. Linting itself does not change the document.

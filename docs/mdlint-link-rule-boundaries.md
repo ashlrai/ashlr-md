@@ -1,5 +1,10 @@
 # Invalid link targets: rule boundaries and review
 
+> **Not in the app yet.** The **Fix** and **Fix all** suggestions toast this
+> page describes is not mounted in Ashlr MD as of 0.7.5. The rules and fixes
+> live in `src/lib/mdlint.ts`, and the examples here are what its tests assert.
+> See [where the linter shows up today](./LINTER.md#where-it-shows-up-today).
+
 The `invalid-link-target` rule is enabled by default and emits a warning for
 each matched inline link whose destination is:
 

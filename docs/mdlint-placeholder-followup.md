@@ -1,5 +1,10 @@
 # Placeholder follow-up after Markdown lint fixes
 
+> **Not in the app yet.** The **Fix** and **Fix all** suggestions toast this
+> page describes is not mounted in Ashlr MD as of 0.7.5. The rules and fixes
+> live in `src/lib/mdlint.ts`, and the examples here are what its tests assert.
+> See [where the linter shows up today](./LINTER.md#where-it-shows-up-today).
+
 The linter's **Fix** and **Fix all** actions write placeholders where only an
 author can supply the intended content. Two forms are generated: `TODO` as a
 link or image destination (the `invalid-link-target` fix) and
