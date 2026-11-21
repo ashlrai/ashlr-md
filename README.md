@@ -139,12 +139,18 @@ The server exposes these 20 tools, in the order the server lists them. Input sch
 
 The server also serves resources (`mdopener://current`, `text://vault-search`, `mdopener://recent-documents`, and a `file://` entry for each watched-folder file) and three prompts (`summarize`, `review_plan`, `improve_writing`) that embed the open document. See [Resources](./docs/AGENTS.md#resources-reference) and [Prompts](./docs/AGENTS.md#prompts-reference).
 
-## Desktop app without a terminal
+## One-click agent setup
 
-For the desktop app, without a terminal.
+Open the app, then Preferences, then AI agents (MCP). Click **Connect to Claude Code**, **Connect to Cursor**, or **Connect to Codex**. Each button registers this app's `mdopener-mcp`. The terminal commands that do the same job are in [Get started](#get-started).
 
-1. Download the [latest release](https://github.com/ashlrai/ashlr-md/releases/latest) for your OS: `.dmg` (`aarch64` for Apple Silicon, `x64` for Intel), `.msi`/`-setup.exe` (Windows), `.deb`/`.rpm`/`.AppImage` (Linux).
-2. Double-click any `.md` file, or run `mdopen notes.md` after **Preferences → Command-line tool → Install mdopen** (the app's installers leave `mdopen` off your `PATH`; see [docs/AGENTS.md](./docs/AGENTS.md#install)).
+Discovery metadata: [docs/mcp-registry.md](./docs/mcp-registry.md).
+
+## Download
+
+The desktop app needs no terminal.
+
+1. Download the [latest release](https://github.com/ashlrai/ashlr-md/releases/latest) for your OS: `.dmg` (`aarch64` for Apple Silicon, `x64` for Intel), `.msi`/`-setup.exe` (Windows), `.deb`/`.rpm`/`.AppImage` (Linux). Per-OS steps are in [docs/INSTALL.md](./docs/INSTALL.md). The app includes an updater.
+2. Double-click any `.md` file. The installers do not put `mdopen` on `PATH`. To run `mdopen notes.md`, use Preferences, Command-line tool, Install mdopen, or the [install script](#get-started) on macOS and Linux ([details](./docs/AGENTS.md#install)).
 3. Ask the AI sidebar about it. On a Mac with Apple Silicon and macOS 26 or later, the built-in on-device model needs no account and no API key: turn on Apple Intelligence in System Settings, then restart Ashlr MD. On Windows and Linux, install [Ollama](https://ollama.com) for free local AI, or add an Anthropic API key in Preferences.
 
 <img src="./docs/readme/hero.png" width="820" alt="Illustration of a rendered plan, agent panel, and Approve button" />
@@ -224,22 +230,6 @@ Macs (Apple Silicon and Intel), Windows x64, and Linux x86_64. The current relea
 ### How does Phantom open a file?
 
 [How Ashlr MD plugs into Phantom](#how-ashlr-md-plugs-into-phantom).
-
-## Star Ashlr MD
-
-If an agent on your machine should open Markdown in a real window, star the repo so the next person can find it.
-
-[Star ashlrai/ashlr-md on GitHub](https://github.com/ashlrai/ashlr-md)
-
-## One-click agent setup
-
-Open the app, then Preferences, then AI agents (MCP). Click **Connect to Claude Code**, **Connect to Cursor**, or **Connect to Codex**. Each button registers this app's `mdopener-mcp`. The terminal commands that do the same job are in [Get started](#get-started).
-
-Discovery metadata: [docs/mcp-registry.md](./docs/mcp-registry.md).
-
-## Download
-
-Release builds are on the [latest release](https://github.com/ashlrai/ashlr-md/releases/latest). Per-OS steps are in [docs/INSTALL.md](./docs/INSTALL.md). The app includes an updater. The installers do not put `mdopen` on `PATH`. Use Preferences, Command-line tool, Install mdopen, or the [install script](#get-started) on macOS and Linux.
 
 ## How Ashlr MD plugs into Phantom
 
@@ -327,6 +317,12 @@ Cryptography notes, with no quantum-safety claim: [docs/PQ-READINESS.md](./docs/
 ### How agents work on this repository
 
 Agents maintain Ashlr MD. Phantom (`phm improve`) and other coding agents open pull requests, merge them once the required checks pass, and fix `main` forward. Their rules are in [AGENTS.md](./AGENTS.md), and the checks every change must pass are in [CONTRIBUTING.md](./CONTRIBUTING.md#quality-gates-all-must-pass). People contribute the same way: [Contribute with an agent](./CONTRIBUTING.md#contribute-with-an-agent) walks through fork, branch, local checks, pull request and auto-merge.
+
+## Star Ashlr MD
+
+If an agent on your machine should open Markdown in a real window, star the repo so the next person can find it.
+
+[Star ashlrai/ashlr-md on GitHub](https://github.com/ashlrai/ashlr-md)
 
 ## Contributing
 
