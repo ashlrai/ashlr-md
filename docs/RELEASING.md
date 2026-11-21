@@ -50,7 +50,7 @@ Before tagging, complete every item:
   `mdopener-mcp` entries pick up the new version the next time Cargo runs,
   for example `cargo check --manifest-path src-tauri/Cargo.toml`.
 - [ ] Update **`CHANGELOG.md`**: move the `## [Unreleased]` entries under a new
-  heading `## [X.Y.Z] - YYYY-MM-DD` (a hyphen, as in the 0.7.1 to 0.7.5 headings).
+  heading `## [X.Y.Z] - YYYY-MM-DD` (a hyphen, as in every release heading).
   At the bottom of the file, point `[Unreleased]` at `vX.Y.Z...HEAD` and add
   `[X.Y.Z]: https://github.com/ashlrai/ashlr-md/compare/vPREV...vX.Y.Z`
   above the previous version's line.

@@ -135,7 +135,7 @@ Released 2026-11-09. [Release notes and downloads](https://github.com/ashlrai/as
   `src/lib/mdlint-link-relocation.test.ts`), hundreds more `mdlint` autofix
   cases, and `mdopener-mcp` integration cases for the export tools.
 
-## [0.7.0] — 2026-11-05
+## [0.7.0] - 2026-11-05
 
 ### Fixed
 - **PDF export prints once.** Creating the hidden print frame and closing
@@ -181,7 +181,7 @@ Released 2026-11-09. [Release notes and downloads](https://github.com/ashlrai/as
   emoji, containers and reference/wiki-link shapes; the fixture tables live
   in `docs/bracketed-prose-example-table.md`.
 
-## [0.6.0] — 2026-11-02
+## [0.6.0] - 2026-11-02
 
 ### Added
 - **Agent-first README, `llms.txt` and `llms-full.txt`.** The README now leads
@@ -3670,7 +3670,7 @@ Released 2026-11-09. [Release notes and downloads](https://github.com/ashlrai/as
   per preferences section, plus a shared icon set) — no behavior change, the
   panel is now a thin composition shell.
 
-## [0.5.0] — 2026-11-01
+## [0.5.0] - 2026-11-01
 
 Build-qualified prerelease, published as a GitHub prerelease from the
 `release-validation/md-0.5.0-editing-repairs` branch (commit `721b976`) for
@@ -3680,7 +3680,7 @@ pending, macOS builds were ad-hoc signed and not notarized, and no updater
 feed or compiled assets were published. Superseded by [0.6.0], which contains
 every change the candidate carried plus all work merged to `main` since.
 
-## [0.4.0] — 2026-06-06
+## [0.4.0] - 2026-06-06
 
 ### Agent integration & human review
 - **One-click connect for your coding agent** — wire Ashlr MD into **Claude
@@ -3759,7 +3759,7 @@ every change the candidate carried plus all work merged to `main` since.
   scoped to advertised files, and a cross-stack security audit's fixes ship in
   this release.
 
-## [0.3.0] — 2026-06-05
+## [0.3.0] - 2026-06-05
 
 ### Default-app & reliability
 - **The "Make default" banner now tells the truth.** Tri-state detection means
@@ -3810,7 +3810,7 @@ every change the candidate carried plus all work merged to `main` since.
 ### Deliberately avoided
 - No streaks, no scheduled "come back" pings, no engagement-bait.
 
-## [0.2.0] — 2026-06-03
+## [0.2.0] - 2026-06-03
 
 ### Added
 - **Cross-platform support** — Ashlr MD now builds and runs on **macOS, Windows,
@@ -3838,7 +3838,7 @@ every change the candidate carried plus all work merged to `main` since.
 - Unified visual language (shadows, motion, focus rings) across every surface in
   all three themes.
 
-## [0.1.0] — 2026-06-02
+## [0.1.0] - 2026-06-02
 
 Initial release: instant beautiful rendering (GFM, code, Mermaid, math,
 callouts), WYSIWYG + source editing, PDF/DOCX/HTML export, local-first tiered
