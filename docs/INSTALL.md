@@ -117,8 +117,18 @@ and other XDG-compliant file managers.
 
 ### Fedora / RHEL (.rpm)
 
-Download `Ashlr_MD_X.Y.Z_x86_64.rpm` from the latest release and install it with
-`sudo dnf install ./Ashlr_MD_X.Y.Z_x86_64.rpm`.
+Download `Ashlr_MD_X.Y.Z_x86_64.rpm`, saved here as `AshlrMD.rpm`:
+
+```bash
+VERSION=X.Y.Z  # the latest release, for example 1.2.3
+
+# Download the .rpm
+curl -fL -o AshlrMD.rpm \
+  "https://github.com/ashlrai/ashlr-md/releases/download/v${VERSION}/Ashlr_MD_${VERSION}_x86_64.rpm"
+
+# Install it; dnf also pulls in its dependencies
+sudo dnf install ./AshlrMD.rpm
+```
 
 ### Option B: AppImage (portable, any distro)
 
