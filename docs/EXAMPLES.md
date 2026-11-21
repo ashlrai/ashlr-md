@@ -2,7 +2,7 @@
 
 Every command is meant to be pasted as written. Run the blocks below from the repository root, in bash, unless a heading says otherwise.
 
-The install script is for macOS and Linux. It needs Rust, Bun, and git. `SKIP_APP_BUILD=1` builds `mdopen` and `mdopener-mcp` and skips the desktop app.
+The install script is for macOS and Linux. It needs Rust, Bun, git, and curl. `SKIP_APP_BUILD=1` builds `mdopen` and `mdopener-mcp` and skips the desktop app.
 
 ## Install from a checkout
 
@@ -22,7 +22,7 @@ export PATH="$HOME/.local/bin:$PATH"
 SKIP_APP_BUILD=1 bash <(curl -fsSL https://raw.githubusercontent.com/ashlrai/ashlr-md/main/scripts/install.sh)
 ```
 
-That clones into `~/ashlr-md` when you are not already in a checkout. When `claude` is on `PATH`, the script registers the MCP server for you.
+Run this way, the script is not inside a checkout, so it clones into `~/ashlr-md` (set `CLONE_DIR` to change that), or fast-forwards that clone when it is already there. Your current directory does not matter. When `claude` is on `PATH`, the script registers the MCP server for you.
 
 ## JSON commands
 
@@ -58,11 +58,12 @@ To resume a pending review, pass the returned `reviewId` as the `review_id` inpu
 ```bash
 mdopen samples/agent-plan.md
 mdopen --edit samples/agent-plan.md
+echo '# Hello' | mdopen -
 mdopen --version
 mdopen --help
 ```
 
-`mdopen` exits 0 when a viewer accepted the file. The desktop app has to be installed for the window to appear. The CLI and MCP server from `SKIP_APP_BUILD=1` are enough for the JSON commands above.
+`mdopen -` reads Markdown from stdin (up to 16 MiB) and opens it from a temp file. `mdopen` exits 0 when the running app accepted the file, or when the app was not running and the `mdopener://` launch URL was handed to the OS. It exits 1 on bad usage, a missing or non-Markdown file, or when the app refused the file; stderr says which. The desktop app has to be installed for the window to appear. The CLI and MCP server from `SKIP_APP_BUILD=1` are enough for the JSON commands above.
 
 ## Claude Code
 
@@ -77,6 +78,8 @@ Restart Claude Code, then:
 ```bash
 claude mcp list
 ```
+
+To have every Markdown file Claude writes or edits open in Ashlr MD, use Preferences, AI agents (MCP), Auto-open agent Markdown. It adds an `mdopen --hook` entry to `~/.claude/settings.json`. The JSON it writes and the rules for what opens: [the auto-open hook](./AGENTS.md#auto-open-hook).
 
 ## Codex
 
@@ -127,7 +130,7 @@ These are the arguments, not shell commands. `open_file` is the tool that starts
 {"path": "samples/agent-plan.md", "blocking": true}
 ```
 
-`export` needs Read view. `open_file` with `"mode": "read"` first. PDF uses the system dialog and takes no `output_path`.
+With `output_path`, `export` writes the file without a dialog and needs Read view, so call `open_file` with `"mode": "read"` first. Without `output_path` it opens the app's export dialog. PDF always uses the system print dialog and takes no `output_path`. An existing file is replaced only with `"overwrite": true`.
 
 ```json
 {"format": "html", "output_path": "/tmp/agent-plan.html", "overwrite": false}
