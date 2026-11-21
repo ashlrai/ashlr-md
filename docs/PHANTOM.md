@@ -103,13 +103,14 @@ What Ashlr MD reads, at call time:
 |---|---|---|
 | `ANTHROPIC_BASE_URL` | AI sidebar (Anthropic) | `https://` to any host, or plain `http://` only to `127.0.0.1` or `[::1]`. Anything else is refused before the key is attached. The Phantom proxy URL is loopback http, so it is accepted. |
 | `ASHLR_MD_ANTHROPIC_KEY_FROM_ENV` | AI sidebar (Anthropic) | Exactly `1` turns on reading the key from `ANTHROPIC_API_KEY` instead of Settings. Unset, or any other value, means Settings only (the default). |
-| `OLLAMA_HOST` | AI sidebar and semantic search (Ollama) | Taken as given: `host`, `host:port`, `:port` or a full URL. |
-| `OLLAMA_HOST` | MCP sidecar (`mdopener-mcp`) embeddings | Since #138: `https://` to any host, or plain `http://` only to `127.0.0.1` or `[::1]`. `:port`, `0.0.0.0` and `[::]` map to loopback, and redirects are refused. |
+| `OLLAMA_HOST` | AI sidebar and semantic search (Ollama) | `host`, `host:port`, `:port` or a full URL; unset means `http://localhost:11434`. Loopback only (`127.0.0.1`, `[::1]` or `localhost`, written exactly that way; `0.0.0.0` and `[::]` map to loopback). A remote host is refused unless `~/.ashlr/config.json` sets `localInference.allowRemote` to `true` and the URL is `https://`. The environment cannot allow a remote host by itself. |
+| `OLLAMA_HOST` | MCP sidecar (`mdopener-mcp`) embeddings | Unset means `http://127.0.0.1:11434`. Plain `http://` only to `127.0.0.1` or `[::1]` (`http://localhost` is refused); `:port`, `0.0.0.0` and `[::]` map to loopback. A remote host also needs `https://` and `localInference.allowRemote: true`, as in the app. Redirects are refused. |
 
 Things to know:
 - **The Anthropic key comes from Settings by default.** The app sends the key saved in Settings, which is stored in the OS keychain, and ignores `ANTHROPIC_API_KEY`. To use the `phm_` placeholder from `phantom exec` instead, opt in with `ASHLR_MD_ANTHROPIC_KEY_FROM_ENV=1` (see below).
 - **Shell-launched only.** An app launched from the Dock or Start menu does not see variables from your shell or from `phantom exec`. Start its executable from that shell instead: for example `phantom exec -- /usr/bin/md-opener` on a Linux `.deb` install, or the executable inside `Ashlr MD.app/Contents/MacOS/` on macOS. `open -a` hands the launch to the OS and may not pass the variables. These launch forms have not been tested here.
 - **The sidecar has no key.** `mdopener-mcp` sends no Anthropic requests and attaches no key to Ollama requests. An agent that runs it under `phantom exec` needs no placeholder for it.
+- **Offline mode wins.** With `localInference.offline` set in `~/.ashlr/config.json`, the AI sidebar never calls Anthropic, not even through the loopback Phantom proxy, and `OLLAMA_HOST` must be loopback even when `allowRemote` is `true`. See [Local and custom AI](./local-ai.md#offline-mode).
 - **No `phm:` references.** Ashlr MD never resolves a `phm:` reference. Do not use `phantom reveal` to copy a key into Settings or into the environment.
 
 ### Using `ANTHROPIC_API_KEY` from the environment (opt-in)
