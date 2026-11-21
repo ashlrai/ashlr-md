@@ -356,10 +356,14 @@ class ProcessTests(unittest.TestCase):
             self.assertIsNotNone(proc.returncode)
             # A dead child can briefly remain a zombie until the host reaps it.
             path=Path(f'/proc/{child}/stat')
+            def state():
+                # The entry can vanish between a check and a read (reaped), so read once.
+                try: return path.read_text().split()[2]
+                except (FileNotFoundError, ProcessLookupError): return None
             until=time.monotonic()+2
-            while path.exists() and path.read_text().split()[2] != 'Z' and time.monotonic()<until:
+            while state() not in (None,'Z') and time.monotonic()<until:
                 time.sleep(.02)
-            self.assertTrue(not path.exists() or path.read_text().split()[2]=='Z')
+            self.assertIn(state(),(None,'Z'))
         finally:
             try: os.killpg(proc.pid,signal.SIGKILL)
             except ProcessLookupError: pass
