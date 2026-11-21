@@ -77,9 +77,9 @@ leaks data off-device without explicit consent. Quality over scope, every time.
 
 **Make agent output come alive (the differentiator)**
 - [x] Live diff-review UI for ` ```diff ` blocks (apply / copy hunks): shipped in `src/components/viewer/DiffBlock.tsx` (per-hunk Copy hunk, Copy all, Apply, Reject)
-- [ ] Recognize & pretty-render more agent doc schemas (plans, reviews, specs) with bespoke renderers
+- [ ] Recognize & pretty-render more agent doc schemas with bespoke renderers. Plans and reviews have one: a plan (an H1 with task items, or frontmatter `kind: plan`) shows a status line with step progress (`src/lib/renderers/plan-status-renderer.tsx`), and a doc with two or more severity-tagged findings gets a summary card (`src/components/viewer/ReviewSummaryCard.tsx`). Specs and runbooks are parsed (`spec-renderer.ts`, `runbook-renderer.ts`) but have no view yet
 - [ ] Run buttons for more than shell (with sandboxing); inline results
-- [x] Let agents register doc "kinds" + declarative layouts mapped to built-in renderers (`src/lib/renderers/kind-registry.ts`)
+- [ ] Let agents register doc "kinds" + declarative layouts mapped to built-in renderers. The registry exists (`src/lib/renderers/kind-registry.ts` maps frontmatter to the plan, review, spec and runbook renderers), but the app, `mdopen` and the MCP server give an agent no way to supply one yet; only the built-in `kind: plan` entry is active
 
 **Integrations**
 - [x] VS Code extension: open the active `.md` in Ashlr MD from the editor toolbar ([integration](integrations/vscode/README.md))
