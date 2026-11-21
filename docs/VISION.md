@@ -70,7 +70,7 @@ Each increment runs the same loop. We do not move on until the loop closes.
 | M3 | Export | One-click PDF / DOCX / HTML that looks great, fully offline, no Pandoc. ✅ |
 | M4 | Local-first AI | Tiered provider (Apple on-device, macOS only → Ollama → BYO key → hosted); selection actions, inline rewrite (⌘I), "Explain changes" + chat; privacy badge; free by default. ✅ |
 | M5 | Agent hand-off + MCP | `mdopen` CLI + `mdopener://` scheme + MCP server agents can drive; one-click setup; ⌘K command palette; Agent Activity drawer (⌘B). ✅ |
-| M6 | Smart rendering + distribution | Interactive checkboxes, code Copy/Run, callouts, plan/diff/multi-file detection; cross-platform builds (macOS DMG + Homebrew cask; Windows MSI/NSIS + winget; Linux .deb/.AppImage + AUR); auto-update. |
+| M6 | Smart rendering + distribution | Interactive checkboxes, code Copy/Run, callouts, plan/diff/multi-file detection; cross-platform builds (macOS DMG + Homebrew cask; Windows MSI/NSIS + winget; Linux .deb/.rpm/.AppImage + AUR); auto-update. Everything but the package managers ships today. The Homebrew, winget and AUR manifests are drafted in [`packaging/`](../packaging/) but not published yet ([INSTALL.md](./INSTALL.md)). |
 
 ## Non-goals (so we stay sharp)
 
