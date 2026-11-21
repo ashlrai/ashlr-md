@@ -88,9 +88,14 @@ secondary sensitive asset is your **AI provider API key**.
 
 ### Supply chain
 
-- CI runs `bun audit` and `cargo audit` to surface known-vulnerable
-  dependencies, plus `cargo clippy -D warnings` and the full test suite on every
-  push and pull request.
+- Every pull request and merge queue run must pass the required `Check (Linux)`
+  gate, which includes two diff secret scans (pinned Gitleaks and the
+  secret-shape scan) and a crypto policy check (`bun run check:crypto`).
+- `bun audit` runs on every pull request. `cargo audit`, `cargo clippy -D
+  warnings` and the full Linux and macOS test suites run after each merge to
+  `main`, daily, and on manual dispatch (`.github/workflows/ci.yml`). Both
+  audits are advisory: a new advisory is annotated on the run without failing
+  it.
 
 ## Supported versions
 
