@@ -1,8 +1,10 @@
 # Security Policy
 
-Ashlr MD is a local-first desktop app: your documents stay on your machine and
-nothing is sent to a network unless you explicitly invoke a cloud AI provider.
-This document describes the threat model, the protections in place, and how to
+Ashlr MD is a local-first desktop app: your documents stay on your machine.
+The app makes three kinds of network request, listed under
+[Network requests](#network-requests): a cloud AI provider you set up, an
+update check after launch, and web images in a document you open. This
+document describes the threat model, the protections in place, and how to
 report a vulnerability.
 
 ## Reporting a vulnerability
@@ -19,8 +21,11 @@ reports within a few days.
 ## Threat model
 
 The primary untrusted input is a **Markdown file you open**. A malicious `.md`
-file must not be able to run code, exfiltrate secrets, or reach the network. The
-secondary sensitive asset is your **AI provider API key**.
+file must not be able to run code or exfiltrate secrets. Short of you
+following a link, its only network reach is loading web images, which can tell an image host that the document was
+opened; turn off **Load remote images** to block that (see
+[Network requests](#network-requests)). The secondary sensitive asset is your
+**AI provider API key**.
 
 ## Protections
 
@@ -50,8 +55,26 @@ secondary sensitive asset is your **AI provider API key**.
 ### Content Security Policy
 
 - A CSP is enforced (`src-tauri/tauri.conf.json`). `connect-src` is restricted to
-  Tauri IPC; the webview never makes direct outbound network requests (all HTTP,
-  including AI providers, is brokered by Rust via `reqwest`).
+  Tauri IPC, so webview scripts cannot call the network: all HTTP, including
+  AI providers, is brokered by Rust via `reqwest`. `frame-src` and `object-src`
+  are `'none'`. The one exception is `img-src`, which allows `https:` so a
+  document's web images can render (see below).
+
+### Network requests
+
+- **AI providers.** A cloud provider is called only after you add its key or
+  turn on a hosted option, from the Rust process. Apple's on-device model and
+  a loopback Ollama stay on the machine. See [docs/local-ai.md](docs/local-ai.md).
+- **Update check.** About 3 seconds after launch, the app fetches
+  `latest.json` from the repository's GitHub Releases (`src/lib/updater.ts`).
+  If a newer build exists it asks before installing, and the updater verifies
+  the build's minisign signature against the public key in `tauri.conf.json`.
+- **Web images.** An `https://` image in a document is fetched by the webview
+  when the document renders, which tells its host the document was opened.
+  **Settings → Appearance → Load remote images** is on by default. Turn it off
+  and web images in the read view, the editor and link previews are not
+  fetched until you click **Load remote images** on that document's bar; that
+  choice covers that document for the session only (`src/store/remoteImagesStore.ts`).
 
 ### Local agent IPC
 
