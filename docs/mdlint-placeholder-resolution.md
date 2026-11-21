@@ -103,6 +103,8 @@ After resolving it:
 ![Sales doubled from January to June](images/sales.png)
 ```
 
+Describe the information the reader needs, not the fact that an image exists;
+the [accessibility guide](mdlint-placeholder-accessibility.md) helps you choose.
 The rule does not assess the quality of nonempty alt text. Verify that the image
 loads and that the description matches it. Put detailed data for a complex chart
 in nearby text or a table. A purely decorative image may appropriately have
