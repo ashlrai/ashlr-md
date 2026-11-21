@@ -28,6 +28,7 @@ Released 2026-11-09. [Release notes and downloads](https://github.com/ashlrai/as
 - `scripts/check-docs.py` checks that the README's "Commands and flags" section lists every long flag and `mdopener-mcp` command in the two `HELP` texts, that its "MCP tools" table matches `tool_registry()` in order, and that "Get started" keeps five steps or fewer with a "You should see" line for each.
 
 ### Fixed
+- The Linux native probe's process-cleanup test (`scripts/test-native-qa.py`) reads a child's `/proc/<pid>/stat` once per poll, so a process reaped between the existence check and the read no longer fails the test.
 - The Linux native probe's preparation metadata request retries transient failures (HTTP 429, 500, 502, 503, 504 and network errors) up to four times with backoff; a definitive answer such as 404 still fails at once.
 - Release builds prefetch WiX, NSIS and AppImage tools with retries, and skip Finder AppleScript when creating macOS DMGs on CI, so a GitHub 504 or a hung Finder session no longer fails the Tauri bundle step.
 - Jumping to a source line inside a fenced code block, Mermaid diagram or diff block in Read view lands on that block: rendered code blocks now carry their source line.
