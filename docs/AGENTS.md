@@ -1018,8 +1018,20 @@ its port to `~/.mdopener/ipc-port` and a per-session token to
 `~/.mdopener/ipc-token`; the MCP binary reads both to locate and authenticate to
 the app, and the app removes them on clean exit.
 
-If the app is not running, most tools return a clear error; `open_file` is the
-exception and will cold-start the app via the `mdopener://` URL scheme. The
+If the app is not running, the tools that act on the window return a clear
+error, and `open_file` cold-starts the app via the `mdopener://` URL scheme.
+These tools work without the app:
+
+- `diff_documents`, `edit_canvas`, `get_conversation_context`,
+  `save_conversation_message` and `list_ai_actions` never contact it. They read
+  files on disk, the session store under `~/.mdopener/sessions`, or the
+  server's built-in action list.
+- `export_text` and `export_metadata` with `path` read that file from disk.
+- `search_vault` with `vault` searches the Markdown files under that directory.
+- `get_user_annotations` reads the tasks from the file on disk and the verdict
+  from the last review the app saved, and adds `appRunning: false`.
+
+The
 frontend keeps the app's document, recents, and vault state mirrored to the IPC
 layer (via `mcp_sync_state` / `mcp_sync_vault`) so reads are always fresh without
 re-walking the disk.
