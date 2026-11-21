@@ -6,10 +6,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
 <!-- fresh:begin version-table -->
 | Component | Released version |
 |---|---|
-| Desktop app | 0.4.0 |
-| CLI and MCP sidecars (bundled) | 0.4.0 |
+| Desktop app | 0.7.5 |
+| CLI and MCP sidecars (bundled) | 0.7.5 |
 
-Released 2026-06-06. [Release notes and downloads](https://github.com/ashlrai/ashlr-md/releases/tag/v0.4.0).
+Released 2026-11-09. [Release notes and downloads](https://github.com/ashlrai/ashlr-md/releases/tag/v0.7.5).
 <!-- fresh:end -->
 
 ## [Unreleased]
