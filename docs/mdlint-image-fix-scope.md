@@ -1,5 +1,10 @@
 # Image alt-text fix scope
 
+> **Not in the app yet.** The **Fix** and **Fix all** suggestions toast this
+> page describes is not mounted in Ashlr MD as of 0.7.5. The rules and fixes
+> live in `src/lib/mdlint.ts`, and the examples here are what its tests assert.
+> See [where the linter shows up today](./LINTER.md#where-it-shows-up-today).
+
 The [`missing-alt-text` rule](../src/lib/mdlint.ts) reports a warning for an
 inline image whose alt text is empty or only whitespace, provided there is at
 least one character between the source parentheses. The warning covers the

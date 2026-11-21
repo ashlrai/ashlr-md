@@ -1,5 +1,10 @@
 # Empty image alt text in Markdown lint
 
+> **Not in the app yet.** The **Fix** and **Fix all** suggestions toast this
+> page describes is not mounted in Ashlr MD as of 0.7.5. The rules and fixes
+> live in `src/lib/mdlint.ts`, and the examples here are what its tests assert.
+> See [where the linter shows up today](./LINTER.md#where-it-shows-up-today).
+
 The `missing-alt-text` rule warns about an inline image when the text between
 `![` and `]` is empty or consists only of whitespace, and there is at least one
 character between the source parentheses. It is enabled by default in Settings

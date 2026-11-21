@@ -1,5 +1,10 @@
 # Image alt-text rule boundaries
 
+> **Not in the app yet.** The **Fix** and **Fix all** suggestions toast this
+> page describes is not mounted in Ashlr MD as of 0.7.5. The rules and fixes
+> live in `src/lib/mdlint.ts`, and the examples here are what its tests assert.
+> See [where the linter shows up today](./LINTER.md#where-it-shows-up-today).
+
 The `missing-alt-text` rule reports a **warning** when an inline image-shaped
 match has an empty alt field (`![](chart.png)`) or one containing only
 whitespace (`![  ](chart.png)`). Tabs and other JavaScript whitespace count
