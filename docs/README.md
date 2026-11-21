@@ -25,7 +25,7 @@ Agents start at [llms.txt](../llms.txt). The long form is [llms-full.txt](../llm
 | [RELEASING.md](./RELEASING.md) | You are cutting or verifying a release |
 | [PQ-READINESS.md](./PQ-READINESS.md) | You want the cryptography inventory and what a post-quantum migration would touch |
 | [NATIVE-QA-PROPOSAL.md](./NATIVE-QA-PROPOSAL.md), [WINDOWS-NATIVE-QA.md](./WINDOWS-NATIVE-QA.md) | You want the bounded, historical qualification of the original 0.5 build on Linux or Windows |
-| [proposals/](./proposals/windows-probe-ci.md) | You want the open proposal to stop the Windows probe re-running on every merge |
+| [proposals/](./proposals/windows-probe-ci.md) | You want the closed proposal to stop the Windows probe re-running on every merge, and why it was not needed |
 
 ## Full index
 
