@@ -83,19 +83,22 @@ file associations automatically. To change the default:
 
 ## Linux
 
+Release file names carry the version, for example `Ashlr_MD_X.Y.Z_amd64.deb`.
+Set `VERSION` to the number of the
+[latest release](https://github.com/ashlrai/ashlr-md/releases/latest), without
+the leading `v` of its tag, before running the commands below.
+
 ### Option A: Debian / Ubuntu (.deb)
 
 ```bash
-# Download the .deb from the latest release
-curl -L \
-  "https://github.com/ashlrai/ashlr-md/releases/latest/download/Ashlr_MD_X.Y.Z_amd64.deb" \
-  -o ashlr-md.deb
+VERSION=X.Y.Z  # the latest release, for example 1.2.3
 
-# Install
-sudo dpkg -i ashlr-md.deb
+# Download the .deb
+curl -fL -o AshlrMD.deb \
+  "https://github.com/ashlrai/ashlr-md/releases/download/v${VERSION}/Ashlr_MD_${VERSION}_amd64.deb"
 
-# Fix any missing dependencies
-sudo apt-get install -f
+# Install it; apt also pulls in its dependencies
+sudo apt-get install ./AshlrMD.deb
 ```
 
 The `.deb` installs:
@@ -119,11 +122,15 @@ Download `Ashlr_MD_X.Y.Z_x86_64.rpm` from the latest release and install it with
 
 ### Option B: AppImage (portable, any distro)
 
+Download `Ashlr_MD_X.Y.Z_amd64.AppImage`, saved here as `AshlrMD.AppImage`, the
+name the rest of this guide and [docs/AGENTS.md](./AGENTS.md) use:
+
 ```bash
+VERSION=X.Y.Z  # the latest release, for example 1.2.3
+
 # Download the AppImage
-curl -L \
-  "https://github.com/ashlrai/ashlr-md/releases/latest/download/Ashlr_MD_X.Y.Z_amd64.AppImage" \
-  -o AshlrMD.AppImage
+curl -fL -o AshlrMD.AppImage \
+  "https://github.com/ashlrai/ashlr-md/releases/download/v${VERSION}/Ashlr_MD_${VERSION}_amd64.AppImage"
 
 # Make executable and run
 chmod +x AshlrMD.AppImage
@@ -162,12 +169,15 @@ xdg-mime query default text/markdown
 Checked against the v0.4.0 `.deb` and AppImage on Debian 13 (x86_64).
 
 **`dpkg -i` stops with unmet dependencies.** The `.deb` depends on
-`libwebkit2gtk-4.1-0` and `libgtk-3-0`. Install it with apt instead, which pulls
-those in for you:
+`libwebkit2gtk-4.1-0` and `libgtk-3-0`, which `dpkg` does not fetch. Let apt
+pull them in and finish the install:
 
 ```bash
-sudo apt-get install ./Ashlr_MD_X.Y.Z_amd64.deb
+sudo apt-get install -f
 ```
+
+Installing with `sudo apt-get install ./AshlrMD.deb`, as in Option A, avoids
+this.
 
 **Connecting an agent when you use the AppImage.** `mdopener-mcp` lives inside
 the AppImage, which is mounted at a different temporary path on every run, so
@@ -176,7 +186,7 @@ Cursor at. Either install the `.deb` or `.rpm`, or extract the AppImage once and
 use the extracted copy:
 
 ```bash
-./Ashlr_MD_X.Y.Z_amd64.AppImage --appimage-extract
+./AshlrMD.AppImage --appimage-extract
 # Stable path to the MCP server:
 "$PWD/squashfs-root/usr/lib/Ashlr MD/mdopener-mcp"
 ```
@@ -189,7 +199,7 @@ with only libfuse3 installed). Where FUSE is not available at all, for example
 in a container without `/dev/fuse`, run it without mounting:
 
 ```bash
-./Ashlr_MD_X.Y.Z_amd64.AppImage --appimage-extract-and-run
+./AshlrMD.AppImage --appimage-extract-and-run
 ```
 
 **`mdopen: command not found`.** Neither package puts `mdopen` on your `PATH`;
