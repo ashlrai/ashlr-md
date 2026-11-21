@@ -3845,7 +3845,10 @@ callouts), WYSIWYG + source editing, PDF/DOCX/HTML export, local-first tiered
 AI, agent hand-off (`mdopen` CLI · `mdopener://` · MCP server), the macOS `.md`
 default handler, and smart agent-output rendering.
 
-[0.7.3]: https://github.com/ashlrai/ashlr-md/compare/v0.7.2...HEAD
+[Unreleased]: https://github.com/ashlrai/ashlr-md/compare/v0.7.5...HEAD
+[0.7.5]: https://github.com/ashlrai/ashlr-md/compare/v0.7.4...v0.7.5
+[0.7.4]: https://github.com/ashlrai/ashlr-md/compare/v0.7.3...v0.7.4
+[0.7.3]: https://github.com/ashlrai/ashlr-md/compare/v0.7.2...v0.7.3
 [0.7.2]: https://github.com/ashlrai/ashlr-md/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/ashlrai/ashlr-md/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/ashlrai/ashlr-md/compare/v0.6.0...v0.7.0

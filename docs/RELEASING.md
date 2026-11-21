@@ -51,6 +51,9 @@ Before tagging, complete every item:
   for example `cargo check --manifest-path src-tauri/Cargo.toml`.
 - [ ] Update **`CHANGELOG.md`**: move the `## [Unreleased]` entries under a new
   heading `## [X.Y.Z] - YYYY-MM-DD` (a hyphen, as in the 0.7.1 to 0.7.5 headings).
+  At the bottom of the file, point `[Unreleased]` at `vX.Y.Z...HEAD` and add
+  `[X.Y.Z]: https://github.com/ashlrai/ashlr-md/compare/vPREV...vX.Y.Z`
+  above the previous version's line.
 - [ ] Run `./scripts/generate-icons.sh` if `src-tauri/icons/icon.svg` changed.
 - [ ] Run `bun run check:version` and `bun run fresh:check`. The second
   verifies that `package.json`, `tauri.conf.json` and the new dated
