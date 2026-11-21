@@ -1,5 +1,10 @@
 # Mixed autofix cases: order review
 
+> **Not in the app yet.** The **Fix** and **Fix all** suggestions toast this
+> page describes is not mounted in Ashlr MD as of 0.7.5. The rules and fixes
+> live in `src/lib/mdlint.ts`, and the examples here are what its tests assert.
+> See [where the linter shows up today](./LINTER.md#where-it-shows-up-today).
+
 These examples record the inputs and exact outputs asserted in
 [mdlint-autofix.test.ts](../src/lib/mdlint-autofix.test.ts). They describe the listed test cases, not a
 general ordering guarantee. A violation order, the order in which edits are applied, and the order in fix
