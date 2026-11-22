@@ -29,8 +29,14 @@ validation. After installing the repo's dependencies, run it offline from the
 repository root:
 
 ```bash
-HOME=$(mktemp -d) bun run test -- src/mcp/registryManifest.test.ts
+HOME=$(mktemp -d) bunx vitest run --project unit src/mcp/registryManifest.test.ts
 ```
+
+No pull request job runs this test. `Check (Linux)` runs only three unit test
+files, and `scripts/ci-local.sh` selects no JS gate for a diff that touches
+only `server.json`. The test runs in the full suite after merge to `main` and
+daily, so run it yourself after changing `server.json`, the crate version or
+the fixture.
 
 To refresh the fixture, fetch the versioned schema from its official URL, inspect
 the upstream changes, then update the fixture, hash, schema URL, and tests
