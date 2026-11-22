@@ -114,7 +114,7 @@ that print JSON (`--json`) and the MCP tool contract. `mdopen` itself has no
    |---|---|
    | `README.md`, `ROADMAP.md`, `docs/AGENTS.md`, `docs/INSTALL.md`, `docs/PHANTOM.md`, `docs/RELEASING.md`, `docs/SHORTCUTS.md`, `landing/index.html`, `samples/showcase.md`, `integrations/obsidian/README.md`, `integrations/vscode/README.md` | `src/docFacts.test.ts` |
    | `README.md`, `docs/local-ai.md` | `src/ai/noProviderWording.test.ts` |
-   | `llms.txt` | `src/lib/llms-file.test.ts` (and `scripts/llms-txt.test.mjs`, above) |
+   | `llms.txt`, `landing/llms.txt` | `src/lib/llms-file.test.ts`, `test/llms/links.test.ts` (and `scripts/llms-txt.test.mjs`, above) |
    | `docs/mdlint-autofix-fixture-index.md` | `src/lib/mdlint-autofix-fixture-index.test.ts` |
    | `docs/mdlint-autofix-guide.md` | `src/lib/mdlint-guide.test.ts` |
    | `docs/mdlint-autofix-order-review.md` | `src/lib/mdlint-autofix-order-review.test.ts` |
