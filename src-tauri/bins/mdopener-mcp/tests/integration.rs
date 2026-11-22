@@ -10500,23 +10500,9 @@ fn export_text_matches_documented_bracket_preservation_examples() {
         assert_eq!(result["text"].as_str().unwrap(), expected, "{input:?}");
         examples += 1;
     }
-    assert_eq!(examples, 13, "all documented examples must be checked");
-}
-
-#[test]
-fn export_text_matches_bracket_history_examples() {
-    let docs = include_str!("../../../../docs/mdopener-bracket-history.md");
-    let mut examples = 0;
-    for section in docs.split("Input:\n```markdown\n").skip(1) {
-        let (input, rest) = section
-            .split_once("\n```\nOutput:\n```text\n")
-            .expect("each input has an output");
-        let (expected, _) = rest.split_once("\n```").expect("output fence closes");
-        let result = run_export_text_on(&format!("{input}\n"));
-        assert_eq!(result["text"].as_str().unwrap(), expected, "{input:?}");
-        examples += 1;
-    }
-    assert_eq!(examples, 7, "all history examples must be checked");
+    assert_eq!(examples, 19, "all documented examples must be checked");
+    // The guide also tells the regression's history: it must point at the
+    // changelog and cite regression tests that exist in this file.
     assert!(docs.contains("CHANGELOG.md"));
     let source = include_str!("integration.rs");
     let mut cited = 0;
