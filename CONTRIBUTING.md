@@ -101,6 +101,31 @@ CLI and the MCP tool contract.
    node --test scripts/llms-txt.test.mjs
    ```
 
+   Some guides double as test fixtures: a test reads the file and checks its
+   examples, headings or row counts against the real code. Neither
+   `ci-local.sh` nor `Check (Linux)` runs those tests on a docs-only diff, so
+   a broken example would merge and fail only in the full suites on `main`.
+   After editing one of these files, run the test that reads it:
+
+   | Doc | Test that reads it |
+   |---|---|
+   | `docs/mdlint-autofix-guide.md` | `src/lib/mdlint-guide.test.ts` |
+   | `docs/mdlint-autofix-order-review.md` | `src/lib/mdlint-autofix-order-review.test.ts` |
+   | `docs/mdlint-autofix-preservation.md` | `src/lib/mdlint-autofix-preservation.test.ts` |
+   | `docs/mdlint-fix-output-reference.md` | `src/lib/mdlint-fix-output-reference.test.ts` |
+   | `docs/mdlint-image-rule-boundaries.md` | `src/lib/mdlint-image-rule-boundaries.test.ts` |
+   | `docs/mdlint-link-rule-boundaries.md` | `src/lib/mdlint-link-rule-boundaries.test.ts` |
+   | `docs/mdlint-placeholder-resolution.md` | `src/lib/mdlint-placeholder-resolution.test.ts` |
+   | `docs/integration-bracket-preservation.md`, `docs/bracketed-prose-example-table.md` | `src-tauri/bins/mdopener-mcp/tests/integration.rs` |
+
+   ```bash
+   bunx vitest run --project unit src/lib/mdlint-guide.test.ts
+   cargo test --manifest-path src-tauri/Cargo.toml -p mdopener-mcp --test integration bracket
+   ```
+
+   `integration.rs` also reads `docs/AGENTS.md`; `ci-local.sh` already runs
+   the Rust tests when that file changes.
+
    `ci-local.sh` does not run the two diff secret scans, and both block the
    required check. Run the secret-shape scan the way CI does; it prints only a
    count, never the matched value, and exits non-zero on a hit:

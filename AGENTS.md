@@ -51,6 +51,10 @@ Agents are first-class users of Ashlr MD.
 - It also skips five fast-job steps of the required check, including
   `bun run test:unit`, whose punctuation test rejects em and en dashes in the
   Markdown docs. The walkthrough lists all five commands.
+- Tests read seven `docs/mdlint-*.md` guides and the two bracket docs, but
+  no pull request job runs those tests on a docs-only diff. After editing one,
+  run the test that reads it; the table is in
+  [Contribute with an agent](CONTRIBUTING.md#contribute-with-an-agent).
 - No CI job installs, tests or builds the editor companions in
   `integrations/` (VS Code, Obsidian, Raycast). After changing one, run its
   own checks, listed under
