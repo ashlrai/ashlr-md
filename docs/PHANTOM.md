@@ -6,8 +6,11 @@ When Phantom has Markdown to show a human (`phm inbox show <id> --open`,
 Ashlr MD; otherwise it falls back to terminal output.
 
 > **Status on Phantom `master`:** only the inbox/digest viewer seam
-> (`src/core/integrations/markdown.ts`, `presentMarkdown`) is merged. It detects
-> Ashlr MD with `which mdopen` and runs `mdopen <file>`. The "open any `.md` in
+> (`src/core/integrations/markdown.ts`, `presentMarkdown`) is merged. It finds
+> `mdopen` on `PATH` (searched in-process, no `which`) or at the fixed install
+> paths listed under [Detection paths](#detection-paths), runs `mdopen <file>`
+> synchronously with a 15-second backstop, and counts the file as shown only
+> when `mdopen` exits `0`. The "open any `.md` in
 > Ashlr MD" opener for `phantom open` and the web/desktop **Open** action, its
 > `"markdownOpener": "editor"` / `PHANTOM_ASHLR_MD=0` opt-outs, and
 > `docs/companions/ashlr-md.md` live on Phantom's unmerged
@@ -18,7 +21,7 @@ Ashlr MD; otherwise it falls back to terminal output.
 | Hook | Shape | Notes |
 |---|---|---|
 | URL scheme | `mdopener://open?path=<url-encoded absolute path>[&mode=edit]` | Defined in `src-tauri/tauri.conf.json` (`deep-link.desktop.schemes`). |
-| CLI | `mdopen <file.md>` | Phantom treats `mdopen` on `PATH` as "installed". Exit status below. |
+| CLI | `mdopen <file.md>` | Phantom treats a found `mdopen` binary as "installed" and exit `0` as "opened". Exit status below. |
 | MCP | `mdopener-mcp` → `open_file { path, mode? }` | For agents running under Phantom that want a human to review a document. See [AGENTS.md](./AGENTS.md). |
 
 ### `mdopen` exit status
@@ -79,8 +82,12 @@ Windows `%LOCALAPPDATA%\Ashlr MD\Ashlr MD.exe`; Linux `/usr/bin/md-opener`
 On a Linux `.deb` install the sidecars (`mdopen`, `mdopener-mcp`) land in
 `/usr/lib/Ashlr MD/`, which is not on `PATH`. `mdopen` is on `PATH` only after
 **Install mdopen** in Settings (`/usr/local/bin` or `~/.local/bin`) or the
-source installer. A detector that only runs `which mdopen` (Phantom `master`)
-misses a fresh `.deb` install.
+source installer. A detector that only runs `which mdopen` misses a fresh
+`.deb` install. Phantom `master` avoids this: after `PATH` it checks
+`/usr/lib/Ashlr MD/mdopen` and
+`/Applications/Ashlr MD.app/Contents/Resources/mdopen`. It does not check
+`~/Applications` or a Windows install directory, so there `mdopen` must be on
+`PATH`.
 
 Changing the product name, bundle path, or the `mdopener` scheme is a breaking
 change for Phantom; update Phantom's Markdown integration alongside it.
