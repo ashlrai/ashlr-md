@@ -5,6 +5,12 @@ title: "[bug] "
 labels: bug
 ---
 
+<!--
+People and agents file bugs the same way. Remove file paths, keys and
+document text you would not post in public before you submit.
+Want to fix it yourself? https://github.com/ashlrai/ashlr-md/blob/main/CONTRIBUTING.md#contribute-with-an-agent
+-->
+
 **What happened?**
 A clear description of the bug.
 
@@ -20,11 +26,17 @@ What you expected to happen.
 Paste a minimal Markdown snippet that triggers it.
 
 **Environment**
-- Ashlr MD version:
+- Ashlr MD version (`mdopen --version` or `mdopener-mcp --version` prints it):
 - OS and version (macOS, Windows or Linux):
 - CPU (Apple Silicon, Intel or other x86_64, Arm):
-- Installed from (release download or built from source):
+- Installed from (release download, `scripts/install.sh`, or built from source):
 - AI provider in use (Apple FM / Ollama / BYO key / none):
+
+**Agent, MCP or CLI bug (if relevant)**
+- MCP client (Claude Code, Cursor, Codex, other):
+- Tool or command, with its arguments:
+- The result or error it returned (the JSON-RPC error code, or the text of an `isError: true` result):
+- Local AI bug: the output of `mdopener-mcp doctor --json`
 
 **Screenshots / logs**
 If applicable.
