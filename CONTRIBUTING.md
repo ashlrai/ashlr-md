@@ -101,14 +101,20 @@ CLI and the MCP tool contract.
    node --test scripts/llms-txt.test.mjs
    ```
 
-   Some guides double as test fixtures: a test reads the file and checks its
-   examples, headings or row counts against the real code. Neither
-   `ci-local.sh` nor `Check (Linux)` runs those tests on a docs-only diff, so
-   a broken example would merge and fail only in the full suites on `main`.
-   After editing one of these files, run the test that reads it:
+   Many docs double as test fixtures: a test reads the file and checks its
+   examples, headings, counts or lists against the real code. Neither
+   `ci-local.sh` nor `Check (Linux)` runs those tests on a docs-only diff
+   (`scripts/ci/select.mjs` maps Markdown to no JS gate, and the fast job's
+   `test:unit` runs only three files), so a drifted doc would merge and fail
+   only in the full suites on `main`. After editing one of these files, run
+   the test that reads it:
 
    | Doc | Test that reads it |
    |---|---|
+   | `README.md`, `ROADMAP.md`, `docs/AGENTS.md`, `docs/INSTALL.md`, `docs/PHANTOM.md`, `docs/RELEASING.md`, `docs/SHORTCUTS.md`, `landing/index.html`, `samples/showcase.md`, `integrations/obsidian/README.md`, `integrations/vscode/README.md` | `src/docFacts.test.ts` |
+   | `README.md`, `docs/local-ai.md` | `src/ai/noProviderWording.test.ts` |
+   | `llms.txt` | `src/lib/llms-file.test.ts` (and `scripts/llms-txt.test.mjs`, above) |
+   | `docs/mdlint-autofix-fixture-index.md` | `src/lib/mdlint-autofix-fixture-index.test.ts` |
    | `docs/mdlint-autofix-guide.md` | `src/lib/mdlint-guide.test.ts` |
    | `docs/mdlint-autofix-order-review.md` | `src/lib/mdlint-autofix-order-review.test.ts` |
    | `docs/mdlint-autofix-preservation.md` | `src/lib/mdlint-autofix-preservation.test.ts` |
@@ -119,7 +125,7 @@ CLI and the MCP tool contract.
    | `docs/integration-bracket-preservation.md`, `docs/bracketed-prose-example-table.md` | `src-tauri/bins/mdopener-mcp/tests/integration.rs` |
 
    ```bash
-   bunx vitest run --project unit src/lib/mdlint-guide.test.ts
+   bunx vitest run --project unit src/docFacts.test.ts src/ai/noProviderWording.test.ts
    cargo test --manifest-path src-tauri/Cargo.toml -p mdopener-mcp --test integration bracket
    ```
 
