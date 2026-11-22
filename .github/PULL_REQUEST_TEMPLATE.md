@@ -12,6 +12,7 @@ Briefly: what does this change and why? One concern per pull request.
 - [ ] `scripts/ci-local.sh` passes (from a fork clone: `scripts/ci-local.sh upstream/main`)
 - [ ] The five fast-job steps `scripts/ci-local.sh` skips pass, including `bun run test:unit` (its punctuation test fails on an em or en dash, even in docs); the commands are in [Contribute with an agent](https://github.com/ashlrai/ashlr-md/blob/main/CONTRIBUTING.md#contribute-with-an-agent), step 3
 - [ ] No secrets committed (both diff secret scans fail closed; step 3 shows how to run them locally)
+- [ ] Editor companion change (`integrations/vscode`, `obsidian` or `raycast`): its own checks pass from its folder; no CI job installs, tests or builds them, so the required check stays green either way (commands under [Quality gates](https://github.com/ashlrai/ashlr-md/blob/main/CONTRIBUTING.md#quality-gates-all-must-pass))
 - [ ] UI change: verified in the real app (`bun run tauri dev`) in all three themes (Paper / Sepia / Midnight)
 - [ ] Docs change: `bun run check:doc-links` and `bun run doclive:check` pass; after editing `docs/AGENTS.md`, `python3 scripts/check-docs.py` passes; after editing `llms.txt` or `llms-full.txt`, the copies in `landing/` match and `node --test scripts/llms-txt.test.mjs` passes; after editing a doc a test reads (the table in step 3), that test passes
 - [ ] No GPL added to the bundled dependency tree
