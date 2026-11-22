@@ -37,8 +37,9 @@ the same path: a pull request that passes the
 
 The path is the same whether you type the change yourself, drive a coding
 agent, or are a fleet agent. Point your agent at [`AGENTS.md`](./AGENTS.md)
-and [`llms.txt`](./llms.txt) first: they index the docs, the `mdopen --json`
-CLI and the MCP tool contract.
+and [`llms.txt`](./llms.txt) first: they index the docs, the `mdopen` CLI, the `mdopener-mcp` commands
+that print JSON (`--json`) and the MCP tool contract. `mdopen` itself has no
+`--json` flag.
 
 1. Install the [prerequisites](#prerequisites). Fork `ashlrai/ashlr-md`,
    clone your fork, add the upstream remote and branch from `main`:

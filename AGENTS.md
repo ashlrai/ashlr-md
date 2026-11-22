@@ -20,7 +20,7 @@ Synced from the Ashlr Fleet Constitution v3.0 (Nov 1, 2026). This overrides any 
 Agents are first-class users of Ashlr MD.
 
 1. [llms.txt](llms.txt) is the index. [llms-full.txt](llms-full.txt) is the manual in one file.
-2. [README.md](README.md) leads with the install command, the `--json` CLI, and the MCP snippets for Claude Code, Cursor, and Codex.
+2. [README.md](README.md) leads with the install command, the `mdopener-mcp --json` commands, and the MCP snippets for Claude Code, Cursor, and Codex.
 3. [docs/EXAMPLES.md](docs/EXAMPLES.md) is every copy-paste command, including Windows.
 4. [docs/AGENTS.md](docs/AGENTS.md) is the tool contract. Names and order come from `tool_registry()`.
 
