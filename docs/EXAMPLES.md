@@ -63,7 +63,11 @@ mdopen --version
 mdopen --help
 ```
 
-`mdopen -` reads Markdown from stdin (up to 16 MiB) and opens it from a temp file. `mdopen` exits 0 when the running app accepted the file, or when the app was not running and the `mdopener://` launch URL was handed to the OS. It exits 1 on bad usage, a missing or non-Markdown file, or when the app refused the file; stderr says which. The desktop app has to be installed for the window to appear. The CLI and MCP server from `SKIP_APP_BUILD=1` are enough for the JSON commands above.
+`mdopen -` reads Markdown from stdin (up to 16 MiB) and opens it from a temp file. Empty or whitespace-only stdin and input over that limit exit 1 without opening anything. Files must exist and have a `.md`, `.markdown`, `.mdown`, `.mkd` or `.mdx` extension, with no leading dot in the filename; this is checked after resolving symlinks.
+
+`mdopen` exits 0 when the running app accepts the file, or when the OS launcher accepts the `mdopener://` URL to start the installed app. If the launcher is still running after 10 seconds, it also exits 0, but stderr says the open is not confirmed. Exit 0 alone does not prove that a window appeared.
+
+It exits 1 on bad usage, an invalid file, or a failed or missing launcher. If the running app refuses the file, returns a server error, breaks the connection or does not answer within 6 seconds, it exits 1 without trying the URL scheme; the app may still open the file after a timeout. Read stderr for the reason and next step. The desktop app has to be installed for the window to appear. The CLI and MCP server from `SKIP_APP_BUILD=1` are enough for the JSON commands above.
 
 ## Claude Code
 
