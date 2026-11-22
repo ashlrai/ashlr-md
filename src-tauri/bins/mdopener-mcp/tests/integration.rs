@@ -9968,16 +9968,31 @@ fn export_text_keeps_brackets_unless_a_reference_is_defined() {
         ("[a]\n\n```\n[a]: /u\n```", "[a]\n\n[a]: /u"),
         ("[n]\n\n[^n]: note", "[n]\n\n[n] note"),
     ];
-    let docs = include_str!("../../../../docs/mdopener-bracket-input-output.md");
-    let documented: Vec<(String, String)> = serde_json::from_str(
-        docs.split_once("````json\n")
-            .expect("documented pairs start with a JSON fence")
-            .1
-            .split_once("\n````")
-            .expect("documented pairs have a closing fence")
-            .0,
-    )
-    .expect("documented pairs are JSON strings");
+    // Every case is documented, in order, as a `strip_markdown` row of the
+    // bracketed prose example table (which also checks each row's output).
+    let docs = include_str!("../../../../docs/bracketed-prose-example-table.md");
+    let parse = |cell: &str| -> String {
+        let json = cell
+            .trim()
+            .trim_end_matches(" |")
+            .trim()
+            .trim_matches('`')
+            .trim();
+        serde_json::from_str(json).expect("table cell is a JSON string")
+    };
+    let documented: Vec<(String, String)> = docs
+        .lines()
+        .filter(|line| {
+            line.starts_with(
+                "| `export_text_keeps_brackets_unless_a_reference_is_defined` | `strip_markdown` |",
+            )
+        })
+        .map(|line| {
+            let cells: Vec<_> = line.split(" | ").collect();
+            assert_eq!(cells.len(), 4, "invalid table row: {line}");
+            (parse(cells[2]), parse(cells[3]))
+        })
+        .collect();
     assert_eq!(documented.len(), cases.len());
     for ((input, output), (doc, want)) in documented.iter().zip(cases) {
         assert_eq!((input.as_str(), output.as_str()), (doc, want));

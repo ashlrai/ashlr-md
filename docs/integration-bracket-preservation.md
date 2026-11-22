@@ -55,9 +55,9 @@ The tests live in
 Each pair below is a tested Markdown input and the expected `text` output.
 The input ends with a newline; the output does not. Blank lines inside a pair
 are significant. `export_text_matches_documented_bracket_preservation_examples`
-runs every pair through the `export_text` tool. For more cases, see the
-[input and output pairs](mdopener-bracket-input-output.md) and the compact
-[bracketed prose example table](bracketed-prose-example-table.md).
+runs every pair through the `export_text` tool. For more cases, including
+the reference-definition inputs checked through `strip_markdown`, see the
+compact [bracketed prose example table](bracketed-prose-example-table.md).
 
 ### Prose, punctuation, and repeated phrases
 
