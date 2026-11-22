@@ -90,8 +90,8 @@ A `probe` object has `status` (one of the six above), `provider`, `loopback`, `r
 | `servers` | Ollama, then oMLX: `provider`, `baseUrl` (the fixed default), and `probe` |
 | `config` | The `localInference` block: `status` (`absent`, `invalid`, or `ok`), `offline`, `provider`, and `probe`. `provider` is `null` unless `status` is `ok`. `probe` is `null` when `status` is `absent` |
 | `recommended` | `provider`, `model`, `reachable`, `pullCommand`, and `notes`. The provider is the configured one, else the first server that answered, else `ollama`. `pullCommand` is `null` except for Ollama |
-| `config_snippet` | What to add to `~/.ashlr/config.json`: the whole `localInference` block when there is none, `{"offline": true}` when the block is valid and offline is off, and `null` when offline is already on or the block is invalid |
-| `next` | The steps in order, each with `text` and, when there is one to run, `command`. The last is always `mdopener-mcp doctor` |
+| `config_snippet` | What to add to `~/.ashlr/config.json`: `{"localInference": {"provider": ..., "offline": true}}` with the recommended provider when there is no block, `{"offline": true}` when the block is valid and offline is off, and `null` when offline is already on or the block is invalid |
+| `next` | Three steps, each with `text` and, when there is one to run, `command`: the pull command (for oMLX and `openai-compat`, a note on loading the model instead), then the config change (or a note that nothing is needed, or that the invalid block must be fixed first), then `mdopener-mcp doctor` |
 
 `setup` exits 0, including `setup` without `--local`, which prints its help. An unknown argument exits 2 with the help on stderr.
 
@@ -119,3 +119,38 @@ While it is on:
 On a Mac with Apple Silicon and macOS 26 or later, turn on Apple Intelligence, then restart Ashlr MD. That path uses Apple Foundation Models and needs no account.
 
 On Windows and Linux, install [Ollama](https://ollama.com) or use the `localInference` block above. A cloud model runs only after you add an Anthropic API key in Preferences or opt into a hosted endpoint.
+
+## Verify a change
+
+No pull request job runs the Rust tests below. CI runs them only in the full
+suites after a merge to `main`, so run the ones that cover your change:
+
+```bash
+cd src-tauri
+cargo test -p mdopener-mcp --lib offline
+cargo test -p mdopener-mcp --test offline_e2e --test local_inference_probe --test ollama_host --test payload_contract
+cargo test -p md-opener --lib base_urls
+cargo test -p md-opener --lib local_inference
+cargo test -p md-opener --lib ai::offline_tests
+cargo test -p md-opener --test no_proxy
+```
+
+- [`offline.rs`](../src-tauri/bins/mdopener-mcp/src/offline.rs) unit tests and
+  [`offline_e2e.rs`](../src-tauri/bins/mdopener-mcp/tests/offline_e2e.rs) cover
+  `doctor`, `setup --local` and the offline check, against a fake loopback
+  server in a temporary `HOME`.
+- [`local_inference_probe.rs`](../src-tauri/bins/mdopener-mcp/tests/local_inference_probe.rs)
+  covers the probe: timeout, no auth header, redirects refused, the 256 KiB cap.
+- [`ollama_host.rs`](../src-tauri/bins/mdopener-mcp/tests/ollama_host.rs)
+  covers `OLLAMA_HOST` in the sidecar.
+- [`payload_contract.rs`](../src-tauri/bins/mdopener-mcp/tests/payload_contract.rs)
+  checks the shape of the `setup --local --json` object against
+  [`setup-local.v1.json`](../src-tauri/bins/mdopener-mcp/tests/contract/setup-local.v1.json).
+- In the app crate, `base_urls.rs` covers `ANTHROPIC_BASE_URL` and
+  `OLLAMA_HOST`, `local_inference.rs` covers the `localInference` gate and
+  offline mode, `ai.rs` covers the offline refusal of Anthropic, and
+  [`no_proxy.rs`](../src-tauri/tests/no_proxy.rs) checks that proxy variables
+  never capture local model traffic.
+
+This page is also read by `src/ai/noProviderWording.test.ts`
+(`bunx vitest run src/ai/noProviderWording.test.ts`).
