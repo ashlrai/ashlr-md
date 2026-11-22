@@ -16,7 +16,7 @@ dropped.
 | `default_tempdir_is_not_a_searchable_vault_root` | `disk_vault_dir` refuses a default `tempfile::tempdir()` as a hidden folder and resolves a `vault()` directory to its canonical path |
 | `reading_adjacent_bracketed_prose_preserves_both_markers` | `export_text` keeps `[sic][1]` as written |
 | `an_agent_works_a_vault_from_disk_without_the_app` | The main journey, described [below](#what-the-main-journey-covers) |
-| `a_path_under_the_home_directory_can_be_written_with_a_tilde` | `~/notes/...` paths resolve against the server's home directory, not its working directory |
+| `a_path_under_the_home_directory_can_be_written_with_a_tilde` | `~/notes/...` paths resolve against the server's home directory, not its working directory, in `export_text`, `export_metadata`, `diff_documents`, `get_user_annotations`, `search_vault`, `edit_canvas` (with `save: false`) and the `cited_docs` of `save_conversation_message`. A `~nobody/plan.md` path is kept as given and resolves under the working directory |
 
 ## Why the vault needs a visible name
 
@@ -60,19 +60,31 @@ default hidden name.
 
 In order:
 
-1. `initialize` (protocol `2025-06-18`) and `tools/list`.
-2. `export_text` with a path relative to the working directory, and
-   `export_metadata` on `plan.md`.
-3. `diff_documents` between `plan.md` and `plan v2.md`.
+1. `initialize` (protocol `2025-06-18`), whose reply must offer tools and
+   instructions that mention `open_file`, then `tools/list`, which must list
+   the six tools used below with an object input schema.
+2. `export_text` with a path relative to the working directory, which keeps
+   bracketed prose, link text, code and non-ASCII text but drops emphasis
+   markers, link targets, front matter and closing hashes. Then
+   `export_metadata` on `plan.md`: front matter (with the nested key kept
+   under its parent), three headings (a `#` inside the code block is not one),
+   wikilinks and one embedded image.
+3. `diff_documents` between `plan.md` and `plan v2.md`: two lines added and
+   two removed.
 4. Refusals: `secrets.txt`, `.hidden.md` and `missing.md` fail in both export
    tools without leaking the dummy token, and `search_vault` with no app and no
    `vault` is an error that names Ashlr MD and the `vault` argument.
 5. Disk search as described above, a `limit` of 1, and the
    `text://vault-search` resource. A file (`plan.md`), a missing directory and
-   the hidden `.git` directory are each refused as `vault`.
+   the hidden `.git` directory are each refused as `vault`. When Ollama is
+   not running, the resource must also answer with `grep-disk`. Finally
+   `export_text` with no path and no app is an error.
 6. `save_conversation_message` and `get_conversation_context`, including an
-   invalid-params error for an unknown role, then a second server process with
-   the same home that reads the session back.
+   invalid-params error (`-32602`) for an unknown role. The session
+   `launch-review.1` is saved as
+   `<home>/.mdopener/sessions/launch-review%2E1.json`, and
+   `launch-review_1` does not share its history. A second server process with
+   the same home then reads the latest message back with `limit: 1`.
 
 ## Cleanup
 
