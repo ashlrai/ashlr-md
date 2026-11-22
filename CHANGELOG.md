@@ -48,6 +48,11 @@ Released 2026-11-09. [Release notes and downloads](https://github.com/ashlrai/as
 - The CI checks job is named "Typecheck, lint, unit tests, crypto policy": it runs `bun run test:unit` in place of the single punctuation test, runs `bun run check:doc-links`, runs the Tauri bundler prefetch and apt dependency plan regressions, the CI and release gate tests, and the npm script file path check. `CONTRIBUTING.md` lists the matching local commands.
 
 ### Documentation
+- The README first-open step describes `mdopen` starting the installed app when it is closed, and links to the examples' exit-status notes. `docs/EXAMPLES.md` covers unconfirmed launches, running-app failures, supported file extensions and stdin limits.
+- Consolidate image alt-text guidance in `docs/mdlint-image-rule-boundaries.md`, placeholder follow-up and accessibility guidance in `docs/mdlint-placeholder-resolution.md`, and bracket-preservation history and examples in `docs/integration-bracket-preservation.md`. The docs index and fixture tests follow the consolidated guides.
+- `CONTRIBUTING.md` and `AGENTS.md` list the checks needed beyond `ci-local.sh`, including the tests that read documentation as fixtures and the editor companions' own checks. Issue templates ask for reproducible commands, expected output and relevant checks.
+- The README groups desktop downloads with the install steps; the landing sitemap includes both llms files, and the Raycast README documents its commands and local development checks.
+- `docs/doctor-fix.md` documents all group/other permission bits, backup filename collisions, the `.json` scan scope, manual-item codes and the missing-home exit status.
 - The README opens with a five-step "Get started" that says what you should see after each step, followed by a "Commands and flags" reference for `mdopen` and `mdopener-mcp` and an "MCP tools" table of all 20 tools. It states that `mdopener-mcp doctor --fix` only previews repairs until you add `--apply`.
 - `docs/WINDOWS-NATIVE-QA.md` documents the dialog ancestry and filename Edit narrowing rules above.
 - `docs/NATIVE-QA-PROPOSAL.md` notes that `native-qa.yml` now also runs after merges to `main` and on published releases.
@@ -67,6 +72,7 @@ Released 2026-11-09. [Release notes and downloads](https://github.com/ashlrai/as
 - `docs/VISION.md` and the VS Code and Raycast READMEs say where Ashlr MD fits and link the contribution guide.
 
 ### Tests
+- Add link validation for both `llms.txt` copies, with fragment anchors removed before local file lookup and external HTTP(S) links checked separately from local files.
 - Added a `uiStore` case that toggling find twice restores the store unchanged, and a mdlint autofix fixture case.
 - Vitest allows 60 seconds per test and hook, so Milkdown mounts on a CPU-starved host no longer time out healthy suites.
 - Added reveal-line cases for fenced code blocks, empty documents and lines far beyond the end of the document, a diff hunk applied to empty content, and broad store, frontmatter, snippet, session, link export and mdlint autofix coverage.

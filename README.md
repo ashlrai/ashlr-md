@@ -69,7 +69,7 @@ Five steps. Each one says what you should see.
    mdopen samples/agent-plan.md
    ```
 
-   You should see the plan rendered in an Ashlr MD window. If you see `Ashlr MD is not running`, start the app and run the command again.
+   You should see the plan rendered in an Ashlr MD window. `mdopen` starts the installed app if it is closed. If no window appears, read stderr, start Ashlr MD and retry; see the [exit-status notes](./docs/EXAMPLES.md#open-a-file).
 
 5. **Ask for review.** Your agent calls `request_review` on a document. The document stays open for you, and your verdict goes back to the agent as JSON.
 
