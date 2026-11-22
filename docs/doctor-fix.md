@@ -14,7 +14,8 @@ mdopener-mcp doctor --help           # usage for --fix and --apply
 ```
 
 Exit codes: 0 when there is nothing to repair, after a preview, or when every fix applied;
-1 when an applied fix was skipped (for example the file changed between plan and apply).
+1 when an applied fix was skipped (for example the file changed between plan and apply), or
+when no home directory is found (set `HOME`).
 `--apply` without `--fix`, or an unknown argument, is refused with exit 2 and nothing written;
 an unknown argument also prints the usage on stderr.
 
@@ -22,17 +23,30 @@ an unknown argument also prints the usage on stderr.
 
 | Finding | `--apply` does |
 | --- | --- |
-| `~/.mdopener`, `sessions/` or `reviews/` readable by group or others | `chmod 700` (the previous mode is reported) |
-| a session file, saved review or `ipc-port` readable by group or others | `chmod 600` (contents untouched) |
-| a saved review that is oversized, does not parse, has another schema, or is stored under another file's name (the reader ignores it) | copies it to `<file>.bak-<UTC stamp>` (new file, 0600), compares the copy byte for byte, then removes the original |
+| `~/.mdopener`, `sessions/` or `reviews/` with any group or other permission bit | `chmod 700` (the previous mode is reported) |
+| a session file, saved review or `ipc-port` with any group or other permission bit | `chmod 600` (contents untouched) |
+| a saved review that is oversized, does not parse, has another schema, or is stored under another file's name (the reader ignores it) | copies it to `<file>.bak-<UTC stamp>` (new file, 0600; `-1`, `-2` and so on are appended if that name is taken), compares the copy byte for byte, then removes the original |
 
 Older builds created session files `0644`, and reopening an existing file never changes its
 mode, so those stayed readable by other users. Each fix is checked again against the folder as
 it is now before it is made; one that no longer applies is skipped.
 
+Only `.json` files in `sessions/` and `reviews/` are checked. When `~/.mdopener` does not
+exist there is nothing to repair. When it is not a directory, or is a symlink, the plan is one
+manual item and nothing inside is checked.
+
 ## Manual items (report only)
 
-- `ipc-token` readable by others: it is the app's secret, so this tool never opens, moves or
+Each item carries a `code`:
+
+| `code` | Finding |
+| --- | --- |
+| `ipc_token_not_private` | `ipc-token` has any group or other permission bit |
+| `not_a_regular_entry` | a symlink or special file where a folder or file was expected |
+| `state_dir_not_a_directory` | `~/.mdopener` is not a directory, or is a symlink |
+| `permissions_not_checked` | Windows, where permissions are not checked |
+
+- `ipc-token` open to group or others: it is the app's secret, so this tool never opens, moves or
   changes it. The item names the command: `chmod 600 ~/.mdopener/ipc-token`.
 - Symlinks and special files: never followed or changed.
 - MCP client registration and sidecar paths: repaired by the app's agent setup
@@ -63,6 +77,7 @@ uses, so one parser reads both:
 
 In a preview each planned fix is a `warn` check with `id: "fix"`. After `--apply` each fix is
 `ok` when it applied and `fail` when it was skipped. Manual items are always `warn`; their `id`
-is the item's `code` in lowercase with other characters turned into dashes. Nothing to repair
+is the item's `code` in lowercase with other characters turned into dashes (for example
+`ipc-token-not-private`). Nothing to repair
 gives an empty `checks` list and `status: "ok"`. The envelope is additive: the native fields and
 the exit code do not change.
