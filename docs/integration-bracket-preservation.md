@@ -1,15 +1,30 @@
 # Bracket preservation in text export
 
-`export_text` converts Markdown to plain text. A regression stripped the
-brackets from ordinary `[text]` even when it was not a link, changing prose
-such as `[sic]`, `[TODO]`, and numeric citations. The integration cases in
-[`integration.rs`](../src-tauri/bins/mdopener-mcp/tests/integration.rs) cover
-preservation alongside actual links and other Markdown syntax.
+`export_text` converts Markdown to plain text. As the 0.6.0 entry in the
+[changelog](../CHANGELOG.md) records, it once treated every `[text]` without
+an inline `(url)` as a link and removed its brackets: prose such as `[sic]`,
+`[TODO]`, and `[1]` came out as `sic`, `TODO`, and `1`, although the page
+displayed the brackets. Only the plain-text export changed; the Markdown
+source was never rewritten.
+
+An ordinary bracketed phrase is prose, so its brackets now survive export.
+An actual Markdown link exports its visible text without link syntax, and a
+reference label becomes a link only when the document defines it. The
+definition itself is omitted from the output.
 
 Each pair below is a tested Markdown input and the expected `text` output.
 The input ends with a newline; the output does not. Blank lines inside a pair
-are significant. These examples are also checked through the export tool by
-the integration suite.
+are significant. `export_text_matches_documented_bracket_preservation_examples`
+in [`integration.rs`](../src-tauri/bins/mdopener-mcp/tests/integration.rs)
+runs every pair through the `export_text` tool. Four of them also have their
+own regression test: `export_text_keeps_bracketed_todo_in_surrounding_prose`,
+`export_text_keeps_bracketed_sic_in_surrounding_prose`,
+`export_text_keeps_numeric_citations_in_surrounding_prose` and
+`export_text_keeps_bracketed_prose_in_list_items`.
+`export_text_keeps_brackets_unless_a_reference_is_defined` checks the
+Markdown-to-text function directly. For the full story, see
+[the bracket-loss regression](mdopener-bracket-history.md); for a compact
+list, see the [bracketed prose example table](bracketed-prose-example-table.md).
 
 ## Prose, punctuation, and repeated phrases
 
