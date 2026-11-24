@@ -118,12 +118,12 @@ test('push trigger is restricted to main and PR/queue triggers remain', () => {
 
 test('fork pull requests restore the Bun cache and never save it', () => {
   const fast = job('fast');
-  assert.match(fast, /no-cache: \$\{\{ github\.event_name == 'pull_request' \}\}/);
+  assert.match(fast, /no-cache: \$\{\{ github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name != github\.repository \}\}/);
   assert.match(fast, /uses: actions\/cache\/restore@0057852bfaa89a56745cba8c7296529d2fc39830/);
   assert.doesNotMatch(fast, /uses: actions\/cache@0057852bfaa89a56745cba8c7296529d2fc39830/);
   const save = fast.match(/- name: Save Bun install cache\n        if: (.+)\n        continue-on-error: true\n        uses: actions\/cache\/save@0057852bfaa89a56745cba8c7296529d2fc39830/);
   assert.ok(save, 'save step must stay continue-on-error and pinned');
-  assert.equal(save[1], "github.event_name != 'pull_request' && steps.bun-cache.outputs.cache-hit != 'true'");
+  assert.equal(save[1], "steps.bun-cache.outputs.cache-hit != 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)");
   const triggers = workflow.match(/^on:\n([\s\S]*?)(?=^\S)/m)?.[1];
   assert.ok(triggers);
   assert.doesNotMatch(triggers, /paths(-ignore)?:/);
@@ -131,6 +131,35 @@ test('fork pull requests restore the Bun cache and never save it', () => {
   assert.doesNotMatch(job('secret-scan'), /^    if:/m);
   assert.doesNotMatch(job('secret-shape'), /^    if:/m);
   assert.match(fast, /bun run check:crypto/);
+});
+
+test('OS gates report under their own names and stay off Check (Linux)', () => {
+  assert.equal(job('gate').match(/^    needs: \[(.+)\]$/m)?.[1], 'fast, secret-scan, linux-full, macos-full, secret-shape');
+  const gates = [
+    ['gate-linux', 'Gate (linux)', 'fast, install-smoke-linux'],
+    ['gate-windows', 'Gate (windows)', 'classify, os-windows, install-smoke-windows'],
+    ['gate-macos', 'Gate (macos)', 'classify, os-macos, install-smoke-macos'],
+  ];
+  for (const [id, name, needs] of gates) {
+    const body = job(id);
+    assert.equal(body.match(/^    name: (.+)$/m)?.[1], name);
+    assert.equal(body.match(/^    if: (.+)$/m)?.[1], 'always()');
+    assert.match(body, /runs-on: ubuntu-latest/);
+    assert.equal(body.match(/^    needs: \[(.+)\]$/m)?.[1], needs);
+    assert.match(body, /bash scripts\/ci\/os-gate\.sh/);
+  }
+  for (const [id, name] of [
+    ['install-smoke-linux', 'install smoke (linux)'],
+    ['install-smoke-windows', 'install smoke (windows)'],
+    ['install-smoke-macos', 'install smoke (macos)'],
+  ]) {
+    assert.equal(job(id).match(/^    name: (.+)$/m)?.[1], name);
+  }
+  assert.match(job('os-windows'), /runs-on: windows-latest/);
+  assert.match(job('os-macos'), /runs-on: macos-latest/);
+  assert.match(job('os-windows'), /needs: classify/);
+  assert.match(job('install-smoke-windows'), /needs\.classify\.outputs\.run_os == 'true'/);
+  assert.doesNotMatch(job('install-smoke-linux'), /needs: classify/);
 });
 
 test('actual gate rejects any unexpected non-main push even with successful jobs', () => {

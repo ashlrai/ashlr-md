@@ -28,6 +28,39 @@ const JS_IN = /^(src\/|index\.html$|biome\.json$|vite\.config\.ts$|vitest\.confi
 
 const FULL = { mode: 'full', js: true, rust: true, rustArgs: '--workspace' };
 
+// Windows and macOS fast checks run only when the diff can change what those
+// checks compile or install. Docs, landing pages and samples do not.
+const OS_FAST = [
+  /^src\//,
+  /^src-tauri\//,
+  /^index\.html$/,
+  /^biome\.json$/,
+  /^vite\.config\.ts$/,
+  /^vitest\.config\.ts$/,
+  /^tsconfig(\.node)?\.json$/,
+  /^package\.json$/,
+  /^bun\.lockb?$/,
+  /(^|\/)Cargo\.(toml|lock)$/,
+  /(^|\/)package-lock\.json$/,
+  /(^|\/)pnpm-lock\.yaml$/,
+  /^\.github\/workflows\//,
+  /\.(sh|ps1|bat|cmd)$/,
+  /(^|\/)install[^/]*$/,
+  /\.(wxs|iss)$/,
+  /nsis/i,
+  /^integrations\/[^/]+\/package\.json$/,
+];
+
+// schedule and workflow_dispatch measure every OS even when no PR diff exists.
+// push keeps the existing Linux full suite and does not add the OS legs.
+// A missing diff fails open (run the legs) so a classify error cannot skip them.
+export function runOs(event, files) {
+  if (event === 'schedule' || event === 'workflow_dispatch') return true;
+  if (event === 'push') return false;
+  if (!files) return true;
+  return files.some((file) => OS_FAST.some((pattern) => pattern.test(file)));
+}
+
 // files: changed paths relative to the repo root, or null when the diff could
 // not be computed. Returns the shard plan; rustArgs is a ready-made cargo
 // package selector ('--workspace' or '-p <crate> ...'). An explicitly empty
@@ -75,9 +108,38 @@ function emit({ mode, js, rust, rustArgs, jsBase = '' }) {
   process.stdout.write(`mode=${mode}\njs=${js}\njs_base=${js ? jsBase : ''}\nrust=${rust}\nrust_args=${rustArgs}\n`);
 }
 
-export function main(argv = process.argv.slice(2), env = process.env) {
+function readFileList(args) {
+  const raw = args.filesFile === '-' ? readFileSync(0, 'utf8') : readFileSync(args.filesFile, 'utf8');
+  return raw.split('\n').map((s) => s.trim()).filter(Boolean);
+}
+
+function osGateMain(args, env) {
   try {
-    const args = parseArgs(argv);
+    const event = args.event ?? env.CI_EVENT ?? '';
+    let files = null;
+    if (event === 'pull_request' || event === 'merge_group') {
+      if (args.filesFile) files = readFileList(args);
+      else {
+        const base = args.base ?? env.CI_BASE;
+        const head = args.head ?? env.CI_HEAD;
+        if (base && head) files = changedFiles(base, head).files;
+      }
+      // An empty diff on a pull request or queue run is not a docs-only
+      // change; the shas were not what we expected, so fail open.
+      if (files && files.length === 0) files = null;
+    }
+    process.stdout.write(`run_os=${runOs(event, files)}\n`);
+  } catch (err) {
+    process.stderr.write(`os-gate: error, running OS legs: ${err.message}\n`);
+    process.stdout.write('run_os=true\n');
+  }
+  return 0;
+}
+
+export function main(argv = process.argv.slice(2), env = process.env) {
+  const args = parseArgs(argv);
+  if (args.osGate) return osGateMain(args, env);
+  try {
     const event = args.event ?? env.CI_EVENT ?? '';
     let files = null;
     let mergeBase = '';

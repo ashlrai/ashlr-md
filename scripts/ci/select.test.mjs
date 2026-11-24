@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { plan, CRATES, main } from './select.mjs';
+import { plan, CRATES, main, runOs } from './select.mjs';
 
 const SCRIPT = fileURLToPath(new URL('./select.mjs', import.meta.url));
 
@@ -127,6 +127,40 @@ test('stdin file list and unreadable inputs behave (error -> full, exit 0)', () 
   assert.match(out, /rust=false/);
   const missing = runSelect(['--event', 'pull_request', '--files-file', '/nonexistent/nope.txt']);
   assert.match(missing, /mode=full/);
+});
+
+test('OS legs run for app, installer, lockfile and workflow changes, not docs', () => {
+  assert.equal(runOs('pull_request', ['docs/INSTALL.md', 'README.md', 'landing/index.html', 'samples/showcase.md']), false);
+  assert.equal(runOs('merge_group', ['docs/VISION.md']), false);
+  for (const file of [
+    'src/lib/path.ts',
+    'src-tauri/src/lib.rs',
+    'src-tauri/tauri.conf.json',
+    'src-tauri/Cargo.lock',
+    'package.json',
+    'bun.lock',
+    '.github/workflows/ci.yml',
+    'scripts/install.sh',
+    'scripts/build-sidecars.sh',
+    'integrations/vscode/package.json',
+  ]) {
+    assert.equal(runOs('pull_request', [file]), true, file);
+  }
+  assert.equal(runOs('pull_request', ['scripts/test-mcp-setup.py']), false);
+  assert.equal(runOs('schedule', ['docs/VISION.md']), true);
+  assert.equal(runOs('workflow_dispatch', null), true);
+  assert.equal(runOs('push', ['src/a.ts']), false);
+  assert.equal(runOs('pull_request', null), true);
+  assert.equal(runOs('merge_group', []), false);
+});
+
+test('os-gate flag emits run_os from a file list', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ci-os-'));
+  const list = join(dir, 'files.txt');
+  writeFileSync(list, 'docs/VISION.md\nREADME.md\n');
+  const out = runSelect(['--os-gate', '--event', 'pull_request', '--files-file', list]);
+  assert.equal(out.trim(), 'run_os=false');
+  rmSync(dir, { recursive: true });
 });
 
 test('missing base/head on pull_request falls back to full via plan', () => {
