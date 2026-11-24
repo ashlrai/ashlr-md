@@ -104,6 +104,15 @@ describe("documentStore", () => {
     reset();
   });
 
+  it("starts with no selected document when the document list is empty", () => {
+    const state = useDocumentStore.getInitialState();
+
+    expect(state.tabs).toEqual([]);
+    expect(state.activeId).toBeNull();
+    expect(state.path).toBeNull();
+    expect(state.tabs.find((tab) => tab.id === state.activeId)).toBeUndefined();
+  });
+
   it("opens a file clean and starts watching it", async () => {
     readReturns("# Hello");
     await useDocumentStore.getState().openPath("/a.md");
