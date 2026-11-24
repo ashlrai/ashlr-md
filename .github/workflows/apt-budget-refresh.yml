@@ -1,0 +1,58 @@
+name: Refresh apt budget
+
+# Recompute scripts/ci/apt-green-runs.json from the newest green installs.
+# contents stays read-only here. Publishing the new file is a pull request,
+# not a push to main. The daily full suite starts at 08:23 UTC; 09:47 UTC is
+# after that run, including a slow one, has finished.
+on:
+  schedule:
+    - cron: "47 9 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  refresh:
+    if: github.event.repository.fork == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Recompute the trailing green window
+        id: upd
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: python3 scripts/ci/refresh-apt-green-runs.py --write
+      - name: Open a pull request
+        if: steps.upd.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          branch="apt-budget/refresh"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git checkout -B "$branch"
+          git add scripts/ci/apt-green-runs.json
+          if git diff --cached --quiet; then
+            echo "nothing to commit"
+            exit 0
+          fi
+          git commit -m "ci: refresh apt install budget measurements"
+          git -c "http.extraheader=AUTHORIZATION: bearer ${GH_TOKEN}" \
+            push "https://github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/${branch}"
+          number="$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$branch" --state open --json number --jq '.[0].number')"
+          if [ -n "$number" ]; then
+            echo "refresh pull request already open"
+            exit 0
+          fi
+          gh pr create --repo "$GITHUB_REPOSITORY" --base main --head "$branch" \
+            --title "ci: refresh apt install budget measurements" \
+            --body "The scheduled refresh recomputed scripts/ci/apt-green-runs.json from the newest successful Install Linux system dependencies steps. It does not push to main."

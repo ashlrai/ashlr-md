@@ -1,3 +1,4 @@
+* text=auto eol=lf
 CHANGELOG.md merge=union
 src/styles/markdown.css text eol=lf
 src/styles/themes.css text eol=lf

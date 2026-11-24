@@ -80,6 +80,7 @@ jobs:
           python3 scripts/test-apt-https-sources.py
           python3 scripts/test-prefetch-tauri-bundler-tools.py
           python3 scripts/ci/apt-budget.test.py
+          python3 scripts/ci/refresh-apt-green-runs.test.py
 
       - name: Unit tests
         run: bun run test:unit
