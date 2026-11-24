@@ -31041,7 +31041,7 @@ describe("rule:invalid-link-target — two invalid links with rich link text on 
 });
 
 
-describe("invalid-link-target autofix with two invalid links on one line", () => {
+describe("invalid-link-target autofix with two invalid links", () => {
   it.each(["\n", "\r\n"])("repairs both links in a wrapped paragraph without changing its prose (%j)", (nl) => {
     const doc = `Before [first]() and ordinary text,${nl}continue with [second](?) and finish.${nl}`;
     const expected = `Before [first](TODO) and ordinary text,${nl}continue with [second](TODO) and finish.${nl}`;
@@ -31049,8 +31049,16 @@ describe("invalid-link-target autofix with two invalid links on one line", () =>
     const violations = lintDocument(doc, { rules });
 
     expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target", "invalid-link-target"]);
+    expect(applyFix(doc, violations[0])).toBe(
+      `Before [first](TODO) and ordinary text,${nl}continue with [second](?) and finish.${nl}`,
+    );
+    expect(applyFix(doc, violations[1])).toBe(
+      `Before [first]() and ordinary text,${nl}continue with [second](TODO) and finish.${nl}`,
+    );
     const fixed = applyAllFixes(doc, violations);
     expect(fixed).toBe(expected);
+    expect(applyAllFixes(doc, [...violations].reverse())).toBe(expected);
+    expect(fixAllViolations(doc, violations)).toBe(expected);
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 
