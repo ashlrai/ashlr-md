@@ -527,6 +527,8 @@ describe("doc facts: download links", () => {
     let seen = 0;
     for (const [file, doc] of docs) {
       for (const m of doc.matchAll(/([^\n]{0,40})\[([^\]]+)\]\((https?:[^)\s]+)\)/g)) {
+        // A badge image (`![alt](src)`) is not a link; its target is the outer link.
+        if (m[1].endsWith("!")) continue;
         const around = `${m[1]} ${m[2]}`;
         if (!/download|install ashlr md from|releases/i.test(around)) continue;
         seen++;
