@@ -49,7 +49,11 @@ writable. To connect Claude Code, Codex or Cursor to `mdopener-mcp`, see the
    (This warning appears for unsigned installers. It will disappear once the
    app is code-signed with an EV/OV certificate.)
 
-**Silent install** (for IT/automation):
+**Silent install** (for IT/automation). One command from PowerShell downloads the latest release and installs it:
+
+```powershell
+irm https://raw.githubusercontent.com/ashlrai/ashlr-md/main/scripts/install.ps1 | iex
+```
 
 <!-- fresh:begin install-snippet -->
 Download the desired release from [Releases](https://github.com/ashlrai/ashlr-md/releases/latest), replace `X.Y.Z` with that download's version, then run the Windows silent installer:
