@@ -24,6 +24,34 @@ Agents are first-class users of Ashlr MD.
 3. [docs/EXAMPLES.md](docs/EXAMPLES.md) is every copy-paste command, including Windows.
 4. [docs/AGENTS.md](docs/AGENTS.md) is the tool contract. Names and order come from `tool_registry()`.
 
+## Dev setup
+
+On macOS or Linux, from a checkout:
+
+```bash
+bash scripts/setup.sh
+```
+
+On Windows:
+
+```powershell
+pwsh -File scripts/setup.ps1
+```
+
+It is safe to run again. It does not ask questions. When rustup is missing it
+installs rustup, then installs the compiler in `rust-toolchain.toml` (1.99.1).
+The crates need rustc 1.90 or newer. It installs Bun when Bun is missing, then
+runs `bun install --frozen-lockfile --ignore-scripts`, and finishes with a
+smoke check. A dev container runs the same script on create
+(`.devcontainer/devcontainer.json`).
+
+The macOS and Linux install that builds `mdopen` and `mdopener-mcp` is
+`SKIP_APP_BUILD=1 bash scripts/install.sh`. The Windows release install is
+`scripts/install.ps1`.
+
+Discord for this project is [The Dev Shack](https://discord.gg/jBQrSU6XeD).
+Do not post there unless a person asked you to.
+
 ## Agents may
 - Create branches, commit, and open pull requests.
 - Turn on GitHub auto-merge (`phm improve --auto-merge` / `gh pr merge --auto`). Merge to main and ship to production on your own, with no human approval or manual merge; fix main forward. Never use an admin override.
