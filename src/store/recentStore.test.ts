@@ -134,6 +134,26 @@ describe("recentStore", () => {
     expect(recents[0].path).toBe("/b.md");
   });
 
+  it("remove() preserves the order and data of remaining entries", () => {
+    const { add, remove } = useRecentStore.getState();
+    add("/a.md", "a.md", 1000);
+    add("/b.md", "b.md", 2000);
+    add("/c.md", "c.md", 3000);
+    add("/d.md", "d.md", 4000);
+
+    remove("/b.md");
+
+    const expected = [
+      { path: "/d.md", fileName: "d.md", openedAt: 4000 },
+      { path: "/c.md", fileName: "c.md", openedAt: 3000 },
+      { path: "/a.md", fileName: "a.md", openedAt: 1000 },
+    ];
+    expect(useRecentStore.getState().recents).toEqual(expected);
+    expect(getStoredState<{ recents: RecentFile[] }>(STORE_KEY)?.state.recents).toEqual(
+      expected,
+    );
+  });
+
   it("remove() of an absent path preserves the ordered entries", () => {
     const { add, remove } = useRecentStore.getState();
     add("/a.md", "first.md", 1000);
