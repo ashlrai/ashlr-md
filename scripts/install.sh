@@ -56,7 +56,6 @@ check_cmd() {
 
 check_cmd git  "Install Xcode CLT: xcode-select --install"
 check_cmd curl "Install curl via Homebrew: brew install curl"
-check_cmd cargo "Install Rust: https://rustup.rs"
 check_cmd bun  "Install Bun: https://bun.sh (curl -fsSL https://bun.sh/install | bash)"
 
 # macOS-only check: Tauri 2 requires macOS 10.15+
@@ -91,6 +90,72 @@ else
 fi
 
 cd "$REPO_ROOT"
+
+# icu crates need rustc 1.86. The highest rust-version in src-tauri/Cargo.lock
+# is 1.90 (tauri-build 2.7.4 and tauri-utils 2.10.2). Release workflows
+# install 1.99.1, which covers both. A checkout's rust-toolchain.toml wins
+# when it names a version. rustc 1.85.1 makes cargo exit 101.
+PIN_RUSTC="1.99.1"
+CRATE_RUST_FLOOR="1.90"
+
+read_pinned_rustc() {
+  local file="$1" line
+  [[ -f "$file" ]] || return 1
+  line=$(grep -E '^[[:space:]]*channel[[:space:]]*=' "$file" | head -n 1 || true)
+  [[ -n "$line" ]] || return 1
+  line=${line#*=}
+  line=${line//\"/}
+  line=${line//\'/}
+  line=${line//[[:space:]]/}
+  printf '%s\n' "$line"
+}
+
+version_ge() {
+  local IFS=.
+  local -a a b
+  read -r -a a <<< "$1"
+  read -r -a b <<< "$2"
+  local i n=${#a[@]} x y
+  if (( ${#b[@]} > n )); then n=${#b[@]}; fi
+  for ((i = 0; i < n; i++)); do
+    x=${a[i]:-0}
+    y=${b[i]:-0}
+    x=${x%%[^0-9]*}
+    y=${y%%[^0-9]*}
+    x=${x:-0}
+    y=${y:-0}
+    if ((10#$x > 10#$y)); then return 0; fi
+    if ((10#$x < 10#$y)); then return 1; fi
+  done
+  return 0
+}
+
+ensure_rustc() {
+  local pin have need
+  pin=$(read_pinned_rustc "$REPO_ROOT/rust-toolchain.toml" || true)
+  [[ -n "$pin" ]] || pin="$PIN_RUSTC"
+  if command -v rustup >/dev/null 2>&1; then
+    info "Installing Rust ${pin} with rustup…"
+    if ! rustup toolchain install "$pin" --profile minimal --component clippy,rustfmt; then
+      die "rustup could not install Rust ${pin}. The icu crates need rustc 1.86, and this lockfile needs rustc ${CRATE_RUST_FLOOR}. Fix the rustup error above and run this installer again."
+    fi
+    export RUSTUP_TOOLCHAIN="$pin"
+    hash -r || true
+    need="$pin"
+  else
+    need="$CRATE_RUST_FLOOR"
+  fi
+  if ! command -v rustc >/dev/null 2>&1 || ! command -v cargo >/dev/null 2>&1; then
+    die "rustc was not found. Install rustup from https://rustup.rs and run this installer again. The icu crates need rustc 1.86. rust-toolchain.toml pins ${pin}."
+  fi
+  have=$(rustc --version | awk '{print $2}')
+  if ! version_ge "$have" "$need"; then
+    die "rustc ${have} is too old. The icu crates need rustc 1.86, and src-tauri/Cargo.lock needs rustc ${CRATE_RUST_FLOOR} (tauri-build 2.7.4 and tauri-utils 2.10.2). rust-toolchain.toml pins ${pin}. Install rustup from https://rustup.rs and run this installer again so rustup can install ${pin}. Cargo exits 101 when rustc is older than a crate's rust-version."
+  fi
+  info "rustc ${have} meets the requirement (${need})."
+}
+
+ensure_rustc
 
 # ── 3. Install JS/TS dependencies ─────────────────────────────────────────────
 info "Installing JS dependencies (bun install)…"
