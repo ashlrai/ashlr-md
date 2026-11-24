@@ -116,6 +116,23 @@ test('push trigger is restricted to main and PR/queue triggers remain', () => {
   assert.match(triggers, /^  pull_request:\n    types: \[opened, synchronize, reopened\]/m);
 });
 
+test('fork pull requests restore the Bun cache and never save it', () => {
+  const fast = job('fast');
+  assert.match(fast, /no-cache: \$\{\{ github\.event_name == 'pull_request' \}\}/);
+  assert.match(fast, /uses: actions\/cache\/restore@0057852bfaa89a56745cba8c7296529d2fc39830/);
+  assert.doesNotMatch(fast, /uses: actions\/cache@0057852bfaa89a56745cba8c7296529d2fc39830/);
+  const save = fast.match(/- name: Save Bun install cache\n        if: (.+)\n        continue-on-error: true\n        uses: actions\/cache\/save@0057852bfaa89a56745cba8c7296529d2fc39830/);
+  assert.ok(save, 'save step must stay continue-on-error and pinned');
+  assert.equal(save[1], "github.event_name != 'pull_request' && steps.bun-cache.outputs.cache-hit != 'true'");
+  const triggers = workflow.match(/^on:\n([\s\S]*?)(?=^\S)/m)?.[1];
+  assert.ok(triggers);
+  assert.doesNotMatch(triggers, /paths(-ignore)?:/);
+  assert.equal(job('gate').match(/^    name: (.+)$/m)?.[1], 'Check (Linux)');
+  assert.doesNotMatch(job('secret-scan'), /^    if:/m);
+  assert.doesNotMatch(job('secret-shape'), /^    if:/m);
+  assert.match(fast, /bun run check:crypto/);
+});
+
 test('actual gate rejects any unexpected non-main push even with successful jobs', () => {
   assert.match(gate, /REF: \$\{\{ github.ref \}\}/);
   for (const ref of ['refs/heads/topic', 'refs/tags/v0.5.0', '']) {
