@@ -14,7 +14,7 @@ function unsafeInstalls(source) {
 }
 
 test('install scripts disable dependency lifecycle scripts or document an exception', () => {
-  for (const file of ['install.sh', 'generate-icons.sh']) {
+  for (const file of ['install.sh', 'setup.sh', 'setup.ps1', 'generate-icons.sh']) {
     const source = readFileSync(new URL(file, import.meta.url), 'utf8');
     assert.deepEqual(unsafeInstalls(source), [], `${file} has unprotected install lines`);
   }

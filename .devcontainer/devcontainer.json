@@ -1,0 +1,5 @@
+{
+  "name": "Ashlr MD",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu-24.04",
+  "postCreateCommand": "bash scripts/setup.sh"
+}

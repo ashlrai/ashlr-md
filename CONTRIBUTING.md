@@ -3,6 +3,8 @@
 Thanks for your interest! Ashlr MD aims to be the instant, beautiful, AI-native
 home for Markdown: local-first and open source. See [`docs/VISION.md`](./docs/VISION.md)
 for the north star and the quality bar every change should clear.
+Behavior in community spaces follows [`CODE_OF_CONDUCT.md`](./CODE_OF_CONDUCT.md).
+Questions and introductions: [The Dev Shack](https://discord.gg/jBQrSU6XeD) on Discord.
 
 ## Who contributes
 
@@ -23,8 +25,10 @@ the same path: a pull request that passes the
   `main`, [`fix-main.yml`](./.github/workflows/fix-main.yml) opens (or
   comments on) an issue labelled `FIX-MAIN` and `P0`. Fix it forward with a
   new pull request; never revert or force-push.
-- **Open issues.** The `good first issue` and `help wanted` labels mark work
-  that suits a newcomer, when any issue carries them.
+- **A good first issue.** The
+  [`good first issue`](https://github.com/ashlrai/ashlr-md/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22)
+  and [`help wanted`](https://github.com/ashlrai/ashlr-md/issues?q=is%3Aissue+is%3Aopen+label%3A%22help+wanted%22)
+  labels mark work that suits a newcomer, when any issue carries them.
 - **The roadmap.** Unchecked items under [Next](./ROADMAP.md#next) are open.
   Some need maintainer credentials (the signed macOS build needs the Apple
   signing secrets), so pick one that does not.
@@ -32,6 +36,41 @@ the same path: a pull request that passes the
   [Open an issue](https://github.com/ashlrai/ashlr-md/issues/new/choose) with
   the bug report or feature request template, or send the pull request
   directly. The repository has no GitHub Discussions.
+
+## Install
+
+One command per system. There is no Homebrew, winget, or AUR package yet.
+
+### macOS and Linux
+
+```bash
+SKIP_APP_BUILD=1 bash <(curl -fsSL https://raw.githubusercontent.com/ashlrai/ashlr-md/main/scripts/install.sh)
+```
+
+From a checkout, `bash scripts/setup.sh` prepares Rust, Bun, and JS
+dependencies. Then `SKIP_APP_BUILD=1 bash scripts/install.sh` builds `mdopen`
+and `mdopener-mcp`.
+
+### Windows
+
+```powershell
+irm https://raw.githubusercontent.com/ashlrai/ashlr-md/main/scripts/install.ps1 | iex
+```
+
+That downloads the latest release installer and installs it silently. Dev
+setup from a checkout is `pwsh -File scripts/setup.ps1`.
+
+## Pull request flow
+
+1. Fork `ashlrai/ashlr-md` and clone your fork.
+2. Run `bash scripts/setup.sh` on macOS or Linux, or `pwsh -File scripts/setup.ps1` on Windows. It is safe to run again.
+3. Branch from `main`.
+4. Open a pull request against `main`.
+5. `Check (Linux)` is the required check. Wait until it is green.
+6. The merge queue lands the pull request. On a fork, a maintainer or fleet agent arms auto-merge.
+
+The checks to run before you push are in
+[Contribute with an agent](#contribute-with-an-agent).
 
 ## Contribute with an agent
 
@@ -41,7 +80,9 @@ and [`llms.txt`](./llms.txt) first: they index the docs, the `mdopen` CLI, the `
 that print JSON (`--json`) and the MCP tool contract. `mdopen` itself has no
 `--json` flag.
 
-1. Install the [prerequisites](#prerequisites). Fork `ashlrai/ashlr-md`,
+1. Install the [prerequisites](#prerequisites), or on macOS or Linux run
+   `bash scripts/setup.sh` (it installs the pinned Rust toolchain when rustup
+   is missing, installs Bun when it is missing, then `bun install`). Fork `ashlrai/ashlr-md`,
    clone your fork, add the upstream remote and branch from `main`:
 
    ```bash
@@ -161,7 +202,11 @@ that print JSON (`--json`) and the MCP tool contract. `mdopen` itself has no
 
 ## Prerequisites
 
-- [Rust](https://rustup.rs) (stable)
+- [Rust](https://rustup.rs). `rust-toolchain.toml` pins 1.99.1, the same
+  compiler the release workflows install. The crates in `src-tauri/Cargo.lock`
+  need rustc 1.90 or newer (`tauri-build` 2.7.4 and `tauri-utils` 2.10.2).
+  `scripts/setup.sh` installs that pin when rustup is present, and stops with
+  the required version when rustc is older.
 - [Bun](https://bun.sh) (CI pins 1.3.14)
 - [Node.js](https://nodejs.org): `scripts/ci-local.sh` classifies the diff with
   `node scripts/ci/select.mjs`, and many gates run under `node --test`
@@ -181,6 +226,21 @@ toolchain are needed to build the app, change Rust code, or run
 `scripts/test-mcp-setup.py`.
 
 ## Develop
+
+One command on macOS or Linux. It is safe to run again and does not ask
+questions. A dev container runs it on create
+(`.devcontainer/devcontainer.json`).
+
+```bash
+bash scripts/setup.sh
+```
+
+That installs the pinned Rust toolchain, installs Bun if needed, and runs
+`bun install --frozen-lockfile --ignore-scripts`. It then checks rustc, the
+install, and `cargo metadata`. Tests for the script:
+`node --test scripts/setup.test.mjs`.
+
+The desktop app, after setup:
 
 ```bash
 bun install --frozen-lockfile
