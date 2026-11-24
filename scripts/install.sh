@@ -118,6 +118,9 @@ fi
 
 MCP_BIN="$REPO_ROOT/src-tauri/target/release/mdopener-mcp"
 MDOPEN_BIN="$REPO_ROOT/src-tauri/target/release/mdopen"
+# cargo on Windows writes mdopen.exe. The Unix name is unchanged.
+if [[ ! -f "$MCP_BIN" && -f "${MCP_BIN}.exe" ]]; then MCP_BIN="${MCP_BIN}.exe"; fi
+if [[ ! -f "$MDOPEN_BIN" && -f "${MDOPEN_BIN}.exe" ]]; then MDOPEN_BIN="${MDOPEN_BIN}.exe"; fi
 
 [[ -f "$MCP_BIN" ]]    || die "mdopener-mcp binary not found at $MCP_BIN"
 [[ -f "$MDOPEN_BIN" ]] || die "mdopen binary not found at $MDOPEN_BIN"
@@ -168,10 +171,16 @@ install_cli_to() {
   local dir="$1"
   mkdir -p "$dir" 2>/dev/null || return 1
   [[ -w "$dir" ]] || return 1
-  ln -sf "$MDOPEN_BIN" "$dir/mdopen" || return 1
-  ln -sf "$MCP_BIN" "$dir/mdopener-mcp" || return 1
-  success "mdopen → $dir/mdopen"
-  success "mdopener-mcp → $dir/mdopener-mcp"
+  local open_leaf mcp_leaf
+  open_leaf="$(basename "$MDOPEN_BIN")"
+  mcp_leaf="$(basename "$MCP_BIN")"
+  ln -sf "$MDOPEN_BIN" "$dir/$open_leaf" || return 1
+  ln -sf "$MCP_BIN" "$dir/$mcp_leaf" || return 1
+  # Git bash runs `mdopen` when the file on disk is mdopen.exe.
+  if [[ "$open_leaf" == *.exe ]]; then ln -sf "$MDOPEN_BIN" "$dir/${open_leaf%.exe}" || return 1; fi
+  if [[ "$mcp_leaf" == *.exe ]]; then ln -sf "$MCP_BIN" "$dir/${mcp_leaf%.exe}" || return 1; fi
+  success "mdopen → $dir/$open_leaf"
+  success "mdopener-mcp → $dir/$mcp_leaf"
 }
 
 if ! install_cli_to "$CLI_BIN_DIR"; then
