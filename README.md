@@ -48,6 +48,12 @@ Five steps. Each one says what you should see.
 
    Git, curl, Rust, Cargo, and Bun are required. If your shell cannot find the commands afterwards, run `export PATH="$HOME/.local/bin:$PATH"`.
 
+   On Windows, this downloads the latest release installer and installs it silently (`*-setup.exe /S`, or `msiexec /qn` for the `.msi`):
+
+   ```powershell
+   irm https://raw.githubusercontent.com/ashlrai/ashlr-md/main/scripts/install.ps1 | iex
+   ```
+
 2. **Check.** This looks only at this machine. It downloads nothing and writes no config:
 
    ```bash
