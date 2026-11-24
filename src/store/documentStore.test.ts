@@ -447,6 +447,36 @@ describe("documentStore", () => {
     expect(s.path).toBe("/b.md");
   });
 
+  it.each([
+    "/a.md",
+    "/c.md",
+  ])("closing inactive document %s preserves the active selection and edits", async (path) => {
+    readReturnsByPath();
+    await useDocumentStore.getState().openPath("/a.md");
+    await useDocumentStore.getState().openPath("/b.md");
+    await useDocumentStore.getState().openPath("/c.md");
+    useDocumentStore.getState().switchTab(useDocumentStore.getState().tabs[1].id);
+    await Promise.resolve();
+    const before = useDocumentStore.getState();
+    const inactive = before.tabs.find((tab) => tab.path === path)!;
+    before.setContent("unsaved B");
+    before.setViewMode("source");
+    const expectedTabs = useDocumentStore
+      .getState()
+      .tabs.filter((tab) => tab.id !== inactive.id);
+
+    useDocumentStore.getState().closeTab(inactive.id);
+
+    const after = useDocumentStore.getState();
+    expect(after.activeId).toBe(before.activeId);
+    expect(after.tabs).toEqual(expectedTabs);
+    expect(after.tabs).toHaveLength(2);
+    expect(after.path).toBe("/b.md");
+    expect(after.content).toBe("unsaved B");
+    expect(after.viewMode).toBe("source");
+    expect(after.isDirty).toBe(true);
+  });
+
   it("closing the last tab returns to the empty state", async () => {
     readReturnsByPath();
     await useDocumentStore.getState().openPath("/a.md");
