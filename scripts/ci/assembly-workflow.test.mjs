@@ -91,23 +91,28 @@ test('dependency probe retains exactly the ten explicit full-CI prerequisites', 
   const helper = readFileSync(new URL('../apt-dependency-plan.py', import.meta.url), 'utf8');
   const ci = readFileSync(new URL('../../.github/workflows/ci.yml', import.meta.url), 'utf8');
   const install = extractRuns(ci).find(step => step.name === 'Install Linux system dependencies').run;
-  const required = install.slice(install.indexOf('install -y') + 'install -y'.length).replaceAll('\\', '').trim().split(/\s+/).sort();
+  const array = install.match(/pkgs=\(([^)]*)\)/);
+  assert.ok(array, 'CI package list must stay an explicit array');
+  const required = array[1].replaceAll('\\', '').trim().split(/\s+/).filter(Boolean).sort();
   const declaration = helper.slice(helper.indexOf('PACKAGES = ('), helper.indexOf('MAX_OUTPUT ='));
   const declared = [...declaration.matchAll(/'([^']+)'/g)].map(match => match[1]).sort();
   assert.equal(declared.length, 10); assert.deepEqual(declared, required);
   assert.match(helper, /'\/usr\/bin\/apt-get', '--simulate'/);
 });
 
-test('Linux CI upgrades source URIs from its checked-out source before the unchanged install', () => {
+test('Linux CI upgrades source URIs before a bounded retry of the same install', () => {
   const ci = readFileSync(new URL('../../.github/workflows/ci.yml', import.meta.url), 'utf8');
   const linux = ci.slice(ci.indexOf('    name: Linux full suite'), ci.indexOf('  macos:'));
   assert.match(linux, /timeout-minutes: 30/);
   assert.match(linux, /uses: actions\/checkout@[a-f0-9]{40}/);
   const step = extractRuns(linux).find(item => item.name === 'Install Linux system dependencies');
   assert.match(linux, /name: Install Linux system dependencies\n\s+timeout-minutes: 15/);
-  assert.match(step.run, /^sudo python3 scripts\/apt-https-sources\.py\n/);
+  assert.match(step.run, /sudo python3 scripts\/apt-https-sources\.py\n/);
   assert.match(step.run, /Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30/);
-  assert.match(step.run, /sudo apt-get "\$\{apt_opts\[@\]\}" update/);
+  assert.match(step.run, /for attempt in 1 2 3/);
+  assert.match(step.run, /sudo timeout 90 apt-get "\$\{apt_opts\[@\]\}" update/);
+  assert.match(step.run, /sudo timeout 150 apt-get "\$\{apt_opts\[@\]\}" install -y "\$\{pkgs\[@\]\}"/);
+  assert.match(step.run, /test "\$ok" = 1/);
   assert.doesNotMatch(step.run, /no-install-recommends/);
 });
 
