@@ -167,6 +167,27 @@ describe("missing image alt text autofix idempotence", () => {
 });
 
 describe("invalid link target surrounded by prose", () => {
+  it.each(["", "#", "?", " \t "])(
+    "preserves following bracketed prose when replacing href %j",
+    (href) => {
+      const prose = " [sic], [see below], [TODO] and [1] remain exactly as written.\n";
+      const doc = `[guide](${href})${prose}`;
+      const expected = `[guide](TODO)${prose}`;
+      const rules = [ruleInvalidLinkTarget];
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+        "invalid-link-target",
+      ]);
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      expect(fixed.slice("[guide](TODO)".length)).toBe(prose);
+      expect(fixAllViolations(doc, violations)).toBe(expected);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+    },
+  );
+
   it.each(["\n", "\r\n"])("fixes an empty href at the start of the document and preserves following text (%j)", (nl) => {
     const rules = [ruleInvalidLinkTarget];
     const doc = `[Start]() and continue reading.${nl}${nl}Another paragraph. 📖${nl}`;
