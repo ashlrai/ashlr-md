@@ -56,6 +56,12 @@ describe("recentStore", () => {
     expect(useRecentStore.getState().recents).toEqual([]);
   });
 
+  it("reads an empty list after rehydrating without saved recents", async () => {
+    expect(localStorage.getItem(STORE_KEY)).toBeNull();
+    await expect(useRecentStore.persist.rehydrate()).resolves.toBeUndefined();
+    expect(useRecentStore.getState().recents).toEqual([]);
+  });
+
   // ── Basic mutations ───────────────────────────────────────────────────────
 
   it("add() prepends a new entry", () => {
