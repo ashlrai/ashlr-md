@@ -482,6 +482,15 @@ describe("the read view follows links and shows local images", () => {
     ).toMatch(/does not open irc/);
   });
 
+  it("opens a relative Markdown link with a parent-directory segment", async () => {
+    await render("[Guide](drafts/../guides/Getting%20Started.md)\n");
+    expect(click("Guide")).toBe(true);
+    expect(openPath).toHaveBeenCalledOnce();
+    expect(openPath).toHaveBeenCalledWith("/v/guides/Getting Started.md", {
+      keepViewOnError: true,
+    });
+  });
+
   it("opens a bare [x](Note) as a wikilink resolves it, and says when there is none", async () => {
     invalidateWikilinkCache();
     invokeMock.mockImplementation((cmd: string, args?: { target?: string }) => {
