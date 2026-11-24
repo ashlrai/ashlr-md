@@ -21,6 +21,7 @@ import {
   imageSource,
   linkTarget,
   resolveFromDocument,
+  resolveLinkTarget,
   scrollToFragment,
 } from "./docLinks";
 import { remarkWikilinks } from "./remark-wikilinks";
@@ -227,6 +228,32 @@ describe("linkTarget", () => {
     expect(linkTarget("report.pdf", doc).kind).toBe("blocked");
     expect(linkTarget("", doc).kind).toBe("blocked");
     expect(linkTarget("other.md", null).kind).toBe("blocked");
+  });
+});
+
+describe("resolveLinkTarget", () => {
+  it("resolves document paths while retaining their fragments", async () => {
+    expect(
+      await resolveLinkTarget("../My%20Note.md?view=read#Part%202", "/v/notes/doc.md"),
+    ).toEqual({ kind: "document", path: "/v/My Note.md", fragment: "Part 2" });
+
+    invalidateWikilinkCache();
+    invokeMock.mockReset();
+    invokeMock.mockImplementation((command: string) =>
+      Promise.resolve(command === "resolve_wikilink" ? "/v/notes/Plan.md" : null),
+    );
+    expect(await resolveLinkTarget("Plan#Goals%202", "/v/notes/doc.md")).toEqual({
+      kind: "document",
+      path: "/v/notes/Plan.md",
+      fragment: "Goals 2",
+    });
+    expect(invokeMock).toHaveBeenCalledWith("resolve_wikilink", {
+      baseDir: "/v/notes",
+      target: "Plan",
+      vaultRoot: null,
+    });
+    invokeMock.mockReset();
+    invalidateWikilinkCache();
   });
 });
 
