@@ -36,6 +36,27 @@ import {
 } from "./mdlint";
 
 describe("empty or whitespace-only image description", () => {
+  it.each([" ", "\n", "\r\n"])(
+    "fills missing alt text before ordinary bracketed prose separated by %j",
+    (separator) => {
+      const prose =
+        "Keep [draft] wording, [1] citations, and [review needed] exactly.";
+      const doc = `![](images/chart.png)${separator}${prose}\n`;
+      const expected = `![TODO: describe image](images/chart.png)${separator}${prose}\n`;
+      const rules = [ruleMissingAltText, ruleInvalidLinkTarget];
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      expect(fixAllViolations(doc, violations)).toBe(expected);
+      const remaining = lintDocument(fixed, { rules });
+      expect(remaining).toEqual([]);
+      expect(applyAllFixes(fixed, remaining)).toBe(fixed);
+    },
+  );
+
   it("fills two empty descriptions on one line while preserving both rich sources", () => {
     const doc =
       'Compare ![](images/before%20chart.png?size=2#preview "Before") and ![](<images/after chart.svg> "After").\n';
