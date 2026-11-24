@@ -58,6 +58,21 @@ check_cmd git  "Install Xcode CLT: xcode-select --install"
 check_cmd curl "Install curl via Homebrew: brew install curl"
 check_cmd bun  "Install Bun: https://bun.sh (curl -fsSL https://bun.sh/install | bash)"
 
+# macOS probe: Apple Silicon vs Intel, and Xcode Command Line Tools.
+probe_macos() {
+  local machine clt
+  machine="$(uname -m)"
+  case "$machine" in
+    arm64) info "Mac CPU: Apple Silicon (arm64)." ;;
+    x86_64) info "Mac CPU: Intel (x86_64)." ;;
+    *) die "Unrecognized Mac CPU: ${machine}. Ashlr MD ships Apple Silicon (arm64) and Intel (x86_64) builds." ;;
+  esac
+  if ! clt="$(xcode-select -p 2>/dev/null)"; then
+    die "Xcode Command Line Tools are not installed. Run: xcode-select --install"
+  fi
+  info "Xcode Command Line Tools: ${clt}"
+}
+
 # macOS-only check: Tauri 2 requires macOS 10.15+
 if [[ "$(uname)" == "Darwin" ]]; then
   SW_VER=$(sw_vers -productVersion 2>/dev/null || echo "0.0")
@@ -67,6 +82,7 @@ if [[ "$(uname)" == "Darwin" ]]; then
     die "macOS 10.15 Catalina or later required (you have $SW_VER)"
   fi
   info "macOS $SW_VER — OK"
+  probe_macos
 fi
 
 # ── 2. Resolve repo directory ─────────────────────────────────────────────────
