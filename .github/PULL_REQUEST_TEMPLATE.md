@@ -27,3 +27,10 @@ What happens next: `Check (Linux)` is the one required check. Once it is green,
 GitHub auto-merge and the merge queue land the change. On a fork pull request a
 maintainer or fleet agent arms auto-merge for you.
 -->
+
+## Agent used (optional)
+
+<!-- Helps us learn which coding tools contribute. Leave blank for a fully human PR.
+     Examples: Codex, Claude Code, Cursor, GitHub Copilot, Gemini CLI, Grok, Devin, Aider, Windsurf, local model (name it). -->
+
+Agent used:
