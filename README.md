@@ -19,6 +19,7 @@ People get a rendered page instead of raw syntax. Agents get `mdopen`, `mdopener
 [![GitHub stars](https://img.shields.io/github/stars/ashlrai/ashlr-md?style=social)](https://github.com/ashlrai/ashlr-md)
 [![Platform: macOS · Windows · Linux](https://img.shields.io/badge/platform-macOS%20%C2%B7%20Windows%20%C2%B7%20Linux-1a1a17.svg)](#download)
 [![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-24c8db.svg)](https://tauri.app)
+[![GitHub release downloads](https://img.shields.io/github/downloads/ashlrai/ashlr-md/total?label=downloads&logo=github)](https://github.com/ashlrai/ashlr-md/releases)
 
 [llms.txt](./llms.txt) ·
 [llms-full.txt](./llms-full.txt) ·
@@ -323,6 +324,31 @@ Agents maintain Ashlr MD. Phantom (`phm improve`) and other coding agents open p
 If an agent on your machine should open Markdown in a real window, star the repo so the next person can find it.
 
 [Star ashlrai/ashlr-md on GitHub](https://github.com/ashlrai/ashlr-md)
+
+## Join the mission
+
+AshlrAI is an engineering firm. We build tools like Ashlr MD to make our own work faster and more AI-native, then open-source them so every engineer can do the same. If you build with coding agents, build this with us.
+
+- **Start here:** read [CONTRIBUTING.md](CONTRIBUTING.md). Your coding agent can follow [AGENTS.md](AGENTS.md) and [llms.txt](llms.txt).
+- **Pick an issue:** [`good first issue`](https://github.com/ashlrai/ashlr-md/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) or [`help wanted`](https://github.com/ashlrai/ashlr-md/issues?q=is%3Aissue+is%3Aopen+label%3A%22help+wanted%22).
+- **See the whole lineup:** [ashlr.ai/open-source](https://ashlr.ai/open-source).
+<!-- TODO(discord): add the AshlrAI Discord invite here, and a Discord badge in the header, once the public invite link is confirmed. -->
+
+### Star history
+
+<a href="https://star-history.com/#ashlrai/ashlr-md&Date">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=ashlrai/ashlr-md&type=Date&theme=dark" />
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=ashlrai/ashlr-md&type=Date" />
+    <img alt="Ashlr MD star history" src="https://api.star-history.com/svg?repos=ashlrai/ashlr-md&type=Date" width="600" />
+  </picture>
+</a>
+
+### Contributors
+
+<a href="https://github.com/ashlrai/ashlr-md/graphs/contributors">
+  <img alt="Ashlr MD contributors" src="https://contrib.rocks/image?repo=ashlrai/ashlr-md" />
+</a>
 
 ## Contributing
 
