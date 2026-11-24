@@ -22,6 +22,22 @@ export function firstTsc(text) {
   return { file: match[1], line: match[2], col: match[3], message: match[4] };
 }
 
+export function firstBiomeGithub(text) {
+  const match = String(text).match(/^::error\b(.*?)::(.*)$/m);
+  if (!match) return null;
+  const props = {};
+  for (const part of match[1].split(',')) {
+    const trimmed = part.trim();
+    const eq = trimmed.indexOf('=');
+    if (eq <= 0) continue;
+    props[trimmed.slice(0, eq)] = trimmed.slice(eq + 1);
+  }
+  const file = (props.file || '').replaceAll('\\', '/');
+  if (!file || !props.line) return null;
+  const message = (match[2] || props.title || 'lint failed').trim();
+  return { file, line: props.line, col: props.col || '', message };
+}
+
 export function firstBiome(text) {
   const match = String(text).match(/^(.+?\.(?:ts|tsx|js|mjs|json)):(\d+):(\d+)\s+(.+)$/m);
   if (!match) return null;
@@ -60,9 +76,12 @@ export function main(env = process.env) {
   if (tsc.error) return die(null, `typecheck could not start: ${tsc.error.message}`);
   if (tsc.status !== 0) return die(firstTsc(`${tsc.stdout}\n${tsc.stderr}`), 'typecheck failed');
 
-  const biome = run(['biome', 'check', 'src', '--max-diagnostics=1']);
+  const biome = run(['biome', 'check', 'src', '--max-diagnostics=1', '--reporter=github']);
   if (biome.error) return die(null, `lint could not start: ${biome.error.message}`);
-  if (biome.status !== 0) return die(firstBiome(`${biome.stdout}\n${biome.stderr}`), 'lint failed');
+  if (biome.status !== 0) {
+    const text = `${biome.stdout}\n${biome.stderr}`;
+    return die(firstBiomeGithub(text) ?? firstBiome(text), 'lint failed');
+  }
 
   const dir = mkdtempSync(join(tmpdir(), 'os-vitest-'));
   const output = join(dir, 'results.json');
