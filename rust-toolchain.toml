@@ -1,0 +1,8 @@
+# icu crates in src-tauri/Cargo.lock need rustc 1.86. The highest
+# rust-version in that lockfile is 1.90 (tauri-build 2.7.4 and
+# tauri-utils 2.10.2). 1.99.1 is the compiler the release workflows
+# already install, and it satisfies both.
+[toolchain]
+channel = "1.99.1"
+components = ["clippy", "rustfmt"]
+profile = "minimal"
