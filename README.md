@@ -35,7 +35,7 @@ People get a rendered page instead of raw syntax. Agents get `mdopen`, `mdopener
 
 Five steps. Each one says what you should see.
 
-1. **Install.** From a checkout, on macOS or Linux. This builds `mdopen` and `mdopener-mcp` and links both onto `PATH`:
+1. **Install.** From a checkout, on macOS or Linux. This builds `mdopen` and `mdopener-mcp` and links both onto `PATH`. On macOS the installer reports Apple Silicon (`arm64`) or Intel (`x86_64`) and stops if Xcode Command Line Tools are missing (`xcode-select --install`):
 
    ```bash
    SKIP_APP_BUILD=1 bash scripts/install.sh
