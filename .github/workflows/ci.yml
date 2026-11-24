@@ -73,12 +73,13 @@ jobs:
         run: bunx biome check src
 
       - name: CI gate regression tests
-        run: node --test scripts/ci/gate.test.mjs scripts/ci/release-gate.test.mjs scripts/ci/assembly-workflow.test.mjs scripts/ci/select.test.mjs scripts/ci/first-failure.test.mjs scripts/ci/release-asset.test.mjs scripts/ci/os-gate.test.mjs
+        run: node --test scripts/ci/gate.test.mjs scripts/ci/release-gate.test.mjs scripts/ci/assembly-workflow.test.mjs scripts/ci/select.test.mjs scripts/ci/first-failure.test.mjs scripts/ci/release-asset.test.mjs scripts/ci/os-gate.test.mjs scripts/ci/suite-failure.test.mjs
       - name: Dependency plan parser regressions
         run: |
           python3 scripts/test-apt-dependency-plan.py
           python3 scripts/test-apt-https-sources.py
           python3 scripts/test-prefetch-tauri-bundler-tools.py
+          python3 scripts/ci/apt-budget.test.py
 
       - name: Unit tests
         run: bun run test:unit
@@ -199,7 +200,14 @@ jobs:
         id: unit
         run: |
           set -euo pipefail
-          ./node_modules/.bin/vitest run --coverage --coverage.reporter=lcov --reporter=default --reporter=junit --outputFile=junit.xml
+          set +e
+          ./node_modules/.bin/vitest run --coverage --coverage.reporter=lcov --bail=1 --reporter=default --reporter=junit --reporter=json --outputFile.junit=junit.xml --outputFile.json=vitest-results.json
+          status=$?
+          set -e
+          if [ "$status" -ne 0 ]; then
+            node scripts/ci/suite-failure.mjs vitest-results.json
+            exit "$status"
+          fi
           for f in coverage/lcov.info junit.xml; do
             if [ ! -s "$f" ]; then echo "::error::missing $f after coverage run"; exit 1; fi
           done
@@ -243,41 +251,10 @@ jobs:
         with:
           workspaces: src-tauri
 
-      # Tauri 2 Linux prerequisites, required for tauri-build to compile.
-      # A slow Azure mirror made this step hit its 15 minute cap on
-      # 43057009473 and 44779190348 while successful runs finish in under a
-      # minute. Each attempt dies on its own deadline so a later attempt can
-      # still finish inside the step cap.
+      # The wall budget and the idle-output cap are computed from
+      # scripts/ci/apt-green-runs.json (the trailing green install steps).
       - name: Install Linux system dependencies
-        timeout-minutes: 15
-        run: |
-          set -euo pipefail
-          sudo python3 scripts/apt-https-sources.py
-          apt_opts=(-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30)
-          pkgs=(
-            libwebkit2gtk-4.1-dev
-            build-essential
-            curl
-            wget
-            file
-            libxdo-dev
-            libssl-dev
-            libayatana-appindicator3-dev
-            librsvg2-dev
-            patchelf
-          )
-          ok=0
-          for attempt in 1 2 3; do
-            if sudo timeout 90 apt-get "${apt_opts[@]}" update \
-              && sudo timeout 150 apt-get "${apt_opts[@]}" install -y "${pkgs[@]}"; then
-              ok=1
-              break
-            fi
-            echo "apt attempt ${attempt} failed"
-            sudo apt-get clean || true
-            sleep $((attempt * 5))
-          done
-          test "$ok" = 1
+        run: python3 scripts/ci/apt-budget.py
 
       - name: Stub sidecar binaries (resource existence check)
         run: |
