@@ -36,6 +36,26 @@ import {
 } from "./mdlint";
 
 describe("empty or whitespace-only image description", () => {
+  it("inserts missing alt text on a CRLF line while preserving surrounding text", () => {
+    const doc =
+      'Opening café paragraph.\r\n\r\nSee ![](images/chart.png "Chart") for details.\r\nClosing paragraph.\r\n';
+    const expected =
+      'Opening café paragraph.\r\n\r\nSee ![TODO: describe image](images/chart.png "Chart") for details.\r\nClosing paragraph.\r\n';
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixAllViolations(doc, violations)).toBe(expected);
+    expect(fixed.match(/\r\n/g)).toHaveLength(4);
+    expect(fixed.replace(/\r\n/g, "")).not.toMatch(/[\r\n]/);
+    const remaining = lintDocument(fixed, { rules });
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(fixed, remaining)).toBe(fixed);
+  });
+
   it.each([" ", "\n", "\r\n"])(
     "fills missing alt text before ordinary bracketed prose separated by %j",
     (separator) => {
