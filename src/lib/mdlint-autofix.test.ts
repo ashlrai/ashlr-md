@@ -1840,6 +1840,10 @@ describe("autofix: undescribed image with a Unicode source", () => {
     ["a ZWJ emoji sequence and a flag", "images/👨‍👩‍👧‍👦/chart-🇯🇵.png"],
     ["a supplementary-plane name", "images/𝔘𝔫𝔦𝔠𝔬𝔡𝔢/𝕏.png"],
     ["mixed normalization forms", "images/café/café.png"],
+    [
+      "a Unicode hostname, path, query and fragment",
+      "https://例え.テスト/図.png?表示=原寸#詳細",
+    ],
   ])("preserves %s in the source exactly", (_kind, source) => {
     const rules = [ruleMissingAltText];
     for (const nl of ["\n", "\r\n"]) {
