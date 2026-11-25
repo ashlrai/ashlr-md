@@ -446,16 +446,17 @@ describe("link and image fixes in separate paragraphs", () => {
 });
 
 describe("invalid link at end of file without a final newline", () => {
-  it.each(["\n", "\r\n"])("replaces the destination and preserves line endings (%j)", (newline) => {
+  it.each(["", "#", "?"].flatMap((target) => ["\n", "\r\n"].map((newline) => [target, newline] as const)))("replaces only destination %j and preserves line endings (%j)", (target, newline) => {
     const rules = [ruleInvalidLinkTarget];
-    const doc = `Introduction.${newline}Read [guide](#)`;
-    const expected = `Introduction.${newline}Read [guide](TODO)`;
+    const doc = `Introduction.${newline}Read [guide](${target}) carefully.`;
+    const expected = `Introduction.${newline}Read [guide](TODO) carefully.`;
     const violations = lintDocument(doc, { rules });
 
     expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
     expect(applyFix(doc, violations[0])).toBe(expected);
     const fixed = applyAllFixes(doc, violations);
     expect(fixed).toBe(expected);
+    expect(fixed.replace("[guide](TODO)", `[guide](${target})`)).toBe(doc);
     expect(fixed.endsWith("\n")).toBe(false);
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
