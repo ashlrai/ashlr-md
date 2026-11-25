@@ -464,6 +464,45 @@ describe("empty link on a line with trailing spaces", () => {
 });
 
 describe("empty link and image description on separate lines", () => {
+  it.each([
+    ["\n", true],
+    ["\n", false],
+    ["\r\n", true],
+    ["\r\n", false],
+  ] as const)(
+    "preserves intervening prose while fixing both lines (%j, link first %s)",
+    (newline, linkFirst) => {
+      const rules = [ruleInvalidLinkTarget, ruleMissingAltText];
+      const link = "Read [guide](#) before continuing.";
+      const image = 'See ![](images/chart.png?size=2#results "Chart") below.';
+      const fixedLink = "Read [guide](TODO) before continuing.";
+      const fixedImage =
+        'See ![TODO: describe image](images/chart.png?size=2#results "Chart") below.';
+      const prose = "Keep  café ☕, *emphasis*, [1], and [docs](./guide.md) exactly.  ";
+      const document = (first: string, last: string) =>
+        ["Introduction.", first, prose, "", last, "Conclusion.", ""].join(newline);
+      const doc = linkFirst ? document(link, image) : document(image, link);
+      const expected = linkFirst
+        ? document(fixedLink, fixedImage)
+        : document(fixedImage, fixedLink);
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map(({ ruleId }) => ruleId).sort()).toEqual([
+        "invalid-link-target",
+        "missing-alt-text",
+      ]);
+      expect(violations.map(({ range }) => range?.from.line).sort()).toEqual([2, 5]);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      expect(fixed.split(newline).slice(2, 4)).toEqual([prose, ""]);
+      expect(applyAllFixes(doc, [...violations].reverse())).toBe(expected);
+      expect(fixAllViolations(doc, violations)).toBe(expected);
+      const remaining = lintDocument(fixed, { rules });
+      expect(remaining).toEqual([]);
+      expect(applyAllFixes(fixed, remaining)).toBe(fixed);
+    },
+  );
+
   it.each(["\n", "\r\n"].flatMap((nl) => [true, false].map((linkFirst) => [nl, linkFirst] as const)))(
     "inserts both placeholders in place (newline %j, link first %s)",
     (nl, linkFirst) => {
