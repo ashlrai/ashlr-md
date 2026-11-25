@@ -31931,3 +31931,30 @@ describe("rule:missing-alt-text empty alt text inside a blockquote", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
+
+describe("invalid link in a task list item", () => {
+  it.each(["\n", "\r\n"])("preserves the task markers and surrounding text (%j)", (nl) => {
+    const rules = [ruleInvalidLinkTarget];
+    const doc = [
+      "Checklist:",
+      "- [ ] Review [draft]() before publishing.",
+      "- [x] Read [guide](./guide.md) already.",
+      "After the checklist.",
+      "",
+    ].join(nl);
+    const expected = [
+      "Checklist:",
+      "- [ ] Review [draft](TODO) before publishing.",
+      "- [x] Read [guide](./guide.md) already.",
+      "After the checklist.",
+      "",
+    ].join(nl);
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(fixAllViolations(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+});
