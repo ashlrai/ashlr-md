@@ -500,6 +500,42 @@ describe("documentStore", () => {
     expect(s.fileName).toBe("");
   });
 
+  it("close() on the only open document clears the store and selection", async () => {
+    readReturnsByPath();
+    await useDocumentStore.getState().openPath("/a.md");
+    useDocumentStore.getState().setViewMode("source");
+    useDocumentStore.getState().toggleSplitView();
+
+    const opened = useDocumentStore.getState();
+    expect(opened.tabs).toHaveLength(1);
+    expect(opened.activeId).toBe(opened.tabs[0].id);
+    expect(opened.path).toBe("/a.md");
+    expect(opened.content).toBe("content of /a.md");
+
+    opened.close();
+
+    const closed = useDocumentStore.getState();
+    expect(closed).toMatchObject({
+      tabs: [],
+      activeId: null,
+      path: null,
+      fileName: "",
+      content: "",
+      diskContent: "",
+      size: 0,
+      error: null,
+      isDirty: false,
+      externalChange: false,
+      pendingDisk: null,
+      diskVersion: null,
+      pendingVersion: null,
+      missing: false,
+      viewMode: "read",
+      splitView: false,
+    });
+    expect(closed.tabs.find((tab) => tab.id === closed.activeId)).toBeUndefined();
+  });
+
   it("close() closes the active tab", async () => {
     readReturnsByPath();
     await useDocumentStore.getState().openPath("/a.md");
