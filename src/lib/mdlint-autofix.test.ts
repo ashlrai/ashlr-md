@@ -11628,10 +11628,15 @@ describe("rule:missing-alt-text", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 
-  it("autofixes missing alt text while preserving a relative image source exactly", () => {
-    const doc = "Before ![](../assets/./chart%20one.png?size=2#preview) after.\r\n";
+  it.each([
+    "images/chart.png",
+    "./images/chart.png",
+    "../images/chart.png",
+    "../assets/./chart%20one.png?size=2#preview",
+  ])("autofixes missing alt text while preserving a relative image source exactly (%s)", (source) => {
+    const doc = `Before ![](${source}) after.\r\n`;
     const expected =
-      "Before ![TODO: describe image](../assets/./chart%20one.png?size=2#preview) after.\r\n";
+      `Before ![TODO: describe image](${source}) after.\r\n`;
     const rules = [ruleMissingAltText];
     const violations = lintDocument(doc, { rules });
 

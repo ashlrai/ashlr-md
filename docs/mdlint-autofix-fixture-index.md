@@ -372,7 +372,7 @@ Run `bun run docs:fixtures` to refresh this lookup. Counts are test declarations
 - "autofix inserts a TODO placeholder"
 - [table] "fixes a later image without changing unrelated lines with %j line endings"
 - [table] "fixes missing image alt text in a blockquote with %j line endings"
-- "autofixes missing alt text while preserving a relative image source exactly"
+- [table] "autofixes missing alt text while preserving a relative image source exactly (%s)"
 - "preserves the complete query string when fixing an empty image alt"
 - "preserves each relative image source when fixing multiple missing alts"
 - [table] "is idempotent for image alt %j with ending %j"
