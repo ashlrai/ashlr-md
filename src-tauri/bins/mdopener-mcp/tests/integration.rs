@@ -6643,6 +6643,19 @@ fn export_text_keeps_bracketed_numbers_in_prose() {
 }
 
 #[test]
+fn export_text_preserves_several_numeric_references_and_their_prose() {
+    let prose = "The first study [1] found a change, while a later review [12] \
+                 reached a similar conclusion. Follow-up work [3] and [4] \
+                 confirmed the result; see also [105].";
+    let result = run_export_text_on(prose);
+    assert_eq!(result["text"].as_str(), Some(prose));
+    assert_eq!(
+        result["char_count"].as_u64().unwrap() as usize,
+        prose.chars().count()
+    );
+}
+
+#[test]
 fn export_text_preserves_two_adjacent_literal_markers() {
     let result = run_export_text_on("[one] [two]");
     assert_eq!(result["text"].as_str().unwrap(), "[one] [two]");
