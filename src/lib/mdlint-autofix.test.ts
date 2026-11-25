@@ -27167,6 +27167,23 @@ describe("invalid-link-target autofix: invalid link in a blockquote — marker v
 describe("autofix: undescribed image in a document with no final newline", () => {
   const rules = [ruleMissingAltText];
 
+  it("preserves mixed line endings and an unterminated final image", () => {
+    const doc = 'Report: café\r\n\nSee ![](images/chart.png "Revenue")';
+    const expected =
+      'Report: café\r\n\nSee ![TODO: describe image](images/chart.png "Revenue")';
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixAllViolations(doc, violations)).toBe(expected);
+    expect(fixed).not.toMatch(/[\r\n]$/);
+    const remaining = lintDocument(fixed, { rules });
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(fixed, remaining)).toBe(fixed);
+  });
+
   it.each([
     "\n",
     "\r\n",
