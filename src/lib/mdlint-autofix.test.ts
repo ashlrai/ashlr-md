@@ -5506,18 +5506,24 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(expected)).toEqual([]);
   });
 
-  it("rewrites two invalid links in separate paragraphs to TODO and keeps all surrounding prose intact", () => {
+  it.each(["\n", "\r\n"])("rewrites two invalid links in separate paragraphs to TODO and keeps all surrounding prose intact (%j)", (nl) => {
     const intro = "Intro with a [valid](./ok.md) link and `code`.";
     const middle = "Middle paragraph, untouched, with **bold** words.";
     const outro = "Closing words stay exactly as written.";
-    const doc = `${intro}\n\nFirst: [alpha guide]() here.\n\n${middle}\n\nSecond: [beta guide](  ) there.\n\n${outro}\n`;
-    const expected = `${intro}\n\nFirst: [alpha guide](TODO) here.\n\n${middle}\n\nSecond: [beta guide](TODO) there.\n\n${outro}\n`;
+    const doc = `${intro}${nl}${nl}First: [alpha guide]() here.${nl}${nl}${middle}${nl}${nl}Second: [beta guide](  ) there.${nl}${nl}${outro}${nl}`;
+    const expected = `${intro}${nl}${nl}First: [alpha guide](TODO) here.${nl}${nl}${middle}${nl}${nl}Second: [beta guide](TODO) there.${nl}${nl}${outro}${nl}`;
     const rules = [ruleInvalidLinkTarget];
     const violations = lintDocument(doc, { rules });
 
     expect(violations).toHaveLength(2);
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+      "invalid-link-target",
+      "invalid-link-target",
+    ]);
     const fixed = applyAllFixes(doc, violations);
     expect(fixed).toBe(expected);
+    expect(applyAllFixes(doc, [...violations].reverse())).toBe(expected);
+    expect(fixAllViolations(doc, violations)).toBe(expected);
     for (const prose of [intro, middle, outro]) expect(fixed).toContain(prose);
     // Fixing one at a time (re-linting between) reaches the same result.
     const stepwise = applyFix(doc, violations[0]);
