@@ -326,14 +326,14 @@ describe("invalid link beside a valid link", () => {
     },
   );
 
-  it.each(["", "#", "?"].flatMap((href) => [true, false].map((validFirst) => [href, validFirst] as const)))(
-    "fixes destination %j with valid link first: %s",
-    (href, validFirst) => {
+  it.each(["", "#", "?"].flatMap((href) => [true, false].flatMap((validFirst) => ["\n", "\r\n"].map((nl) => [href, validFirst, nl] as const))))(
+    "fixes destination %j with valid link first: %s and newline %j",
+    (href, validFirst, nl) => {
       const valid = '[guide](./guide.md?view=full#start "Guide")';
       const invalid = `[draft](${href})`;
       const links = (broken: string) => validFirst ? `${valid} ${broken}` : `${broken} ${valid}`;
-      const doc = `Read ${links(invalid)}.\n`;
-      const expected = `Read ${links("[draft](TODO)")}.\n`;
+      const doc = `Read ${links(invalid)}.${nl}`;
+      const expected = `Read ${links("[draft](TODO)")}.${nl}`;
       const rules = [ruleInvalidLinkTarget];
       const violations = lintDocument(doc, { rules });
 
@@ -342,6 +342,7 @@ describe("invalid link beside a valid link", () => {
       const fixed = applyAllFixes(doc, violations);
       expect(fixed).toBe(expected);
       expect(fixed.replace("[draft](TODO)", invalid)).toBe(doc);
+      expect(fixAllViolations(doc, violations)).toBe(expected);
       expect(lintDocument(fixed, { rules })).toEqual([]);
     },
   );
