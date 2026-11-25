@@ -39,6 +39,7 @@ describe("broken link followed by punctuation and a valid link", () => {
   it.each([
     "",
     " ",
+    "\t",
     "#",
     "?",
   ])("replaces only the broken destination %j before adjacent punctuation", (destination) => {
@@ -51,7 +52,10 @@ describe("broken link followed by punctuation and a valid link", () => {
     expect(applyFix(doc, violations[0])).toBe(expected);
     const fixed = applyAllFixes(doc, violations);
     expect(fixed).toBe(expected);
-    expect(lintDocument(fixed, { rules })).toEqual([]);
+    const remaining = lintDocument(fixed, { rules });
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(fixed, remaining)).toBe(fixed);
+    expect(fixAllViolations(fixed, remaining)).toBe(fixed);
   });
 });
 
