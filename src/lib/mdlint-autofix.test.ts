@@ -4492,6 +4492,37 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 
+  it.each([
+    "",
+    "\r\n",
+  ])("fixes only the live link in CRLF prose with final ending %j", (ending) => {
+    const prefix = [
+      "# Café guide",
+      "",
+      "```markdown",
+      "[guide]()",
+      "```",
+      "",
+      "Keep this hard break.  ",
+      "Read ",
+    ].join("\r\n");
+    const suffix = ` beside [published](./guide.md).\r\n\r\nClosing text: 🧭.${ending}`;
+    const doc = `${prefix}[guide]()${suffix}`;
+    const expected = `${prefix}[guide](TODO)${suffix}`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    expect(violations[0].range?.from.offset).toBe(doc.lastIndexOf("[guide]()"));
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixAllViolations(doc, violations)).toBe(expected);
+    const remaining = lintDocument(fixed, { rules });
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(fixed, remaining)).toBe(expected);
+  });
+
   it("fixes an invalid href in a CRLF document without changing its line endings", () => {
     const doc = "# Title\r\n\r\nSee [guide]() now.\r\n\r\nLast line.\r\n";
     const rules = [ruleInvalidLinkTarget];
