@@ -101,6 +101,29 @@ describe("empty or whitespace-only image description", () => {
 });
 
 describe("image with descriptive alt text", () => {
+  it.each(["\n", "\r\n"])(
+    "preserves a valid image and surrounding prose with %j line endings",
+    (newline) => {
+      const doc = [
+        "---",
+        "title: Revenue",
+        "---",
+        "",
+        "The report compares quarterly results.",
+        "",
+        'See ![Bar chart showing revenue increasing each quarter](images/revenue%20chart.png?year=2026#q4 "Quarterly revenue") for the full trend.',
+        "",
+        "Revenue increased steadily throughout the year.",
+        "",
+      ].join(newline);
+      const violations = lintDocument(doc);
+
+      expect(violations).toEqual([]);
+      expect(applyAllFixes(doc, violations)).toBe(doc);
+      expect(fixAllViolations(doc, violations)).toBe(doc);
+    },
+  );
+
   it("leaves a valid image unchanged when autofix runs", () => {
     const doc = '---\ntitle: Revenue\n---\n\n![Revenue by quarter](images/revenue.png "Quarterly revenue")\n';
     const violations = lintDocument(doc);
