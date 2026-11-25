@@ -20355,6 +20355,28 @@ describe("rule:missing-alt-text undescribed image beside a described image in a 
 });
 
 describe("rule:missing-alt-text undescribed image on the last line without a final newline", () => {
+  it.each(["\n", "\r\n"])(
+    "preserves the missing final newline through default-rule autofix (%j)",
+    (newline) => {
+      const prefix = ["---", "title: Images", "---", "", "Introduction.", ""].join(
+        newline,
+      );
+      const doc = `${prefix}![](images/chart.png)`;
+      const expected = `${prefix}![TODO: describe image](images/chart.png)`;
+      const violations = lintDocument(doc);
+
+      expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      expect(applyAllFixes(doc, violations)).toBe(expected);
+      const fixed = fixAllViolations(doc, violations);
+      expect(fixed).toBe(expected);
+      expect(fixed.endsWith("\n")).toBe(false);
+      expect(fixed.endsWith("\r")).toBe(false);
+      expect(lintDocument(fixed)).toEqual([]);
+      expect(fixAllViolations(fixed, lintDocument(fixed))).toBe(fixed);
+    },
+  );
+
   it.each([
     ["list item", "- Intro\n- ![](a.png)", "- Intro\n- ![TODO: describe image](a.png)"],
     ["heading", "# Title ![](a.png)", "# Title ![TODO: describe image](a.png)"],
