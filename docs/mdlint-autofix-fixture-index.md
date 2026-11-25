@@ -6,11 +6,12 @@ Generated from [mdlint-autofix.test.ts](../src/lib/mdlint-autofix.test.ts).
 Run `bun run docs:fixtures` to refresh this lookup. Counts are test declarations;
 [table] declarations run once per row. Search the test file for a name.
 
-## Link fixtures (293)
+## Link fixtures (295)
 
 `describe("rule:invalid-link-target")`
 
 ```text
+- [table] "fixes a line-start href after a soft break while preserving literal href mentions in prose (%j)"
 - [table] "fixes a link in a nested blockquote without changing its markers (%j)"
 - "fixes the selected identical link in each list item without changing either marker"
 - [table] "fixes a destination inside a %s list item without changing its surroundings"
@@ -67,6 +68,7 @@ Run `bun run docs:fixtures` to refresh this lookup. Counts are test declarations
 - "keeps [1] prose and a [draft]() literal in the frontmatter while repairing the same link in the body"
 - "replaces an invalid href while preserving punctuation and surrounding text"
 - [table] "gives every invalid href its own TODO placeholder across several lines and keeps all surrounding text (%s)"
+- [table] "fixes only the live link in CRLF prose with final ending %j"
 - "fixes an invalid href in a CRLF document without changing its line endings"
 - [table] "applyFix on one violation replaces the destination and keeps CRLF (%s)"
 - "replaces each of two invalid destinations with TODO and preserves both link labels"

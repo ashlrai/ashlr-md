@@ -3414,6 +3414,31 @@ describe("autofix: undescribed image inside a list item", () => {
 // ─── 2. Rule: invalid-link-target ────────────────────────────────────────────
 
 describe("rule:invalid-link-target", () => {
+  it.each(["\n", "\r\n"])(
+    "fixes a line-start href after a soft break while preserving literal href mentions in prose (%j)",
+    (newline) => {
+      const rules = [ruleInvalidLinkTarget];
+      const prefix = `Keep this opening line.${newline}`;
+      const prose =
+        " follows a literal (#), a question (?), and empty parentheses ().";
+      const suffix = `${prose}${newline}Keep this closing line.${newline}`;
+      const doc = `${prefix}[Guide](#)${suffix}`;
+      const expected = `${prefix}[Guide](TODO)${suffix}`;
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+        "invalid-link-target",
+      ]);
+      expect(violations[0].range?.from).toMatchObject({ line: 2, col: 0 });
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      expect(fixed.slice(prefix.length + "[Guide](TODO)".length)).toBe(suffix);
+      expect(fixAllViolations(doc, violations)).toBe(expected);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+    },
+  );
+
   it.each(["\n", "\r\n"])("fixes a link in a nested blockquote without changing its markers (%j)", (nl) => {
     const doc = `> Outer quote.${nl}> > Read [guide]() now.${nl}> Back outside.${nl}`;
     const expected = `> Outer quote.${nl}> > Read [guide](TODO) now.${nl}> Back outside.${nl}`;
