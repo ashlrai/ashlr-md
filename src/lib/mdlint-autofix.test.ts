@@ -31891,6 +31891,20 @@ describe("autofix preserves populated link and image descriptions", () => {
 });
 
 describe("rule:missing-alt-text empty alt text inside a blockquote", () => {
+  it.each(["\n", "\r\n"])("preserves nested quote markers and the full image source (%j)", (nl) => {
+    const source = 'assets/chart.png?size=2#detail "Chart"';
+    const doc = `> Outer${nl}> > See ![](${source}) here.${nl}> End${nl}`;
+    const expected = `> Outer${nl}> > See ![TODO: describe image](${source}) here.${nl}> End${nl}`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+
   it.each([
     ["LF", "\n"],
     ["CRLF", "\r\n"],
