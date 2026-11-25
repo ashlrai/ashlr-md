@@ -31403,6 +31403,22 @@ describe("autofix: valid absolute links", () => {
 
 
 describe("autofix: Unicode image paths", () => {
+  it.each(["\n", "\r\n"])("preserves multibyte text before the intended image (%j)", (nl) => {
+    const prefix = "東京 café cafe\u0301 🚀 ";
+    const image = "![](chart.png)";
+    const doc = `${prefix}${image} 後${nl}`;
+    const expected = `${prefix}![TODO: describe image](chart.png) 後${nl}`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(image);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+
   it.each(["\n", "\r\n"].flatMap((nl) => [
     [nl, "images/東京/cafe\u0301-🚀.png"],
     [nl, "<images/図 表.png?名前=値#詳細>"],
