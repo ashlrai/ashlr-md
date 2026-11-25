@@ -19200,9 +19200,18 @@ fn export_text_preserves_marker_next_to_punctuation() {
 
 /// Prose brackets and a real link on one line: only the link loses its
 /// brackets and url, the link text stays readable, and the prose brackets stay.
+/// File reads and open-document IPC must agree, even without separating spaces.
 #[test]
 fn export_text_keeps_prose_brackets_beside_a_markdown_link() {
     let cases = [
+        (
+            "[sic][the docs](https://example.com)[TODO]\n",
+            "[sic]the docs[TODO]",
+        ),
+        (
+            "[the docs](https://example.com)[sic][another link](https://example.com/guide)\n",
+            "the docs[sic]another link",
+        ),
         (
             "The typo [sic] needs review [TODO] before citation [1]; see [the docs](https://example.com).\n",
             "The typo [sic] needs review [TODO] before citation [1]; see the docs.",
@@ -19227,6 +19236,17 @@ fn export_text_keeps_prose_brackets_beside_a_markdown_link() {
     for (markdown, expected) in cases {
         let result = run_export_text_on(markdown);
         assert_eq!(result["text"].as_str().unwrap(), expected, "{markdown:?}");
+        let ipc = MockIpc::new().on_get(
+            "/content",
+            Ok(json!({ "path": "/docs/test.md", "content": markdown })),
+        );
+        let response = tool_export_text(id(3), &json!({}), &ipc);
+        assert!(response.error.is_none(), "ipc {markdown:?}");
+        assert_eq!(
+            content_text(&response)["text"].as_str().unwrap(),
+            expected,
+            "ipc {markdown:?}"
+        );
     }
 }
 
