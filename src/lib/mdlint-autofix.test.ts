@@ -35,6 +35,26 @@ import {
   ruleWikilinkTargetsExist,
 } from "./mdlint";
 
+describe("broken link followed by punctuation and a valid link", () => {
+  it.each([
+    "",
+    " ",
+    "#",
+    "?",
+  ])("replaces only the broken destination %j before adjacent punctuation", (destination) => {
+    const doc = `Read [draft](${destination}),[guide](./guide.md).\n`;
+    const expected = "Read [draft](TODO),[guide](./guide.md).\n";
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+});
+
 describe("empty or whitespace-only image description", () => {
   it.each(["\n", "\r\n"])(
     "fills missing alt text between ordinary paragraphs with %j line endings",
