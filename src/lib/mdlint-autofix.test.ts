@@ -2984,6 +2984,30 @@ describe("autofix: undescribed image on a CRLF-delimited line", () => {
   const PLACEHOLDER = "TODO: describe image";
   const countOf = (text: string, needle: string) => text.split(needle).length - 1;
 
+  it.each(["", "\r\n"])(
+    "preserves the whole CRLF document when filling one missing alt (final ending %j)",
+    (ending) => {
+      const before = "# Café ☕\r\n\r\nKeep [guide](guide.md) and [draft] text.\r\n";
+      const after = "\r\n\r\n![Described](kept.png)\r\nClosing text." + ending;
+      const doc = before + 'See ![](images/chart.png "Chart") below.' + after;
+      const expected =
+        before +
+        'See ![TODO: describe image](images/chart.png "Chart") below.' +
+        after;
+      const rules = [ruleMissingAltText];
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      expect(fixAllViolations(doc, violations)).toBe(expected);
+      expect(fixed.match(/\r\n/g)).toEqual(doc.match(/\r\n/g));
+      expect(fixed.replace(/\r\n/g, "")).not.toMatch(/[\r\n]/);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+    },
+  );
+
   it.each([
     ["every line is CRLF", "\r\n", "\r\n"],
     ["CRLF line between LF lines", "\n", "\r\n"],
