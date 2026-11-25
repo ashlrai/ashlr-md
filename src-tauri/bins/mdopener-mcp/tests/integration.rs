@@ -7309,6 +7309,16 @@ fn export_text_keeps_bracketed_prose_across_separate_paragraphs() {
             "Results [1] and [2] hold.\n\nSee also (cf. [3]) below.\n",
             "Results [1] and [2] hold.\n\nSee also (cf. [3]) below.",
         ),
+        // A citation and a TODO marker stay in their own paragraphs, in order.
+        (
+            "The finding [1] is confirmed.\n\nThe follow-up [TODO] needs review.\n",
+            "The finding [1] is confirmed.\n\nThe follow-up [TODO] needs review.",
+        ),
+        // Reversing the paragraphs preserves order while formatting is stripped.
+        (
+            "The **follow-up** [TODO] needs review.\n\nThe _finding_ [1] is confirmed.\n",
+            "The follow-up [TODO] needs review.\n\nThe finding [1] is confirmed.",
+        ),
         // A wide gap still reads as one paragraph break.
         (
             "[first] up.\n\n\n\n[second] down.\n",
