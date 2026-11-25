@@ -18873,18 +18873,44 @@ fn export_text_keeps_unicode_brackets_for_the_open_document_over_ipc() {
 
 #[test]
 fn export_text_preserves_adjacent_bracketed_prose() {
-    let markdown = "The original reads [sic][TODO] here.\n";
-    let expected = "The original reads [sic][TODO] here.";
-    let result = run_export_text_on(markdown);
-    assert_eq!(result["text"], expected);
+    for (markdown, expected) in [
+        (
+            "The original reads [sic][TODO] here.\n",
+            "The original reads [sic][TODO] here.",
+        ),
+        (
+            "Compare [1][2] before proceeding.\n",
+            "Compare [1][2] before proceeding.",
+        ),
+        (
+            "Compare [1] [2] before proceeding.\n",
+            "Compare [1] [2] before proceeding.",
+        ),
+        (
+            "Compare [Smith 2024][García 2025] before proceeding.\n",
+            "Compare [Smith 2024][García 2025] before proceeding.",
+        ),
+        (
+            "Compare [1][2]; see [the source][source].\n\n[source]: https://example.com\n",
+            "Compare [1][2]; see the source.",
+        ),
+    ] {
+        let result = run_export_text_on(markdown);
+        assert_eq!(result["text"], expected, "file: {markdown:?}");
 
-    let ipc = MockIpc::new().on_get(
-        "/content",
-        Ok(json!({ "path": "/docs/test.md", "content": markdown })),
-    );
-    let response = tool_export_text(id(1), &json!({}), &ipc);
-    assert!(response.error.is_none());
-    assert_eq!(content_text(&response)["text"], expected);
+        let ipc = MockIpc::new().on_get(
+            "/content",
+            Ok(json!({ "path": "/docs/test.md", "content": markdown })),
+        );
+        let response = tool_export_text(id(1), &json!({}), &ipc);
+        assert!(response.error.is_none(), "ipc: {markdown:?}");
+        assert!(!is_error(&response), "ipc: {markdown:?}");
+        assert_eq!(
+            content_text(&response)["text"],
+            expected,
+            "ipc: {markdown:?}"
+        );
+    }
 }
 
 /// Two bracketed prose spans split by inline syntax keep both pairs and their
