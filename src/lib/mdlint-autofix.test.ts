@@ -124,6 +124,18 @@ describe("image with descriptive alt text", () => {
 });
 
 describe("document with no invalid links or images", () => {
+  it.each(["\n", "\r\n"])(
+    "preserves a valid link and surrounding Unicode prose unchanged (%j)",
+    (newline) => {
+      const doc = `前文 🧭 café e\u0301 [ガイド](https://example.com/docs?q=caf%C3%A9#intro)، ثم تابع 👩🏽‍💻${newline}`;
+      const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
+
+      expect(violations).toEqual([]);
+      expect(applyAllFixes(doc, violations)).toBe(doc);
+      expect(fixAllViolations(doc, violations)).toBe(doc);
+    },
+  );
+
   const body = [
     "# Guide",
     "",
