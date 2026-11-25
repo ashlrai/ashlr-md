@@ -36,6 +36,34 @@ import {
 } from "./mdlint";
 
 describe("empty or whitespace-only image description", () => {
+  it.each(["\n", "\r\n"])(
+    "fills missing alt text between ordinary paragraphs with %j line endings",
+    (newline) => {
+      const before = "The report compares quarterly results.";
+      const after = "Revenue increased steadily throughout the year.";
+      const doc = [before, "", "![](images/revenue.png)", "", after, ""].join(
+        newline,
+      );
+      const expected = [
+        before,
+        "",
+        "![TODO: describe image](images/revenue.png)",
+        "",
+        after,
+        "",
+      ].join(newline);
+      const rules = [ruleMissingAltText];
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      expect(fixAllViolations(doc, violations)).toBe(expected);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+    },
+  );
+
   it("inserts missing alt text on a CRLF line while preserving surrounding text", () => {
     const doc =
       'Opening café paragraph.\r\n\r\nSee ![](images/chart.png "Chart") for details.\r\nClosing paragraph.\r\n';
