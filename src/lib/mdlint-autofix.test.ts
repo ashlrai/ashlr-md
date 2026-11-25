@@ -900,15 +900,30 @@ describe("invalid link surrounded by Unicode prose", () => {
   it.each(["\n", "\r\n"].flatMap((nl) => ["", "#", "?", " \t "].map((href) => [nl, href])))("preserves Unicode exactly with line ending %j and destination %j", (nl, href) => {
     const before = "👩🏽‍💻 Cafe\u0301 — 日本語：";
     const after = "؛ مرحبا 🌍 e\u0301 fin";
-    const doc = `${before}[guide](${href})${after}${nl}`;
-    const expected = `${before}[guide](TODO)${after}${nl}`;
+    const paragraph = `Résumé 🧭 前文${nl}${nl}`;
+    const link = `[guide](${href})`;
+    const doc = `${paragraph}${before}${link}${after}${nl}`;
+    const expected = `${paragraph}${before}[guide](TODO)${after}${nl}`;
     const rules = [ruleInvalidLinkTarget];
     const violations = lintDocument(doc, { rules });
 
     expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    expect(violations[0].range).toEqual({
+      from: {
+        offset: paragraph.length + before.length,
+        line: 3,
+        col: before.length,
+      },
+      to: {
+        offset: paragraph.length + before.length + link.length,
+        line: 3,
+        col: before.length + link.length,
+      },
+    });
     expect(applyFix(doc, violations[0])).toBe(expected);
     const fixed = applyAllFixes(doc, violations);
     expect(fixed).toBe(expected);
+    expect(fixAllViolations(doc, violations)).toBe(expected);
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 });
