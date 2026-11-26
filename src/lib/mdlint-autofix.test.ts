@@ -35,6 +35,28 @@ import {
   ruleWikilinkTargetsExist,
 } from "./mdlint";
 
+describe("broken link followed by plain prose", () => {
+  it.each(["", " ", "\n", "\r\n\r\n"])(
+    "replaces only the destination before prose separated by %j at EOF",
+    (separator) => {
+      const prose = "Keep reading the release notes for more details.";
+      const doc = `[draft](#)${separator}${prose}`;
+      const expected = `[draft](TODO)${separator}${prose}`;
+      const rules = [ruleInvalidLinkTarget];
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+        "invalid-link-target",
+      ]);
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      expect(fixAllViolations(doc, violations)).toBe(expected);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+    },
+  );
+});
+
 describe("broken link followed by punctuation and a valid link", () => {
   it.each([
     "",
