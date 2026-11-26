@@ -14894,6 +14894,18 @@ describe("invalid-link-target autofix: preserves surrounding content", () => {
 });
 
 describe("invalid-link-target autofix: invalid link in a blockquote", () => {
+  it.each(["\n", "\r\n"])("preserves Unicode text around a broken quoted link (%j)", (nl) => {
+    const doc = `前文 🧭${nl}${nl}> Café: see [案内]() before continuing 🚀.${nl}> 続き。${nl}${nl}After.${nl}`;
+    const expected = `前文 🧭${nl}${nl}> Café: see [案内](TODO) before continuing 🚀.${nl}> 続き。${nl}${nl}After.${nl}`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+
   it.each([
     "\n",
     "\r\n",
