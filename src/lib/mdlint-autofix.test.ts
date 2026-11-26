@@ -36,6 +36,22 @@ import {
 } from "./mdlint";
 
 describe("broken link followed by plain prose", () => {
+  it.each([" ", "\t", " \t "])(
+    "replaces a whitespace-only destination %j while preserving the label and prose",
+    (destination) => {
+      const doc = `Before the [release guide](${destination}), continue reading.\n`;
+      const expected = "Before the [release guide](TODO), continue reading.\n";
+      const rules = [ruleInvalidLinkTarget];
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      expect(applyAllFixes(doc, violations)).toBe(expected);
+      expect(fixAllViolations(doc, violations)).toBe(expected);
+      expect(lintDocument(expected, { rules })).toEqual([]);
+    },
+  );
+
   it.each(["\n", "\r\n"])(
     "fixes a broken link on the final line without adding a newline (%j)",
     (newline) => {
