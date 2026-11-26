@@ -1357,6 +1357,20 @@ describe("autofix repairs an invalid link next to a valid link", () => {
 });
 
 describe("autofix preserves a valid link beside ordinary bracketed prose", () => {
+  it.each(["\n", "\r\n"])("preserves adjacent prose and a valid link while fixing an image (%j)", (nl) => {
+    const preserved = '[sic][guide](./guide%20one.md?view=full#intro "Guide")[1]';
+    const doc = `See ${preserved} and ![](chart.png).${nl}`;
+    const expected = `See ${preserved} and ![TODO: describe image](chart.png).${nl}`;
+    const rules = [ruleInvalidLinkTarget, ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(fixAllViolations(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+
   it.each(["\n", "\r\n"])("leaves both the link and the brackets unchanged (%j)", (nl) => {
     const body = "He wrote [sic] and [1], then see [guide](./guide.md#intro) [TODO] later.";
     const doc = ["---", "title: Notes", "---", "", body, ""].join(nl);
