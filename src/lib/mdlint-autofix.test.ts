@@ -36,6 +36,20 @@ import {
 } from "./mdlint";
 
 describe("broken link followed by plain prose", () => {
+  it("preserves a CRLF immediately after a broken link among mixed line endings", () => {
+    const doc = "Opening.\nRead [guide](#)\r\nNext line.\n";
+    const expected = "Opening.\nRead [guide](TODO)\r\nNext line.\n";
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+
   it.each(["", " ", "\n", "\r\n\r\n"])(
     "replaces only the destination before prose separated by %j at EOF",
     (separator) => {
