@@ -1034,6 +1034,47 @@ describe("invalid link beside a valid link", () => {
 });
 
 describe("invalid link inside a fenced code block", () => {
+  it.each([
+    ["````", "```", "\n"],
+    ["````", "```", "\r\n"],
+    ["~~~~", "~~~", "\n"],
+    ["~~~~", "~~~", "\r\n"],
+  ])(
+    "preserves link-like text and shorter markers inside %s (%s, %j)",
+    (fence, shorterFence, newline) => {
+      const rules = [ruleInvalidLinkTarget];
+      const links = "[draft]() [anchor](#) [query](?) [spaced]( \t )";
+      const fixedLinks =
+        "[draft](TODO) [anchor](TODO) [query](TODO) [spaced](TODO)";
+      const block = [
+        `${fence}markdown`,
+        `${links}  `,
+        shorterFence,
+        `\t[ガイド](https://example.com/docs?q=caf%C3%A9#intro) ${links}`,
+        fence,
+      ].join(newline);
+      const doc = [links, "", block, "", links, ""].join(newline);
+      const expected = [fixedLinks, "", block, "", fixedLinks, ""].join(newline);
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map(({ ruleId }) => ruleId)).toEqual(
+        Array(8).fill("invalid-link-target"),
+      );
+      for (const fixed of [
+        applyAllFixes(doc, violations),
+        fixAllViolations(doc, violations),
+      ]) {
+        expect(fixed).toBe(expected);
+        expect(
+          fixed.slice(fixed.indexOf(fence), fixed.lastIndexOf(fence) + fence.length),
+        ).toBe(block);
+        const remaining = lintDocument(fixed, { rules });
+        expect(remaining).toEqual([]);
+        expect(applyAllFixes(fixed, remaining)).toBe(fixed);
+      }
+    },
+  );
+
   it.each(["\n", "\r\n"])("preserves the example while fixing a link outside the fence (%j)", (nl) => {
     const rules = [ruleInvalidLinkTarget];
     const example = ["```markdown", "[example]()", "```"].join(nl);
