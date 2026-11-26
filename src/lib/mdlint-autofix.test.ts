@@ -82,6 +82,23 @@ describe("broken link followed by punctuation and a valid link", () => {
 });
 
 describe("empty or whitespace-only image description", () => {
+  it.each(["", " ", "\n", "\r\n\r\n"])(
+    "preserves plain prose at EOF after an image separated by %j",
+    (separator) => {
+      const prose = "Keep reading the report for more details.";
+      const doc = `![](images/chart.png)${separator}${prose}`;
+      const expected = `![TODO: describe image](images/chart.png)${separator}${prose}`;
+      const rules = [ruleMissingAltText];
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      expect(applyAllFixes(doc, violations)).toBe(expected);
+      expect(fixAllViolations(doc, violations)).toBe(expected);
+      expect(lintDocument(expected, { rules })).toEqual([]);
+    },
+  );
+
   it.each(["\n", "\r\n"])(
     "fixes a missing image description and invalid links once on the same line (%j)",
     (newline) => {
