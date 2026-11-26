@@ -111,6 +111,33 @@ describe("broken link followed by punctuation and a valid link", () => {
   });
 });
 
+describe("whitespace-only image alt text with a titled source", () => {
+  it.each([" ", "   ", "\t", " \t "])(
+    "replaces %j with the documented placeholder without changing the source",
+    (alt) => {
+      for (const newline of ["\n", "\r\n"]) {
+        const source = '<images/revenue chart.png?year=2026#q4> "Quarterly chart"';
+        const image = `![${alt}](${source})`;
+        const doc = `Before${newline}See ${image} after.${newline}`;
+        const expected = `Before${newline}See ![TODO: describe image](${source}) after.${newline}`;
+        const rules = [ruleMissingAltText];
+        const violations = lintDocument(doc, { rules });
+
+        expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+        const { from, to } = violations[0].range!;
+        expect(doc.slice(from.offset, to.offset)).toBe(image);
+        expect(applyFix(doc, violations[0])).toBe(expected);
+        const fixed = applyAllFixes(doc, violations);
+        expect(fixed).toBe(expected);
+        expect(fixAllViolations(doc, violations)).toBe(expected);
+        const remaining = lintDocument(fixed, { rules });
+        expect(remaining).toEqual([]);
+        expect(applyAllFixes(fixed, remaining)).toBe(fixed);
+      }
+    },
+  );
+});
+
 describe("empty or whitespace-only image description", () => {
   it.each(["", " ", "\n", "\r\n\r\n"])(
     "preserves plain prose at EOF after an image separated by %j",
