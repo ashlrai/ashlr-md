@@ -1000,6 +1000,28 @@ describe("valid link beside an invalid link", () => {
 });
 
 describe("invalid link beside ordinary text", () => {
+  it.each(["", " \t ", "#", "?"])(
+    "preserves identical punctuation labels while replacing only invalid destination %j",
+    (destination) => {
+      const label = "Setup (v2.1): it's ready, isn't it?!";
+      const doc = `Read [${label}](./setup.md), then [${label}](${destination}).\r\n`;
+      const expected = `Read [${label}](./setup.md), then [${label}](TODO).\r\n`;
+      const rules = [ruleInvalidLinkTarget];
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+        "invalid-link-target",
+      ]);
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      expect(fixAllViolations(doc, violations)).toBe(expected);
+      const remaining = lintDocument(fixed, { rules });
+      expect(remaining).toEqual([]);
+      expect(applyAllFixes(fixed, remaining)).toBe(fixed);
+    },
+  );
+
   it.each(["\n", "\r\n"])("repairs an empty href in a prose document with built-in rules (%j)", (nl) => {
     const doc = [
       "---",
