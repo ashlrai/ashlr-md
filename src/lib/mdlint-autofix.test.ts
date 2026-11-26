@@ -18328,6 +18328,31 @@ describe("invalid-link autofix: whitespace-only href beside a code span", () => 
 });
 
 describe("rule:invalid-link-target empty href inside a table cell", () => {
+  it.each(["\n", "\r\n"])("repairs a header link without changing escaped pipes or table structure (%j)", (nl) => {
+    const doc = [
+      "| [Draft](#) | Notes \\| status |",
+      "| :--- | ---: |",
+      "| [Guide](./guide.md) | Ready \\| reviewed |",
+      "",
+    ].join(nl);
+    const expected = [
+      "| [Draft](TODO) | Notes \\| status |",
+      "| :--- | ---: |",
+      "| [Guide](./guide.md) | Ready \\| reviewed |",
+      "",
+    ].join(nl);
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(fixAllViolations(doc, violations)).toBe(expected);
+    const remaining = lintDocument(expected, { rules });
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(expected, remaining)).toBe(expected);
+  });
+
   it.each([
     ["\n"],
     ["\r\n"],
