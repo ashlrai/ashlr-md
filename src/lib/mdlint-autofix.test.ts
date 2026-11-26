@@ -20605,6 +20605,27 @@ describe("autofix on an undescribed image amid multiline text", () => {
 });
 
 describe("rule:missing-alt-text undescribed image beside a described image in a table row", () => {
+  it.each(["\n", "\r\n"])("fixes an image within a table cell without changing the table (%j)", (newline) => {
+    const doc = [
+      "| Item | Preview | Notes |",
+      "| :--- | :---: | ---: |",
+      '| Café | Before ![](images/chart.png "Chart") after | [Guide](./guide.md) |',
+      "| Map | ![Map](map.png) | Ready |",
+      "",
+    ].join(newline);
+    const expected = doc.replace("![](", "![TODO: describe image](");
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(fixAllViolations(doc, violations)).toBe(expected);
+    const remaining = lintDocument(expected, { rules });
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(expected, remaining)).toBe(expected);
+  });
+
   it.each([
     "\n",
     "\r\n",
