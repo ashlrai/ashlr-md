@@ -283,6 +283,50 @@ describe("document with no invalid links or images", () => {
 });
 
 
+describe("image-like text in inline code", () => {
+  it.each(["\n", "\r\n"])(
+    "preserves code spans while fixing identical real images (%j)",
+    (newline) => {
+      const rules = [ruleMissingAltText];
+      for (const alt of ["", " \t "]) {
+        const image = `![${alt}](images/chart.png "Chart")`;
+        const corrected = '![TODO: describe image](images/chart.png "Chart")';
+        for (const code of [
+          `\`${image}\``,
+          `\`\`${image} and \`literal\` \`\``,
+          `\`${image}${newline}${image}\``,
+        ]) {
+          expect(lintDocument(code, { rules })).toEqual([]);
+          expect(applyAllFixes(code, [])).toBe(code);
+          for (const codeFirst of [true, false]) {
+            const doc = codeFirst
+              ? `Before ${code} then ${image} after.${newline}`
+              : `Before ${image} then ${code} after.${newline}`;
+            const expected = codeFirst
+              ? `Before ${code} then ${corrected} after.${newline}`
+              : `Before ${corrected} then ${code} after.${newline}`;
+            const violations = lintDocument(doc, { rules });
+
+            expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+              "missing-alt-text",
+            ]);
+            expect(violations[0].range?.from.offset).toBe(
+              codeFirst ? doc.lastIndexOf(image) : doc.indexOf(image),
+            );
+            expect(applyFix(doc, violations[0])).toBe(expected);
+            const fixed = applyAllFixes(doc, violations);
+            expect(fixed).toBe(expected);
+            expect(fixAllViolations(doc, violations)).toBe(expected);
+            const remaining = lintDocument(fixed, { rules });
+            expect(remaining).toEqual([]);
+            expect(applyAllFixes(fixed, remaining)).toBe(fixed);
+          }
+        }
+      }
+    },
+  );
+});
+
 describe("image-like text in fenced code", () => {
   it.each(["\n", "\r\n"].flatMap((nl) => ["```", "~~~"].map((fence) => [nl, fence])))(
     "preserves the fenced example while fixing a real image (%j, %s)",
