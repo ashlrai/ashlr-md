@@ -61,20 +61,24 @@ describe("broken link followed by punctuation and a valid link", () => {
 
 describe("empty or whitespace-only image description", () => {
   it.each(["\n", "\r\n"])(
-    "fixes a missing image description followed by an invalid link on the same line (%j)",
+    "fixes a missing image description and invalid links once on the same line (%j)",
     (newline) => {
-      const doc = `Before café ![](images/chart.png "Chart"), see [draft](#) for details. 🧭${newline}`;
-      const expected = `Before café ![TODO: describe image](images/chart.png "Chart"), see [draft](TODO) for details. 🧭${newline}`;
+      const doc = `Before café ![](images/chart.png "Chart"), see [draft](#) and [guide]() for details. 🧭${newline}`;
+      const expected = `Before café ![TODO: describe image](images/chart.png "Chart"), see [draft](TODO) and [guide](TODO) for details. 🧭${newline}`;
       const rules = [ruleMissingAltText, ruleInvalidLinkTarget];
       const violations = lintDocument(doc, { rules });
 
       expect(violations.map(({ ruleId }) => ruleId).sort()).toEqual([
         "invalid-link-target",
+        "invalid-link-target",
         "missing-alt-text",
       ]);
-      expect(applyAllFixes(doc, violations)).toBe(expected);
+      const once = applyAllFixes(doc, violations);
+      expect(once).toBe(expected);
       expect(fixAllViolations(doc, violations)).toBe(expected);
-      expect(lintDocument(expected, { rules })).toEqual([]);
+      const remaining = lintDocument(once, { rules });
+      expect(remaining).toEqual([]);
+      expect(applyAllFixes(once, remaining)).toBe(once);
     },
   );
 
