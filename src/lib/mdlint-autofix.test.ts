@@ -582,6 +582,39 @@ describe("empty link in a list item", () => {
   });
 });
 
+describe("invalid link in a heading", () => {
+  it.each([
+    ["#", "Read the [guide]()", "Read the [guide](TODO)"],
+    ["##", "Read the [guide]( )", "Read the [guide](TODO)"],
+    ["###", "[Start](#) here", "[Start](TODO) here"],
+    ["######", "Guide [café 🧭]()", "Guide [café 🧭](TODO)"],
+  ])("keeps the %s marker and label", (marker, heading, fixedHeading) => {
+    const rules = [ruleInvalidLinkTarget];
+    for (const nl of ["\n", "\r\n"]) {
+      const doc = `${marker} ${heading}${nl}${nl}Body text.${nl}`;
+      const expected = `${marker} ${fixedHeading}${nl}${nl}Body text.${nl}`;
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      expect(applyAllFixes(doc, violations)).toBe(expected);
+      expect(fixAllViolations(doc, violations)).toBe(expected);
+      expect(lintDocument(expected, { rules })).toEqual([]);
+    }
+  });
+
+  it("keeps a closing hash sequence and a setext heading intact", () => {
+    const rules = [ruleInvalidLinkTarget];
+    const doc = "## Read [guide]() ##\n\nSee [notes]()\n-----\n";
+    const expected = "## Read [guide](TODO) ##\n\nSee [notes](TODO)\n-----\n";
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(2);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+});
+
 describe("two invalid links on one line", () => {
   it.each([
     ["", "#"],
