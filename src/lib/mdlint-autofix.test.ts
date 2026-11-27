@@ -32161,6 +32161,27 @@ describe("invalid-link fix applied twice", () => {
 });
 
 describe("repeated autofix with multiple rules", () => {
+  it.each([
+    ["[guide](#) and ![](chart.png)", "[guide](TODO) and ![TODO: describe image](chart.png)"],
+    ["![](chart.png) and [guide](#)", "![TODO: describe image](chart.png) and [guide](TODO)"],
+  ])("keeps a fixed paragraph unchanged on a second pass: %s", (content, fixedContent) => {
+    const doc = `---\ntitle: Guide\n---\n\nSee ${content} for details.\n`;
+    const expected = `---\ntitle: Guide\n---\n\nSee ${fixedContent} for details.\n`;
+    const violations = lintDocument(doc);
+
+    expect(violations.map(({ ruleId }) => ruleId).sort()).toEqual([
+      "invalid-link-target",
+      "missing-alt-text",
+    ]);
+    for (const fix of [applyAllFixes, fixAllViolations]) {
+      const once = fix(doc, violations);
+      expect(once).toBe(expected);
+      const remaining = lintDocument(once);
+      expect(remaining).toEqual([]);
+      expect(fix(once, remaining)).toBe(once);
+    }
+  });
+
   it.each(["\n", "\r\n"])("stabilizes after fixing a mixed document (%j)", (nl) => {
     const rules = [ruleInvalidLinkTarget, ruleMissingAltText, ruleNoTrailingSpaces];
     const doc = [
