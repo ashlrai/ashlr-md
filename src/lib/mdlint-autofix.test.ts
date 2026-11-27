@@ -458,6 +458,57 @@ describe("image-like text in fenced code", () => {
       expect(lintDocument(fixed, { rules })).toEqual([]);
     },
   );
+
+  it.each([
+    ["````", "```", "\n"],
+    ["````", "```", "\r\n"],
+    ["~~~~", "~~~", "\n"],
+    ["~~~~", "~~~", "\r\n"],
+  ])(
+    "leaves a block of missing-alt images byte-for-byte unchanged inside %s (%s, %j)",
+    (fence, shorterFence, newline) => {
+      const rules = [ruleMissingAltText];
+      const images = "![](a.png) ![ \t](b.png \"t\") ![](<c d.png>)";
+      const fixedImages =
+        "![TODO: describe image](a.png) ![TODO: describe image](b.png \"t\") ![TODO: describe image](<c d.png>)";
+      const block = [
+        `${fence}markdown`,
+        `${images}  `,
+        shorterFence,
+        `\t${images}`,
+        fence,
+      ].join(newline);
+      const doc = [images, "", block, "", images, ""].join(newline);
+      const expected = [fixedImages, "", block, "", fixedImages, ""].join(newline);
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map(({ ruleId }) => ruleId)).toEqual(
+        Array(6).fill("missing-alt-text"),
+      );
+      for (const fixed of [
+        applyAllFixes(doc, violations),
+        fixAllViolations(doc, violations),
+      ]) {
+        expect(fixed).toBe(expected);
+        expect(fixed.slice(fixed.indexOf(fence), fixed.lastIndexOf(fence) + fence.length)).toBe(
+          block,
+        );
+        const remaining = lintDocument(fixed, { rules });
+        expect(remaining).toEqual([]);
+        expect(applyAllFixes(fixed, remaining)).toBe(fixed);
+      }
+    },
+  );
+
+  it("reports nothing and changes nothing when the only missing-alt image is in a fence", () => {
+    const rules = [ruleMissingAltText];
+    const doc = "```md\n![](only.png)\n```\n";
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toEqual([]);
+    expect(applyAllFixes(doc, violations)).toBe(doc);
+    expect(fixAllViolations(doc, violations)).toBe(doc);
+  });
 });
 
 describe("missing image alt text autofix idempotence", () => {
