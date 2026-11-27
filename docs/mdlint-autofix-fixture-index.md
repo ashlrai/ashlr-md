@@ -112,7 +112,7 @@ Run `bun run docs:fixtures` to refresh this lookup. Counts are test declarations
 - "sets the href to TODO for a paragraph-ending invalid link in a mid-document paragraph and preserves the prose before and after it"
 - [table] "fixes the destination of an invalid link in the second paragraph and leaves the first paragraph byte-for-byte unchanged (%j)"
 - "gives two invalid links in one document a TODO href each and keeps both labels"
-- "rewrites two invalid links in separate paragraphs to TODO and keeps all surrounding prose intact"
+- [table] "rewrites two invalid links in separate paragraphs to TODO and keeps all surrounding prose intact (%j)"
 - "replaces both invalid hrefs in a blockquote and keeps both labels, with no trailing newline"
 - "keeps a valid link unchanged and turns the invalid href into TODO when both share one line"
 - [table] "replaces the invalid href on a line between two unaffected lines and preserves both neighbors (%s)"
