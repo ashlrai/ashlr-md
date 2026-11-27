@@ -32361,3 +32361,40 @@ describe("invalid link in a task list item", () => {
     expect(lintDocument(expected, { rules })).toEqual([]);
   });
 });
+
+describe("invalid link inside a fenced code block", () => {
+  const invalidLines = ["[draft]()", "[draft](#)", "[draft]( )", "[a](b) and [broken]()"];
+  const cases = ["\n", "\r\n"].flatMap((nl) =>
+    ["```", "~~~", "````"].flatMap((fence) =>
+      ["", "markdown"].map((info) => [nl, fence, info] as const),
+    ),
+  );
+
+  it.each(cases)(
+    "leaves the whole block byte-for-byte unchanged (newline %j, fence %s, info %j)",
+    (nl, fence, info) => {
+      const rules = [ruleInvalidLinkTarget];
+      const block = [fence + info, ...invalidLines, fence].join(nl);
+
+      // Only the block: nothing to report and nothing to change.
+      const only = `${block}${nl}`;
+      expect(lintDocument(only, { rules })).toEqual([]);
+      expect(applyAllFixes(only, [])).toBe(only);
+
+      // Block before and after a real broken link: only the real link changes.
+      const doc = `${block}${nl}${nl}Read [guide]() now.${nl}${nl}${block}${nl}`;
+      const expected = `${block}${nl}${nl}Read [guide](TODO) now.${nl}${nl}${block}${nl}`;
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations.map(({ ruleId }) => ruleId)).toEqual(["invalid-link-target"]);
+      expect(violations[0].range?.from.offset).toBe(doc.indexOf("[guide]()"));
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      expect(fixAllViolations(doc, violations)).toBe(expected);
+      expect(fixed.split(block)).toHaveLength(3);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+      expect(applyAllFixes(fixed, [])).toBe(fixed);
+    },
+  );
+});
