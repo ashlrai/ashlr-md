@@ -14,6 +14,10 @@ Released 2026-11-09. [Release notes and downloads](https://github.com/ashlrai/as
 
 ## [Unreleased]
 
+## [0.7.6] - 2026-11-24
+
+Release plumbing that publishes only verified builds, steadier Windows and Linux native checks, Read view jumps that land inside code blocks, and `--json` output for `mdopener-mcp --version`, `--help` and `--export-tool-schema`.
+
 ### Added
 - `release-assemble-dispatch.yml` dispatches read-only release assembly on `main` once a Release build for an exact `vX.Y.Z` tag succeeds on its first attempt and the tagged commit has passed full CI. It peels the tag through an anchored `git/ref` (annotated tags included), never checks out code or reads secrets, and stops on any release lookup that is not an exact HTTP 404.
 - `release-publish.yml` publishes the GitHub Release from the default-branch workflow after assembly succeeds (`scripts/publish-verified-release.py`). It treats the assembly artifacts as data, publishes only when the peeled tag matches the prepare release binding, refuses a tag that already has a Release, creates the draft with `make_latest` false and names only the tag, then re-reads the Release to confirm it is published and latest. A tag created or moved during publishing is reported and never deleted, and error text redacts GitHub tokens.
@@ -3851,7 +3855,8 @@ callouts), WYSIWYG + source editing, PDF/DOCX/HTML export, local-first tiered
 AI, agent hand-off (`mdopen` CLI · `mdopener://` · MCP server), the macOS `.md`
 default handler, and smart agent-output rendering.
 
-[Unreleased]: https://github.com/ashlrai/ashlr-md/compare/v0.7.5...HEAD
+[Unreleased]: https://github.com/ashlrai/ashlr-md/compare/v0.7.6...HEAD
+[0.7.6]: https://github.com/ashlrai/ashlr-md/compare/v0.7.5...v0.7.6
 [0.7.5]: https://github.com/ashlrai/ashlr-md/compare/v0.7.4...v0.7.5
 [0.7.4]: https://github.com/ashlrai/ashlr-md/compare/v0.7.3...v0.7.4
 [0.7.3]: https://github.com/ashlrai/ashlr-md/compare/v0.7.2...v0.7.3
