@@ -310,9 +310,14 @@ describe("empty or whitespace-only image description", () => {
 });
 
 describe("image with descriptive alt text", () => {
-  it.each(["\n", "\r\n"])(
-    "preserves a valid image and surrounding prose with %j line endings",
-    (newline) => {
+  it.each([
+    ["\n", true],
+    ["\n", false],
+    ["\r\n", true],
+    ["\r\n", false],
+  ] as const)(
+    "preserves a valid link, described image, and prose with %j line endings (final newline: %s)",
+    (newline, finalNewline) => {
       const doc = [
         "---",
         "title: Revenue",
@@ -320,11 +325,12 @@ describe("image with descriptive alt text", () => {
         "",
         "The report compares quarterly results.",
         "",
+        'Read [the quarterly report](https://example.com/reports?year=2026#q4 "Quarterly report") for details.',
+        "",
         'See ![Bar chart showing revenue increasing each quarter](images/revenue%20chart.png?year=2026#q4 "Quarterly revenue") for the full trend.',
         "",
         "Revenue increased steadily throughout the year.",
-        "",
-      ].join(newline);
+      ].join(newline) + (finalNewline ? newline : "");
       const violations = lintDocument(doc);
 
       expect(violations).toEqual([]);
