@@ -18997,6 +18997,55 @@ fn export_text_keeps_unicode_bracketed_prose_in_containers_and_beside_markup() {
     }
 }
 
+/// Visually similar Unicode sequences must keep their original code points
+/// and brackets. Reference labels are case folded, not Unicode normalized:
+/// defining one spelling must not turn the other spelling into a link.
+#[test]
+fn export_text_preserves_bracketed_unicode_without_normalizing_prose() {
+    for (markdown, expected) in [
+        ("[café][cafe\u{301}]\n", "[café][cafe\u{301}]"),
+        (
+            "[Ångström] [A\u{30a}ngstro\u{308}m]\n",
+            "[Ångström] [A\u{30a}ngstro\u{308}m]",
+        ),
+        (
+            "[한글] [\u{1112}\u{1161}\u{11ab}\u{1100}\u{1173}\u{11af}]\n",
+            "[한글] [\u{1112}\u{1161}\u{11ab}\u{1100}\u{1173}\u{11af}]",
+        ),
+        (
+            "[cafe\u{301}] and [CAFÉ]\n\n[café]: /menu\n",
+            "[cafe\u{301}] and CAFÉ",
+        ),
+        (
+            "[café] and [CAFE\u{301}]\n\n[cafe\u{301}]: /menu\n",
+            "[café] and CAFE\u{301}",
+        ),
+        (
+            "> **[café]** [cafe\u{301}]\r\n> [👩🏽\u{200d}💻] [guide](/guide)\r\n",
+            "[café] [cafe\u{301}]\n[👩🏽\u{200d}💻] guide",
+        ),
+    ] {
+        let file_result = run_export_text_on(markdown);
+        let ipc = MockIpc::new().on_get(
+            "/content",
+            Ok(json!({ "path": "/docs/unicode.md", "content": markdown })),
+        );
+        let response = tool_export_text(id(1), &json!({}), &ipc);
+        assert!(response.error.is_none(), "{markdown:?}");
+        assert!(!is_error(&response), "{markdown:?}");
+        let ipc_result = content_text(&response);
+
+        for (route, result) in [("file", file_result), ("ipc", ipc_result)] {
+            assert_eq!(result["text"], expected, "{route}: {markdown:?}");
+            assert_eq!(
+                result["char_count"].as_u64().unwrap() as usize,
+                expected.chars().count(),
+                "{route}: {markdown:?}"
+            );
+        }
+    }
+}
+
 /// Bracketed prose at the beginning of a paragraph keeps both brackets and
 /// the prose after them in the shapes the start-of-a-paragraph test leaves
 /// out: the paragraph's continuation line indented four columns (indented
