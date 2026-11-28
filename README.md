@@ -307,18 +307,7 @@ Product goal: [docs/VISION.md](./docs/VISION.md). Releases: [docs/RELEASING.md](
 
 ## Part of Ashlr
 
-Phantom and its ecosystem form a fully autonomous, code-first, agent-native software factory. Agents run it; the human is a passive board member. The goal is open source RSI (recursive self improvement): agents that keep improving the tools they work with, these repositories included.
-
-Ashlr MD is the factory's Markdown surface. It is where an agent hands a document to a person (Phantom's inbox and digest open here), and where an agent opens, edits, exports, and waits for approval over MCP.
-
-Each tool installs on its own.
-
-- [Phantom](https://phm.dev) (`phm`), the agent workbench. Source: [ashlrai/phantom](https://github.com/ashlrai/phantom).
-- [Phantom Secrets](https://phm.dev/secrets) (`phantom`), `phm_` placeholders. Source: [ashlrai/phantom-secrets](https://github.com/ashlrai/phantom-secrets).
-- [Locus](https://github.com/ashlrai/locus) (`locus`), one account per agent session.
-- [Lexicon](https://lexicon.ashlr.ai) (`lexicon`), dictation corrections.
-- [Ashlr Stack](https://stack.ashlr.ai) (`stack`), service provisioning.
-- [ashlr-plugin](https://plugin.ashlr.ai/) (`ashlr-plugin`), token-efficiency tools.
+Ashlr MD is the Markdown workbench in the [AshlrAI open-source ecosystem](https://github.com/ashlrai#the-open-source-ecosystem). An agent can open, edit and export Markdown over MCP, then hand it to a person for review. [Phantom](https://phm.dev) can open its inbox and digest in Ashlr MD. Ashlr MD also works without Phantom.
 
 Cryptography notes, with no quantum-safety claim: [docs/PQ-READINESS.md](./docs/PQ-READINESS.md).
 
@@ -338,7 +327,7 @@ AshlrAI is an engineering firm. We build tools like Ashlr MD to make our own wor
 
 - **Start here:** read [CONTRIBUTING.md](CONTRIBUTING.md). Your coding agent can follow [AGENTS.md](AGENTS.md) and [llms.txt](llms.txt).
 - **Pick an issue:** [`good first issue`](https://github.com/ashlrai/ashlr-md/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) or [`help wanted`](https://github.com/ashlrai/ashlr-md/issues?q=is%3Aissue+is%3Aopen+label%3A%22help+wanted%22).
-- **See the whole lineup:** [ashlr.ai/open-source](https://ashlr.ai/open-source).
+- **See the whole lineup:** [AshlrAI open-source ecosystem](https://github.com/ashlrai#the-open-source-ecosystem).
 - **Talk with us:** [The Dev Shack](https://discord.gg/jBQrSU6XeD) on Discord.
 
 ### Star history
